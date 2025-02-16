@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
-from extensions import db  # ✅ Corrected import
-from models import Report, User
+from backend.extensions import db
+from backend.models import Report, User
 from datetime import datetime
 import logging
 
