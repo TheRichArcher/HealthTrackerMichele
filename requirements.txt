@@ -13,3 +13,4 @@ werkzeug
 gunicorn
 flask-migrate
 uvicorn
+psycopg2
