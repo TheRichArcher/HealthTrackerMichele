@@ -11,23 +11,17 @@ from flask_jwt_extended import (
     JWTManager, create_access_token, create_refresh_token,
     get_jwt_identity, jwt_required, get_jwt
 )
-from backend.extensions import db, bcrypt
+from sqlalchemy.exc import SQLAlchemyError
+from urllib.parse import urlparse
+
+# Load environment variables first
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 # Initialize Flask application with static file handling
 app = Flask(__name__,
     static_folder='static/dist',
     static_url_path=''
 )
-CORS(app, origins=os.getenv('CORS_ORIGINS', '*'))
-
-# Load environment variables
-load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
-
-# JWT Configuration
-app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(seconds=int(os.getenv('JWT_ACCESS_TOKEN_EXPIRES', 3600)))
-app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(seconds=int(os.getenv('JWT_REFRESH_TOKEN_EXPIRES', 2592000)))
-jwt = JWTManager(app)
 
 # Logging Configuration
 logging.basicConfig(
@@ -40,34 +34,76 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# CORS Configuration
+CORS(app, origins=os.getenv('CORS_ORIGINS', '*'))
+
 # Database Configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
-if not app.config['SQLALCHEMY_DATABASE_URI']:
+database_url = os.getenv('DATABASE_URL')
+if not database_url:
     raise ValueError('DATABASE_URL is missing. Check your .env file.')
 
+# Handle potential "postgres://" to "postgresql://" conversion
+if database_url.startswith('postgres://'):
+    database_url = database_url.replace('postgres://', 'postgresql://', 1)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
+if not app.config['SECRET_KEY']:
+    raise ValueError('SECRET_KEY is missing. Check your .env file.')
 
-# Initialize Flask extensions
+# JWT Configuration
+jwt_secret = os.getenv('JWT_SECRET_KEY')
+if not jwt_secret:
+    raise ValueError('JWT_SECRET_KEY is missing. Check your .env file.')
+
+app.config['JWT_SECRET_KEY'] = jwt_secret
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(seconds=int(os.getenv('JWT_ACCESS_TOKEN_EXPIRES', 3600)))
+app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(seconds=int(os.getenv('JWT_REFRESH_TOKEN_EXPIRES', 2592000)))
+
+# Initialize extensions
+from backend.extensions import db, bcrypt
+
+# Initialize extensions with app
 db.init_app(app)
 bcrypt.init_app(app)
+jwt = JWTManager(app)
 
-# Import models after database initialization
-from .models import User, Symptom, SymptomLog, Report, HealthData, RevokedToken
+# Database initialization and validation
+def init_database():
+    try:
+        with app.app_context():
+            # Import models here, after db initialization
+            from backend.models import User, Symptom, SymptomLog, Report, HealthData, RevokedToken
+            
+            # Test database connection
+            db.engine.connect()
+            logger.info("✅ Database connection successful")
+            
+            # Create tables
+            db.create_all()
+            logger.info("✅ Database tables created successfully")
+            
+            return True
+    except SQLAlchemyError as e:
+        logger.error(f"❌ Database initialization error: {str(e)}")
+        raise
 
-# Manual Database Creation
-with app.app_context():
-    db.create_all()
-    logger.info('✅ Database tables created manually')
+# Initialize database
+try:
+    init_database()
+except Exception as e:
+    logger.error(f"❌ Critical error during database initialization: {str(e)}")
+    raise
 
-# Import Blueprints
-from .routes.symptom_and_static_routes import symptom_routes
-from .routes.health_data_routes import health_data_routes
-from .routes.report_routes import report_routes
-from .routes.user_routes import user_routes
-from .routes.utils_health_routes import utils_health_bp
-from .routes.onboarding_routes import onboarding_routes
-from .routes.library_routes import library_routes
+# Import routes after database initialization
+from backend.routes.symptom_and_static_routes import symptom_routes
+from backend.routes.health_data_routes import health_data_routes
+from backend.routes.report_routes import report_routes
+from backend.routes.user_routes import user_routes
+from backend.routes.utils_health_routes import utils_health_bp
+from backend.routes.onboarding_routes import onboarding_routes
+from backend.routes.library_routes import library_routes
 
 # Register Blueprints with /api prefix
 app.register_blueprint(symptom_routes, url_prefix='/api/symptoms')
@@ -108,10 +144,21 @@ def serve(path):
 # API Routes
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    return jsonify({
-        'status': 'healthy',
-        'message': 'The server is running smoothly.'
-    }), 200
+    try:
+        # Test database connection
+        db.session.execute('SELECT 1').scalar()
+        return jsonify({
+            'status': 'healthy',
+            'message': 'The server is running smoothly.',
+            'database': 'connected'
+        }), 200
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return jsonify({
+            'status': 'unhealthy',
+            'message': 'Database connection failed',
+            'error': str(e)
+        }), 500
 
 @app.route('/api/signup', methods=['POST'])
 def signup():
@@ -126,6 +173,9 @@ def signup():
         if not username or not password:
             return jsonify({'error': 'Username and password are required'}), 400
 
+        # Import User model here to avoid circular imports
+        from backend.models import User
+        
         if User.query.filter_by(username=username).first():
             return jsonify({'error': 'User already exists'}), 409
 
@@ -140,6 +190,10 @@ def signup():
             'user_id': new_user.id
         }), 201
 
+    except SQLAlchemyError as e:
+        logger.error(f'Database error during signup: {str(e)}')
+        db.session.rollback()
+        return jsonify({'error': 'Database error occurred'}), 500
     except Exception as e:
         logger.error(f'Error creating user: {str(e)}')
         db.session.rollback()
