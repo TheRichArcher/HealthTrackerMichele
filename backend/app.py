@@ -11,7 +11,7 @@ from flask_jwt_extended import (
     JWTManager, create_access_token, create_refresh_token,
     get_jwt_identity, jwt_required, get_jwt
 )
-from .extensions import db, bcrypt
+from backend.extensions import db, bcrypt
 
 # Initialize Flask application with static file handling
 app = Flask(__name__,
