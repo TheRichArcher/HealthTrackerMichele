@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, send_from_directory
-from extensions import db
-from models import SymptomLog
+from backend.extensions import db
+from backend.models import SymptomLog
 from datetime import datetime
 import logging
 import openai
