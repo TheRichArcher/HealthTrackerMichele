@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HealthTracker AI</title>
+
+    <!-- Open Graph Meta Tags -->
+    <meta property="og:title" content="HealthTracker AI">
+    <meta property="og:description" content="AI Medical Assistant">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="/public/doctor-avatar.png">
+
+    <!-- Favicon -->
+    <link rel="icon" href="/public/doctor-avatar.png" type="image/png">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+    <!-- Navigation Bar -->
+    <nav class="bg-white shadow-sm fixed top-0 left-0 right-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <a href="/" class="text-2xl font-bold text-blue-600">HealthTracker AI</a>
+                <div class="flex items-center space-x-4">
+                    <a href="/" class="text-gray-600 hover:text-blue-600">Chat</a>
+                    <a href="/auth" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors">
+                        Sign In
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Chat Interface -->
+    <div class="max-w-4xl mx-auto mt-20 px-4 pb-8">
+        <div class="bg-[#282c34] rounded-lg shadow-lg overflow-hidden">
+            <!-- Chat Header -->
+            <div class="p-4 flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 bg-gray-300 rounded-full overflow-hidden">
+                        <img 
+                            src="/public/doctor-avatar.png" 
+                            alt="Michele - AI Medical Assistant" 
+                            class="w-full h-full object-cover"
+                            onerror="this.src='https://via.placeholder.com/40?text=AI'"
+                        >
+                    </div>
+                    <div>
+                        <h2 class="text-white font-semibold">HealthTracker AI</h2>
+                        <p class="text-gray-400 text-sm">AI Medical Assistant</p>
+                    </div>
+                </div>
+                <div class="text-gray-400 text-sm text-right max-w-[200px] sm:max-w-none">
+                    For informational purposes only. Not a substitute for professional medical advice.
+                </div>
+            </div>
+
+            <!-- Chat Messages -->
+            <div class="bg-gray-50 p-4 sm:p-6">
+                <div id="chat-box" class="space-y-4 min-h-[300px] max-h-[500px] overflow-y-auto">
+                    <div class="bg-white rounded-lg p-4 shadow-sm">
+                        <p class="text-gray-800 text-lg">
+                            Hi, I'm Michele—your AI medical assistant. Think of me as that doctor you absolutely trust, here to listen, guide, and help you make sense of your symptoms. While I can't replace a real doctor, I can give you insights, ask the right questions, and help you feel more in control of your health. So, tell me—what's going on today?
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat Input -->
+            <div class="p-4 bg-gray-100">
+                <form id="chat-form" class="flex items-start space-x-4">
+                    <textarea 
+                        id="chat-input"
+                        class="flex-1 border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none min-h-[80px]"
+                        placeholder="Describe your symptoms..."
+                        rows="3"
+                        maxlength="1000"
+                    ></textarea>
+                    <button 
+                        type="submit"
+                        id="send-button"
+                        class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed h-[80px]"
+                    >
+                        Send
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const form = document.getElementById("chat-form");
+            const input = document.getElementById("chat-input");
+            const sendButton = document.getElementById("send-button");
+            const chatBox = document.getElementById("chat-box");
+
+            if (!form || !input || !sendButton || !chatBox) {
+                console.error("Chat elements not found.");
+                return;
+            }
+
+            form.addEventListener("submit", function (e) {
+                e.preventDefault();
+                handleSend();
+            });
+
+            input.addEventListener("keydown", function (e) {
+                if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                }
+            });
+
+            async function handleSend() {
+                const message = input.value.trim();
+                if (!message || input.disabled) return;
+
+                setLoadingState(true);
+                appendMessage("user", message);
+
+                try {
+                    const response = await fetch("https://healthtrackerai.pythonanywhere.com/api/symptoms/analyze", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({ symptoms: message })
+                    });
+
+                    if (!response.ok) throw new Error("API request failed");
+
+                    const data = await response.json();
+                    const confidenceLevel = data.confidence_level ? `${data.confidence_level}%` : "Unknown";
+
+                    let careRecommendation = "Please consult a professional if needed.";
+                    if (data.health_guidance) {
+                        if (data.health_guidance.toLowerCase() === "mild") {
+                            careRecommendation = "You can likely manage this at home.";
+                        } else if (data.health_guidance.toLowerCase() === "moderate") {
+                            careRecommendation = "Consider seeing a doctor soon.";
+                        } else if (data.health_guidance.toLowerCase() === "severe") {
+                            careRecommendation = "You should seek urgent care.";
+                        }
+                    }
+
+                    appendMessage("bot", `
+                        **Possible Conditions:** ${data.possible_conditions || "Unknown"}  
+                        **Confidence Level:** ${confidenceLevel}  
+                        **Care Recommendation:** ${careRecommendation}
+                    `);
+                } catch (error) {
+                    console.error("Error:", error);
+                    appendMessage("bot", "⚠️ Error connecting to the AI. Please try again.");
+                } finally {
+                    setLoadingState(false);
+                    input.value = "";
+                }
+            }
+
+            function setLoadingState(isLoading) {
+                input.disabled = isLoading;
+                sendButton.disabled = isLoading;
+                sendButton.textContent = isLoading ? "Sending..." : "Send";
+                if (!isLoading) input.focus();
+            }
+
+            function appendMessage(sender, text) {
+                const messageDiv = document.createElement("div");
+                messageDiv.className = `max-w-[80%] ${sender === "user" ? "ml-auto" : "mr-auto"} p-3 rounded-lg ${sender === "user" ? "bg-blue-600 text-white" : "bg-white shadow-sm"}`;
+                messageDiv.innerHTML = text.replace(/\n/g, "<br>");
+                chatBox.appendChild(messageDiv);
+                chatBox.scrollTo({ top: chatBox.scrollHeight, behavior: "smooth" });
+            }
+        });
+    </script>
+</body>
+</html>

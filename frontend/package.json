@@ -1,0 +1,26 @@
+{
+  "name": "health-tracker-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "vite",
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview",
+    "clean": "rm -rf static/dist"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^3.1.0",
+    "axios": "^1.3.4",
+    "lodash": "^4.17.21",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.28.2"
+  },
+  "devDependencies": {
+    "vite": "^4.5.5"
+  },
+  "vite": {
+    "base": "/static/"
+  }
+}

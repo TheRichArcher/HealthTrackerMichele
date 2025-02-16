@@ -1,0 +1,47 @@
+# .gitignore file for your Health Tracker AI project
+
+# Node.js dependencies
+node_modules/
+
+# Python dependencies
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Environment variables
+.env
+
+# Database files
+*.sqlite*
+*.db
+
+# Build outputs
+build/
+dist/
+
+# Logs
+*.log
+logs/
+logs/*.log
+
+# IDE-specific files
+.vscode/
+.idea/
+.DS_Store
+
+# OS-specific files
+Thumbs.db
+
+# Cache
+.cache/
+
+# Coverage
+coverage/
+
+# React-specific build artifacts
+public/*.cache
+
+# Miscellaneous
+*.bak
+*.swp

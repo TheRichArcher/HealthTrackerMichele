@@ -1,0 +1,38 @@
+import os
+from sqlalchemy import create_engine
+from sqlalchemy.exc import SQLAlchemyError, DatabaseError
+from sqlalchemy.orm import sessionmaker
+from dotenv import load_dotenv
+from extensions import db
+
+# Load environment variables using relative path
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+
+# Database Configuration
+DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///symptom_tracker.db')
+if not DATABASE_URL:
+    raise ValueError('DATABASE_URL is missing. Check your .env file.')
+
+# Create SQLAlchemy engine
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
+    pool_pre_ping=True
+)
+
+# Create session factory
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Base class for ORM models
+Base = db.Model
+
+# Function to get a new database session
+def get_db():
+    try:
+        yield db.session
+        db.session.commit()
+    except (SQLAlchemyError, DatabaseError) as e:
+        db.session.rollback()
+        raise
+    finally:
+        db.session.close()
