@@ -8,3 +8,4 @@ backend/__pycache__/
 *.log
 frontend/.env
 .DS_Store
+backend/backup_old_versions/
