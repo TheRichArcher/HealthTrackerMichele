@@ -134,8 +134,23 @@ def signup():
 def serve(path):
     if path.startswith('api/'):
         return {'error': 'Not Found'}, 404
+    
+    # Add logging to debug static file serving
+    logger.info(f"Serving path: {path}")
+    logger.info(f"Static folder: {app.static_folder}")
+    
+    if not os.path.exists(app.static_folder):
+        logger.error(f"Static folder does not exist: {app.static_folder}")
+        return {'error': 'Static folder not found'}, 500
+        
     if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
         return send_from_directory(app.static_folder, path)
+    
+    index_path = os.path.join(app.static_folder, 'index.html')
+    if not os.path.exists(index_path):
+        logger.error(f"index.html not found at: {index_path}")
+        return {'error': 'index.html not found'}, 500
+        
     return send_from_directory(app.static_folder, 'index.html')
 
 # Find an available port
