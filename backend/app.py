@@ -11,7 +11,8 @@ from flask_jwt_extended import (
     JWTManager, create_access_token, create_refresh_token,
     get_jwt_identity, jwt_required, get_jwt
 )
-from backend.extensions import db, bcrypt
+from extensions import db, bcrypt
+
 
 # Initialize Flask application with static file handling
 app = Flask(__name__,
@@ -53,7 +54,7 @@ db.init_app(app)
 bcrypt.init_app(app)
 
 # Import models after database initialization
-from .models import User, Symptom, SymptomLog, Report, HealthData, RevokedToken
+from models import User, Symptom, SymptomLog, Report, HealthData, RevokedToken
 
 # Manual Database Creation
 with app.app_context():
@@ -61,13 +62,13 @@ with app.app_context():
     logger.info('✅ Database tables created manually')
 
 # Import Blueprints
-from .routes.symptom_and_static_routes import symptom_routes
-from .routes.health_data_routes import health_data_routes
-from .routes.report_routes import report_routes
-from .routes.user_routes import user_routes
-from .routes.utils_health_routes import utils_health_bp
-from .routes.onboarding_routes import onboarding_routes
-from .routes.library_routes import library_routes
+from routes.symptom_and_static_routes import symptom_routes
+from routes.health_data_routes import health_data_routes
+from routes.report_routes import report_routes
+from routes.user_routes import user_routes
+from routes.utils_health_routes import utils_health_bp
+from routes.onboarding_routes import onboarding_routes
+from routes.library_routes import library_routes
 
 # Register Blueprints with /api prefix
 app.register_blueprint(symptom_routes, url_prefix='/api/symptoms')
