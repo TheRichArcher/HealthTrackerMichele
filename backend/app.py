@@ -1,6 +1,5 @@
 import os
 import logging
-import openai
 import socket
 import subprocess
 from datetime import timedelta
@@ -13,6 +12,7 @@ from flask_jwt_extended import (
 )
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
+from flask_migrate import Migrate
 
 # Load environment variables
 load_dotenv()
@@ -58,9 +58,10 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
 # Initialize database and bcrypt
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
+migrate = Migrate(app, db)  # ✅ Flask-Migrate properly initialized
 
 # Import models after initializing extensions
-from models import User, Symptom, SymptomLog, Report, HealthData, RevokedToken
+from backend.models import User, Symptom, SymptomLog, Report, HealthData, RevokedToken
 
 # Database initialization
 with app.app_context():
@@ -72,13 +73,13 @@ with app.app_context():
         raise
 
 # Import and register blueprints
-from routes.symptom_and_static_routes import symptom_routes
-from routes.health_data_routes import health_data_routes
-from routes.report_routes import report_routes
-from routes.user_routes import user_routes
-from routes.utils_health_routes import utils_health_bp
-from routes.onboarding_routes import onboarding_routes
-from routes.library_routes import library_routes
+from backend.routes.symptom_and_static_routes import symptom_routes
+from backend.routes.health_data_routes import health_data_routes
+from backend.routes.report_routes import report_routes
+from backend.routes.user_routes import user_routes
+from backend.routes.utils_health_routes import utils_health_bp
+from backend.routes.onboarding_routes import onboarding_routes
+from backend.routes.library_routes import library_routes
 
 app.register_blueprint(symptom_routes, url_prefix='/api/symptoms')
 app.register_blueprint(health_data_routes, url_prefix='/api/health-data')

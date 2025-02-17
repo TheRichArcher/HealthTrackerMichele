@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, send_file
-from models import User, SymptomLog  # ✅ No unnecessary imports
+from backend.models import User, SymptomLog  # ✅ No unnecessary imports
 import logging
 import io
 import csv

@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from backend.routes.extensions import db
-from models import SymptomLog
+from backend.models import SymptomLog
 from datetime import datetime
 import openai
 import logging
