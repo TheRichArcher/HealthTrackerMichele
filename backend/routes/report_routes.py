@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
-from backend.routes.extensions import db
 from backend.models import Report, User
+from backend.routes.extensions import db
 from datetime import datetime
 import logging
 
@@ -11,7 +11,7 @@ logger = logging.getLogger("report_routes")
 report_routes = Blueprint("report_routes", __name__)
 
 # Route to generate a report
-@report_routes.route("/api/reports", methods=["POST"])
+@report_routes.route("/", methods=["POST"])
 def generate_report():
     """Generates a new medical report for a user and logs it in the database."""
     try:
@@ -52,11 +52,11 @@ def generate_report():
 
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Failed to generate report for user {user_id}: {str(e)}")
-        return jsonify({"error": "Error generating report."}), 500
+        logger.error(f"Failed to generate report for user {user_id}. Full error: {str(e)}", exc_info=True)
+        return jsonify({"error": f"Error generating report: {str(e)}"}), 500
 
 # Route to retrieve reports for a user
-@report_routes.route("/api/reports/<int:user_id>", methods=["GET"])
+@report_routes.route("/<int:user_id>", methods=["GET"])
 def get_reports(user_id):
     """Fetches all reports for a specific user."""
     try:
@@ -70,7 +70,7 @@ def get_reports(user_id):
         reports = Report.query.filter_by(user_id=user_id).all()
         if not reports:
             logger.info(f"No reports found for user {user_id}.")
-            return jsonify({"error": "No reports found for this user."}), 404
+            return jsonify({"message": "No reports found for this user."}), 404
 
         logger.info(f"Reports retrieved successfully for user {user_id} (Total: {len(reports)})")
 
@@ -85,11 +85,11 @@ def get_reports(user_id):
         ]})
 
     except Exception as e:
-        logger.error(f"Error fetching reports for user {user_id}: {str(e)}")
-        return jsonify({"error": "Error fetching reports."}), 500
+        logger.error(f"Error fetching reports for user {user_id}. Full error: {str(e)}", exc_info=True)
+        return jsonify({"error": f"Error fetching reports: {str(e)}"}), 500
 
 # Route to delete a report
-@report_routes.route("/api/reports/<int:report_id>", methods=["DELETE"])
+@report_routes.route("/<int:report_id>", methods=["DELETE"])
 def delete_report(report_id):
     """Deletes a specific report entry by ID."""
     try:
@@ -108,5 +108,5 @@ def delete_report(report_id):
 
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Failed to delete report {report_id}: {str(e)}")
-        return jsonify({"error": "Error deleting report."}), 500
+        logger.error(f"Failed to delete report {report_id}. Full error: {str(e)}", exc_info=True)
+        return jsonify({"error": f"Error deleting report: {str(e)}"}), 500
