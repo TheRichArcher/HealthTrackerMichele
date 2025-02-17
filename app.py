@@ -5,14 +5,11 @@ import subprocess
 from datetime import timedelta
 from flask import Flask, jsonify, request, send_from_directory
 from dotenv import load_dotenv
-from flask_cors import CORS
 from flask_jwt_extended import (
     JWTManager, create_access_token, create_refresh_token,
     get_jwt_identity, jwt_required, get_jwt
 )
-from flask_sqlalchemy import SQLAlchemy
-from flask_bcrypt import Bcrypt
-from flask_migrate import Migrate
+from backend.routes.extensions import db, bcrypt, migrate, cors
 
 # Load environment variables
 load_dotenv()
@@ -22,14 +19,10 @@ app = Flask(__name__,
             static_folder='static/dist',
             static_url_path='')
 
-# CORS Configuration
-CORS(app, resources={r"/*": {"origins": os.getenv('CORS_ORIGINS', '*')}})
-
-# JWT Configuration
+# Configure app before initializing extensions
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(seconds=int(os.getenv('JWT_ACCESS_TOKEN_EXPIRES', 3600)))
 app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(seconds=int(os.getenv('JWT_REFRESH_TOKEN_EXPIRES', 2592000)))
-jwt = JWTManager(app)
 
 # Logging Configuration
 logging.basicConfig(
@@ -47,7 +40,7 @@ DATABASE_URL = os.getenv('DATABASE_URL')
 if not DATABASE_URL:
     raise RuntimeError("❌ DATABASE_URL is missing! Set it in Render or the .env file.")
 
-# Convert Render’s database URL format if needed
+# Convert Render's database URL format if needed
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
 
@@ -55,10 +48,12 @@ app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
 
-# Initialize database and bcrypt
-db = SQLAlchemy(app)
-bcrypt = Bcrypt(app)
-migrate = Migrate(app, db)  # ✅ Flask-Migrate properly initialized
+# Initialize extensions
+db.init_app(app)
+bcrypt.init_app(app)
+migrate.init_app(app, db)
+cors.init_app(app, resources={r"/*": {"origins": os.getenv('CORS_ORIGINS', '*')}})
+jwt = JWTManager(app)
 
 # Import models after initializing extensions
 from backend.models import User, Symptom, SymptomLog, Report, HealthData, RevokedToken
