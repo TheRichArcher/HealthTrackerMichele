@@ -11,18 +11,19 @@ from flask_jwt_extended import (
     JWTManager, create_access_token, create_refresh_token,
     get_jwt_identity, jwt_required, get_jwt
 )
-from extensions import db, bcrypt
-
-
-# Initialize Flask application with static file handling
-app = Flask(__name__,
-    static_folder='static/dist',
-    static_url_path=''
-)
-CORS(app, origins=os.getenv('CORS_ORIGINS', '*'))
+from flask_sqlalchemy import SQLAlchemy
+from flask_bcrypt import Bcrypt
 
 # Load environment variables
-load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+load_dotenv()
+
+# Initialize Flask application
+app = Flask(__name__,
+            static_folder='static/dist',
+            static_url_path='')
+
+# CORS Configuration
+CORS(app, resources={r"/*": {"origins": os.getenv('CORS_ORIGINS', '*')}})
 
 # JWT Configuration
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')
@@ -32,7 +33,7 @@ jwt = JWTManager(app)
 
 # Logging Configuration
 logging.basicConfig(
-    level=getattr(logging, os.getenv('LOG_LEVEL', 'INFO')),
+    level=getattr(logging, os.getenv('LOG_LEVEL', 'INFO').upper()),
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
         logging.FileHandler(os.getenv('LOG_FILE', 'app.log')),
@@ -41,27 +42,36 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Database Configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
-if not app.config['SQLALCHEMY_DATABASE_URI']:
-    raise ValueError('DATABASE_URL is missing. Check your .env file.')
+# Database Configuration - Ensure PostgreSQL Compatibility
+DATABASE_URL = os.getenv('DATABASE_URL')
+if not DATABASE_URL:
+    raise RuntimeError("❌ DATABASE_URL is missing! Set it in Render or the .env file.")
 
+# Convert Render’s database URL format if needed
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
+
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
 
-# Initialize Flask extensions
-db.init_app(app)
-bcrypt.init_app(app)
+# Initialize database and bcrypt
+db = SQLAlchemy(app)
+bcrypt = Bcrypt(app)
 
-# Import models after database initialization
+# Import models after initializing extensions
 from models import User, Symptom, SymptomLog, Report, HealthData, RevokedToken
 
-# Manual Database Creation
+# Database initialization
 with app.app_context():
-    db.create_all()
-    logger.info('✅ Database tables created manually')
+    try:
+        db.create_all()
+        logger.info('✅ Database connected and tables initialized.')
+    except Exception as e:
+        logger.critical(f"❌ Database initialization failed: {e}")
+        raise
 
-# Import Blueprints
+# Import and register blueprints
 from routes.symptom_and_static_routes import symptom_routes
 from routes.health_data_routes import health_data_routes
 from routes.report_routes import report_routes
@@ -70,7 +80,6 @@ from routes.utils_health_routes import utils_health_bp
 from routes.onboarding_routes import onboarding_routes
 from routes.library_routes import library_routes
 
-# Register Blueprints with /api prefix
 app.register_blueprint(symptom_routes, url_prefix='/api/symptoms')
 app.register_blueprint(health_data_routes, url_prefix='/api/health-data')
 app.register_blueprint(report_routes, url_prefix='/api/reports')
@@ -82,38 +91,18 @@ app.register_blueprint(library_routes, url_prefix='/api/library')
 # JWT error handlers
 @jwt.expired_token_loader
 def expired_token_callback(jwt_header, jwt_payload):
-    return jsonify({
-        'status': 401,
-        'sub_status': 42,
-        'msg': 'The token has expired'
-    }), 401
+    return jsonify({'status': 401, 'sub_status': 42, 'msg': 'Token has expired'}), 401
 
 @jwt.invalid_token_loader
 def invalid_token_callback(error):
-    return jsonify({
-        'status': 401,
-        'sub_status': 43,
-        'msg': 'Invalid token'
-    }), 401
+    return jsonify({'status': 401, 'sub_status': 43, 'msg': 'Invalid token'}), 401
 
-# Serve React App - must be after API routes
-@app.route('/', defaults={'path': ''})
-@app.route('/<path:path>')
-def serve(path):
-    if path.startswith('api/'):
-        return {'error': 'Not Found'}, 404
-    if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
-        return send_from_directory(app.static_folder, path)
-    return send_from_directory(app.static_folder, 'index.html')
-
-# API Routes
+# Health Check Endpoint
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    return jsonify({
-        'status': 'healthy',
-        'message': 'The server is running smoothly.'
-    }), 200
+    return jsonify({'status': 'healthy', 'message': 'The server is running smoothly.'}), 200
 
+# User Signup Endpoint
 @app.route('/api/signup', methods=['POST'])
 def signup():
     try:
@@ -136,18 +125,25 @@ def signup():
         db.session.add(new_user)
         db.session.commit()
 
-        return jsonify({
-            'message': 'User created successfully',
-            'user_id': new_user.id
-        }), 201
+        return jsonify({'message': 'User created successfully', 'user_id': new_user.id}), 201
 
     except Exception as e:
         logger.error(f'Error creating user: {str(e)}')
         db.session.rollback()
         return jsonify({'error': 'Internal server error'}), 500
 
+# Serve React Frontend
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve(path):
+    if path.startswith('api/'):
+        return {'error': 'Not Found'}, 404
+    if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
+        return send_from_directory(app.static_folder, path)
+    return send_from_directory(app.static_folder, 'index.html')
+
+# Find an available port
 def find_available_port(starting_port=5001):
-    """Finds an available port starting from the given port number."""
     current_port = starting_port
     while current_port < 65535:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -156,8 +152,8 @@ def find_available_port(starting_port=5001):
             current_port += 1
     raise RuntimeError('No available ports found')
 
+# Kill any existing Flask process
 def kill_existing_flask():
-    """Kills any existing Flask process safely."""
     try:
         output = subprocess.check_output(['pgrep', '-f', 'python.*app.py'], text=True).strip()
         if output:
@@ -170,19 +166,14 @@ def kill_existing_flask():
     except subprocess.SubprocessError:
         logger.info('No existing Flask process found')
 
-# WSGI Application
+# WSGI application
 application = app
 
+# Run Flask application
 if __name__ == '__main__':
     logger.info('Starting Flask application...')
     kill_existing_flask()
-
     port = find_available_port(5001)
     os.environ['FLASK_RUN_PORT'] = str(port)
-
     logger.info(f'Starting server on port {port}')
-    app.run(
-        host=os.getenv('HOST', '0.0.0.0'),
-        port=port,
-        debug=False
-    )
+    app.run(host=os.getenv('HOST', '0.0.0.0'), port=port, debug=False)

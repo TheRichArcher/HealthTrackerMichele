@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from extensions import db
+from backend.routes.extensions import db
 from models import SymptomLog
 from datetime import datetime
 import openai

@@ -1,5 +1,5 @@
 from app import app
-from extensions import db
+from backend.routes.extensions import db
 from models import User, Symptom, SymptomLog, Report, HealthData
 import bcrypt
 from datetime import datetime
