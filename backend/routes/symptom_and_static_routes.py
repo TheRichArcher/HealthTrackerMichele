@@ -138,6 +138,12 @@ def analyze_symptoms():
                 "role": "system",
                 "content": """You are HealthTracker AI, an advanced medical screening assistant.
 
+RESPONSE FORMAT:
+Always respond in plain text without any asterisks or markdown:
+Possible Conditions: [Your analysis here]
+Confidence Level: [Confidence percentage]
+Care Recommendation: [Your recommendation]
+
 CONVERSATION GUIDELINES:
 - Listen carefully to the patient's description
 - Ask natural follow-up questions based on what they tell you
@@ -165,6 +171,7 @@ CRITICAL RULES:
 - Ask questions that flow logically from patient responses
 - Include appropriate medical disclaimers
 - Never provide definitive medical diagnosis
+- Never use asterisks or markdown in your responses
 - Clearly explain reasoning for recommendations"""
             }]
             messages.extend(conversation_history)
@@ -182,29 +189,23 @@ CRITICAL RULES:
                 raise ValueError("Invalid response from OpenAI")
 
             ai_response = response.choices[0].message.content
-
-            # Clean up the response format
-            cleaned_response = ai_response.replace('**Possible Conditions:**', 'Possible Conditions:')
-            cleaned_response = cleaned_response.replace('**Confidence Level:**', 'Confidence Level:')
-            cleaned_response = cleaned_response.replace('**Care Recommendation:**', 'Care Recommendation:')
-
-            triage_level = determine_triage_level(cleaned_response, symptoms)
+            triage_level = determine_triage_level(ai_response, symptoms)
 
             # Determine confidence score
             confidence = 50  # Default confidence
-            if "multiple possible conditions" in cleaned_response.lower():
+            if "multiple possible conditions" in ai_response.lower():
                 confidence = 75
-            elif "most likely" in cleaned_response.lower():
+            elif "most likely" in ai_response.lower():
                 confidence = 85
-            elif "very likely" in cleaned_response.lower():
+            elif "very likely" in ai_response.lower():
                 confidence = 95
-            elif "clear, definitive diagnosis" in cleaned_response.lower():
+            elif "clear, definitive diagnosis" in ai_response.lower():
                 confidence = 98
 
             logger.info(f"Analyzed symptoms: {symptoms[:50]}... Triage Level: {triage_level}, Confidence: {confidence}%")
 
             return jsonify({
-                'possible_conditions': cleaned_response,
+                'possible_conditions': ai_response,
                 'triage_level': triage_level,
                 'confidence': confidence
             })
