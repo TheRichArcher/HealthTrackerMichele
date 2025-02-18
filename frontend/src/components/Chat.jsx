@@ -81,7 +81,18 @@ const Chat = () => {
             const confidenceScore = response.data.confidence || null;
 
             setTimeout(() => {
-                const mainMessage = botResponse.split('\n')[0].replace(/\*\*Possible Conditions:\*\*/g, '').trim();
+                // Clean the entire message of asterisks and split into parts
+                const cleanedResponse = botResponse
+                    .replace(/\*\*/g, '')  // Remove all asterisks
+                    .split('\n')
+                    .map(line => line.trim())
+                    .filter(line => line);  // Remove empty lines
+
+                // Get the first part (main message)
+                const mainMessage = cleanedResponse[0]
+                    .replace('Possible Conditions:', '')
+                    .trim();
+
                 typeMessage(mainMessage, triageLevel, confidenceScore);
             }, THINKING_DELAY);
         } catch (error) {
