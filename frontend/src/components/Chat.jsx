@@ -1,3 +1,4 @@
+// Updated version - 2024-02-18
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import '../styles/Chat.css';
