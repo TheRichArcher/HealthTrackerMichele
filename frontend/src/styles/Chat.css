@@ -80,12 +80,44 @@
     color: white;
 }
 
-.message-metrics {
+/* Message Metrics */
+.metrics-container {
     margin-top: 0.5rem;
     padding-top: 0.5rem;
     border-top: 1px solid #e9ecef;
     font-size: 0.875rem;
     color: #6c757d;
+}
+
+/* Confidence level styling */
+.confidence {
+    font-weight: 600;
+    color: #007bff;
+    margin-bottom: 0.25rem;
+}
+
+/* Care recommendation styling */
+.care-recommendation {
+    font-size: 0.9rem;
+    font-weight: 500;
+    padding: 0.5rem;
+    border-radius: 4px;
+}
+
+/* Care recommendation colors */
+.care-recommendation.mild {
+    background-color: #d4edda;
+    color: #155724;
+}
+
+.care-recommendation.moderate {
+    background-color: #fff3cd;
+    color: #856404;
+}
+
+.care-recommendation.severe {
+    background-color: #f8d7da;
+    color: #721c24;
 }
 
 /* Input area styles */
