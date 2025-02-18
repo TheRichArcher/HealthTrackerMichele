@@ -182,23 +182,29 @@ CRITICAL RULES:
                 raise ValueError("Invalid response from OpenAI")
 
             ai_response = response.choices[0].message.content
-            triage_level = determine_triage_level(ai_response, symptoms)
+
+            # Clean up the response format
+            cleaned_response = ai_response.replace('**Possible Conditions:**', 'Possible Conditions:')
+            cleaned_response = cleaned_response.replace('**Confidence Level:**', 'Confidence Level:')
+            cleaned_response = cleaned_response.replace('**Care Recommendation:**', 'Care Recommendation:')
+
+            triage_level = determine_triage_level(cleaned_response, symptoms)
 
             # Determine confidence score
             confidence = 50  # Default confidence
-            if "multiple possible conditions" in ai_response.lower():
+            if "multiple possible conditions" in cleaned_response.lower():
                 confidence = 75
-            elif "most likely" in ai_response.lower():
+            elif "most likely" in cleaned_response.lower():
                 confidence = 85
-            elif "very likely" in ai_response.lower():
+            elif "very likely" in cleaned_response.lower():
                 confidence = 95
-            elif "clear, definitive diagnosis" in ai_response.lower():
+            elif "clear, definitive diagnosis" in cleaned_response.lower():
                 confidence = 98
 
             logger.info(f"Analyzed symptoms: {symptoms[:50]}... Triage Level: {triage_level}, Confidence: {confidence}%")
 
             return jsonify({
-                'possible_conditions': ai_response,
+                'possible_conditions': cleaned_response,
                 'triage_level': triage_level,
                 'confidence': confidence
             })
