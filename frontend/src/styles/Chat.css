@@ -13,6 +13,7 @@
 .chat-header {
     display: flex;
     align-items: center;
+    height: 64px;
     padding: 1rem;
     background: #f8f9fa;
     border-bottom: 1px solid #e9ecef;
@@ -20,8 +21,8 @@
 }
 
 .chat-avatar {
-    width: 32px;
-    height: 32px;
+    width: 48px;
+    height: 48px;
     border-radius: 50%;
     object-fit: cover;
     flex-shrink: 0;
@@ -79,6 +80,14 @@
     color: white;
 }
 
+.message-metrics {
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid #e9ecef;
+    font-size: 0.875rem;
+    color: #6c757d;
+}
+
 /* Input area styles */
 .input-container {
     display: flex;
@@ -95,6 +104,8 @@
     border-radius: 0.5rem;
     font-size: 1rem;
     transition: border-color 0.15s ease-in-out;
+    min-height: 42px;
+    resize: vertical;
 }
 
 .chat-input:focus {
@@ -111,6 +122,8 @@
     border-radius: 0.5rem;
     cursor: pointer;
     transition: background-color 0.15s ease-in-out;
+    height: 42px;
+    min-width: 100px;
 }
 
 .send-button:hover {
@@ -240,6 +253,11 @@
     .message-content {
         background: #2d2d2d;
         color: #ffffff;
+    }
+
+    .message-metrics {
+        border-top-color: #404040;
+        color: #a0a0a0;
     }
 
     .input-container {
