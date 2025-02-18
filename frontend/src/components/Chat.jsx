@@ -81,19 +81,16 @@ const Chat = () => {
             const confidenceScore = response.data.confidence || null;
 
             setTimeout(() => {
-                // Clean the entire message of asterisks and split into parts
+                // Remove all formatting markers and headers
                 const cleanedResponse = botResponse
-                    .replace(/\*\*/g, '')  // Remove all asterisks
+                    .replace(/\*\*Possible Conditions:\*\*|\*\*Confidence Level:\*\*|\*\*Care Recommendation:\*\*/g, '')
                     .split('\n')
                     .map(line => line.trim())
-                    .filter(line => line);  // Remove empty lines
-
-                // Get the first part (main message)
-                const mainMessage = cleanedResponse[0]
-                    .replace('Possible Conditions:', '')
+                    .filter(line => !line.startsWith('Unknown') && !line.startsWith('Please consult'))
+                    .join(' ')
                     .trim();
 
-                typeMessage(mainMessage, triageLevel, confidenceScore);
+                typeMessage(cleanedResponse, triageLevel, confidenceScore);
             }, THINKING_DELAY);
         } catch (error) {
             console.error("API error:", error);
