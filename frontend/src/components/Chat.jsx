@@ -81,8 +81,8 @@ const Chat = () => {
             const confidenceScore = response.data.confidence || null;
 
             setTimeout(() => {
-                const formattedResponse = `**Possible Conditions:** ${botResponse}\n**Confidence Level:** ${confidenceScore ? confidenceScore + '%' : 'Unknown'}\n**Care Recommendation:** ${triageLevel ? getCareRecommendation(triageLevel) : 'Please consult a professional if needed.'}`;
-                typeMessage(formattedResponse, triageLevel, confidenceScore);
+                const mainMessage = botResponse.split('\n')[0].replace(/\*\*Possible Conditions:\*\*/g, '').trim();
+                typeMessage(mainMessage, triageLevel, confidenceScore);
             }, THINKING_DELAY);
         } catch (error) {
             console.error("API error:", error);
@@ -158,6 +158,16 @@ const Chat = () => {
                 {messages.map((msg, index) => (
                     <div key={index} className={`message ${msg.sender}`}>
                         <div className="message-content">{msg.text}</div>
+                        {msg.sender === 'bot' && (msg.confidence !== null || msg.triage !== null) && (
+                            <div className="metrics-container">
+                                <div className="confidence">
+                                    Confidence Level: {msg.confidence ? `${msg.confidence}%` : 'Unknown'}
+                                </div>
+                                <div className="care-recommendation">
+                                    Care Recommendation: {getCareRecommendation(msg.triage)}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 ))}
                 {typing && <div className="typing-indicator">HealthTracker AI is typing...</div>}
