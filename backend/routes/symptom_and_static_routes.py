@@ -25,27 +25,14 @@ def sanitize_input(text):
     return text[:1000]
 
 def format_ai_response(response_text):
-    """Format the AI response to remove markdown and structure the message."""
-    # Split the response into lines
-    lines = response_text.split('\n')
-    main_message = ""
+    """Format the AI response to remove markdown and structure the message properly."""
+    # Remove unwanted formatting
+    clean_text = re.sub(r'\*\*|Possible Conditions:|Confidence Level:|Care Recommendation:', '', response_text)
     
-    # Process each line
-    for line in lines:
-        # Remove all asterisks and other formatting
-        line = line.replace('**', '')
-        line = line.replace('Possible Conditions:', '')
-        line = line.replace('Confidence Level:', '')
-        line = line.replace('Care Recommendation:', '')
-        line = line.strip()
-        
-        if line:
-            if not main_message:
-                main_message = line
-            else:
-                main_message += " " + line
+    # Normalize spaces and remove unnecessary newlines
+    clean_text = re.sub(r'\s+', ' ', clean_text).strip()
     
-    return main_message.strip()
+    return clean_text
 
 @symptom_routes.route("/", methods=["POST", "GET"])
 def symptoms():
@@ -223,11 +210,18 @@ Remember: Always maintain a natural conversation flow without any special format
                     confidence = score
                     break  # Stop checking once the highest match is found
 
-            # Set reasonable fallback confidence if no patterns match
+            # Set reasonable fallback confidence with explicit logging
             if confidence == 50:
                 confidence = 75
+                logger.info("No confidence keywords matched. Setting default confidence to 75%.")
 
-            logger.info(f"Analyzed symptoms: {symptoms[:50]}... Triage Level: {triage_level}, Confidence: {confidence}%")
+            # Enhanced logging with more response context
+            logger.info(
+                f"Analyzed symptoms: {symptoms[:50]}... "
+                f"AI Response: {ai_response[:100]}... "
+                f"Triage Level: {triage_level}, "
+                f"Confidence: {confidence}%"
+            )
 
             return jsonify({
                 'possible_conditions': ai_response,

@@ -1,4 +1,3 @@
-// Updated version - 2024-02-18
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import '../styles/Chat.css';
@@ -29,7 +28,8 @@ const Chat = () => {
     };
 
     useEffect(() => {
-        scrollToBottom();
+        const scrollTimeout = setTimeout(() => scrollToBottom(), 100);
+        return () => clearTimeout(scrollTimeout);
     }, [messages]);
 
     const handleSendMessage = async () => {
@@ -77,26 +77,31 @@ const Chat = () => {
                 })).slice(1)
             });
 
-            const botResponse = response.data.possible_conditions || "I'm sorry, something went wrong.";
-            const triageLevel = response.data.triage_level || "moderate";
-            const confidenceScore = response.data.confidence || null;
+            const { possible_conditions, triage_level, confidence } = response.data;
+            
+            console.log("API Response:", {
+                message: possible_conditions,
+                triage: triage_level,
+                confidence: confidence
+            });
 
             setTimeout(() => {
-                // Remove all formatting markers and headers
-                const cleanedResponse = botResponse
-                    .replace(/\*\*Possible Conditions:\*\*|\*\*Confidence Level:\*\*|\*\*Care Recommendation:\*\*/g, '')
-                    .split('\n')
-                    .map(line => line.trim())
-                    .filter(line => !line.startsWith('Unknown') && !line.startsWith('Please consult'))
-                    .join(' ')
-                    .trim();
-
-                typeMessage(cleanedResponse, triageLevel, confidenceScore);
+                console.log("Displaying Message:", {
+                    message: possible_conditions,
+                    triage: triage_level,
+                    confidence: confidence
+                });
+                typeMessage(possible_conditions, triage_level, confidence);
             }, THINKING_DELAY);
+
         } catch (error) {
             console.error("API error:", error);
             setTimeout(() => {
-                typeMessage("Sorry, I couldn't process your request. Please try again.", "moderate", null);
+                typeMessage(
+                    "Sorry, I couldn't process your request. Please try again.",
+                    "moderate",
+                    null
+                );
             }, THINKING_DELAY);
         } finally {
             setLoading(false);
@@ -106,6 +111,7 @@ const Chat = () => {
     const typeMessage = (message, triage, confidence) => {
         let index = 0;
         setTyping(false);
+        
         setMessages(prev => [...prev, { 
             sender: 'bot', 
             text: "",
@@ -142,7 +148,7 @@ const Chat = () => {
                 return "You should seek urgent care.";
             case 'moderate':
             default:
-                return "Please consult a professional if needed.";
+                return "Consider consulting a healthcare professional.";
         }
     };
 
@@ -167,14 +173,18 @@ const Chat = () => {
                 {messages.map((msg, index) => (
                     <div key={index} className={`message ${msg.sender}`}>
                         <div className="message-content">{msg.text}</div>
-                        {msg.sender === 'bot' && (msg.confidence !== null || msg.triage !== null) && (
+                        {msg.sender === 'bot' && msg.text && (
                             <div className="metrics-container">
-                                <div className="confidence">
-                                    Confidence Level: {msg.confidence ? `${msg.confidence}%` : 'Unknown'}
-                                </div>
-                                <div className="care-recommendation">
-                                    Care Recommendation: {getCareRecommendation(msg.triage)}
-                                </div>
+                                {typeof msg.confidence === "number" && !isNaN(msg.confidence) && (
+                                    <div className="confidence">
+                                        Confidence Level: {msg.confidence}%
+                                    </div>
+                                )}
+                                {msg.triage && (
+                                    <div className={`care-recommendation ${msg.triage}`}>
+                                        {getCareRecommendation(msg.triage)}
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
