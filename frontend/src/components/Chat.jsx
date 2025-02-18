@@ -78,10 +78,11 @@ const Chat = () => {
 
             const botResponse = response.data.possible_conditions || "I'm sorry, something went wrong.";
             const triageLevel = response.data.triage_level || "moderate";
-            const confidenceScore = response.data.confidence || 85;
+            const confidenceScore = response.data.confidence || null;
 
             setTimeout(() => {
-                typeMessage(botResponse, triageLevel, confidenceScore);
+                const formattedResponse = `**Possible Conditions:** ${botResponse}\n**Confidence Level:** ${confidenceScore ? confidenceScore + '%' : 'Unknown'}\n**Care Recommendation:** ${triageLevel ? getCareRecommendation(triageLevel) : 'Please consult a professional if needed.'}`;
+                typeMessage(formattedResponse, triageLevel, confidenceScore);
             }, THINKING_DELAY);
         } catch (error) {
             console.error("API error:", error);
@@ -132,27 +133,21 @@ const Chat = () => {
                 return "You should seek urgent care.";
             case 'moderate':
             default:
-                return "Consider seeing a doctor soon.";
+                return "Please consult a professional if needed.";
         }
     };
 
     return (
         <div className="chat-container">
             <div className="chat-header">
-                <div className="chat-header-left">
-                    <img 
-                        src="/michele-avatar.png" 
-                        alt="Michele" 
-                        className="chat-avatar"
-                        onError={(e) => {
-                            e.target.onerror = null;
-                            e.target.src = 'https://via.placeholder.com/32';
-                        }}
-                    />
-                    <div className="chat-header-title">
-                        <span className="chat-header-name">HealthTracker AI</span>
-                        <span className="chat-header-role">AI Medical Assistant</span>
-                    </div>
+                <img 
+                    src="/doctor-avatar.png" 
+                    alt="HealthTracker AI" 
+                    className="chat-avatar"
+                />
+                <div className="chat-header-text">
+                    <h1>HealthTracker AI</h1>
+                    <p>AI Medical Assistant</p>
                 </div>
                 <div className="chat-header-disclaimer">
                     For informational purposes only. Not a substitute for professional medical advice.
@@ -163,46 +158,28 @@ const Chat = () => {
                 {messages.map((msg, index) => (
                     <div key={index} className={`message ${msg.sender}`}>
                         <div className="message-content">{msg.text}</div>
-                        {(msg.confidence !== null || msg.triage !== null) && (
-                            <div className="metrics-container">
-                                {msg.confidence !== null && (
-                                    <div className="confidence">
-                                        Confidence Level: {msg.confidence}%
-                                    </div>
-                                )}
-                                {msg.triage !== null && (
-                                    <div className={`care-recommendation ${msg.triage.toLowerCase()}`}>
-                                        Care Recommendation: {getCareRecommendation(msg.triage)}
-                                    </div>
-                                )}
-                            </div>
-                        )}
                     </div>
                 ))}
                 {typing && <div className="typing-indicator">HealthTracker AI is typing...</div>}
                 <div ref={messagesEndRef} />
             </div>
 
-            <div className="chat-input-container">
-                <div className="chat-input-form">
-                    <div className="chat-input-wrapper">
-                        <textarea
-                            className="chat-input"
-                            value={userInput}
-                            onChange={(e) => setUserInput(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            placeholder="Describe your symptoms in detail..."
-                            disabled={loading || signupPrompt}
-                        />
-                    </div>
-                    <button 
-                        className="send-button"
-                        onClick={handleSendMessage} 
-                        disabled={loading || signupPrompt || !userInput.trim()}
-                    >
-                        {loading ? 'Sending...' : signupPrompt ? 'Sign Up' : 'Send'}
-                    </button>
-                </div>
+            <div className="input-container">
+                <textarea
+                    className="chat-input"
+                    value={userInput}
+                    onChange={(e) => setUserInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Describe your symptoms..."
+                    disabled={loading || signupPrompt}
+                />
+                <button 
+                    className="send-button"
+                    onClick={handleSendMessage} 
+                    disabled={loading || signupPrompt || !userInput.trim()}
+                >
+                    {loading ? 'Sending...' : 'Send'}
+                </button>
             </div>
         </div>
     );
