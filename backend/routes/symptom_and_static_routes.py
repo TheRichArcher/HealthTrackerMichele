@@ -24,6 +24,30 @@ def sanitize_input(text):
     # Limit length to 1000 characters
     return text[:1000]
 
+def format_ai_response(response_text):
+    """Format the AI response to remove markdown and structure the message."""
+    # Split the response into lines
+    lines = response_text.split('\n')
+    main_message = ""
+    
+    # Process each line
+    for line in lines:
+        # Remove all asterisks
+        line = line.replace('**', '')
+        
+        # Check for main message (usually after "Possible Conditions:")
+        if "Possible Conditions:" in line:
+            main_message = line.replace("Possible Conditions:", "").strip()
+            break  # We only want the first part
+        elif not main_message:  # If we haven't found a main message yet, use this line
+            main_message = line.strip()
+    
+    # If no specific message was found, clean and return the whole response
+    if not main_message:
+        return response_text.replace('**', '').replace('Possible Conditions:', '').strip()
+    
+    return main_message
+
 @symptom_routes.route("/", methods=["POST", "GET"])
 def symptoms():
     """Handle symptom logging and retrieval."""
@@ -139,13 +163,8 @@ def analyze_symptoms():
                 "content": """You are HealthTracker AI, an advanced medical screening assistant.
 
 RESPONSE FORMAT:
-Respond in a natural, conversational way without any special formatting or headers.
-Start with your analysis of the symptoms, then ask one relevant follow-up question if needed.
-Do not use any asterisks, markdown, or section headers.
-Do not use phrases like "Possible Conditions:", "Confidence Level:", or "Care Recommendation:".
-
-Example response format:
-Based on your symptoms, I think [analysis]. Can you tell me more about [specific aspect]?
+Start your response with a direct analysis or question without any headers or special formatting.
+For example: "Based on what you've described..." or "Can you tell me more about..."
 
 CONVERSATION GUIDELINES:
 - Listen carefully to the patient's description
@@ -206,8 +225,11 @@ CRITICAL RULES:
 
             logger.info(f"Analyzed symptoms: {symptoms[:50]}... Triage Level: {triage_level}, Confidence: {confidence}%")
 
+            # Format the response before sending
+            formatted_response = format_ai_response(ai_response)
+
             return jsonify({
-                'possible_conditions': ai_response,
+                'possible_conditions': formatted_response,
                 'triage_level': triage_level,
                 'confidence': confidence
             })
