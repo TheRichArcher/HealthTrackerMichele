@@ -1,4 +1,3 @@
-cat > backend/routes/openai_config.py << 'EOL'
 # backend/routes/openai_config.py
 
 import re
@@ -118,4 +117,3 @@ def validate_ai_format(response):
             response = re.sub(r"Confidence Level:\s*\d+", f"Confidence Level: {confidence}", response)
     
     return response
-EOL
