@@ -1,3 +1,4 @@
+cat > backend/routes/openai_config.py << 'EOL'
 # backend/routes/openai_config.py
 
 import re
@@ -18,17 +19,20 @@ Possible Conditions: [your analysis]
 Confidence Level: [number between 75-95]
 Care Recommendation: [your recommendation]
 
-FORMATTING RULES (CRITICAL):
-- Use ONLY plain text (no markdown, symbols, or special characters)
-- NO lists, bullet points, bold, italics, or brackets
-- NO headings, separators, or emojis
-- Use single newlines only (no extra spacing)
-- Answer briefly and clearly
+CRITICAL FORMATTING RULES:
+- NO asterisks (*) or double asterisks (**) anywhere in the response
+- NO markdown formatting of any kind
+- NO special characters or symbols
+- NO bullet points or lists
+- NO headers or separators
+- Use plain text only
+- Use single newlines between sections
+- Keep responses brief and clear
 
 DIAGNOSTIC APPROACH:
-- Primary Condition assessment (75-95% confidence based on certainty)
-- Alternative possibilities with explanations
-- Triage levels (mild/moderate/severe) based on symptoms
+1. Primary Condition assessment (75-95% confidence based on certainty)
+2. Alternative possibilities with explanations
+3. Triage levels (mild/moderate/severe) based on symptoms
 
 IMPORTANT RESTRICTIONS:
 - Do not provide a definitive diagnosis
@@ -114,3 +118,4 @@ def validate_ai_format(response):
             response = re.sub(r"Confidence Level:\s*\d+", f"Confidence Level: {confidence}", response)
     
     return response
+EOL
