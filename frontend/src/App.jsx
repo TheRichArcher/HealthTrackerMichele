@@ -13,10 +13,11 @@ import Report from './components/Report';
 import AuthPage from './components/AuthPage';
 import Navbar from './components/Navbar';
 import LoadingSpinner from './components/LoadingSpinner';
-import ProtectedRoute from './components/ProtectedRoute'; // Move to separate component
+import ProtectedRoute from './components/ProtectedRoute';
 
 // Styles
 import './styles/App.css';
+import './styles/Chat.css';
 
 // Main App Component
 const App = () => {
