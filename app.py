@@ -15,9 +15,11 @@ from backend.routes.extensions import db, bcrypt, migrate, cors
 load_dotenv()
 
 # Initialize Flask application
-app = Flask(__name__,
-            static_folder='static/dist',
-            static_url_path='')
+app = Flask(
+    __name__,
+    static_folder='backend/static/dist',
+    static_url_path=''
+)
 
 # Configure app before initializing extensions
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')
@@ -85,16 +87,27 @@ app.register_blueprint(library_routes, url_prefix='/api/library')
 # JWT error handlers
 @jwt.expired_token_loader
 def expired_token_callback(jwt_header, jwt_payload):
-    return jsonify({'status': 401, 'sub_status': 42, 'msg': 'Token has expired'}), 401
+    return jsonify({
+        'status': 401,
+        'sub_status': 42,
+        'msg': 'Token has expired'
+    }), 401
 
 @jwt.invalid_token_loader
 def invalid_token_callback(error):
-    return jsonify({'status': 401, 'sub_status': 43, 'msg': 'Invalid token'}), 401
+    return jsonify({
+        'status': 401,
+        'sub_status': 43,
+        'msg': 'Invalid token'
+    }), 401
 
 # Health Check Endpoint
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    return jsonify({'status': 'healthy', 'message': 'The server is running smoothly.'}), 200
+    return jsonify({
+        'status': 'healthy',
+        'message': 'The server is running smoothly.'
+    }), 200
 
 # User Signup Endpoint
 @app.route('/api/signup', methods=['POST'])
@@ -119,7 +132,10 @@ def signup():
         db.session.add(new_user)
         db.session.commit()
 
-        return jsonify({'message': 'User created successfully', 'user_id': new_user.id}), 201
+        return jsonify({
+            'message': 'User created successfully',
+            'user_id': new_user.id
+        }), 201
 
     except Exception as e:
         logger.error(f'Error creating user: {str(e)}')
