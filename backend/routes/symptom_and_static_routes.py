@@ -6,6 +6,7 @@ import logging
 import openai
 import os
 import re
+from backend.routes.openai_config import SYSTEM_PROMPT, clean_ai_response
 
 # Logger setup
 logger = logging.getLogger("symptom_routes")
@@ -23,16 +24,6 @@ def sanitize_input(text):
     text = re.sub(r'[^a-zA-Z0-9\s.,!?-]', '', text)
     # Limit length to 1000 characters
     return text[:1000]
-
-def format_ai_response(response_text):
-    """Format the AI response to remove markdown and structure the message properly."""
-    # Remove unwanted formatting
-    clean_text = re.sub(r'\*\*|Possible Conditions:|Confidence Level:|Care Recommendation:', '', response_text)
-    
-    # Normalize spaces and remove unnecessary newlines
-    clean_text = re.sub(r'\s+', ' ', clean_text).strip()
-    
-    return clean_text
 
 @symptom_routes.route("/", methods=["POST", "GET"])
 def symptoms():
@@ -144,26 +135,12 @@ def analyze_symptoms():
 
         try:
             client = openai.OpenAI(api_key=openai_api_key)
-            messages = [{
-                "role": "system",
-                "content": """You are Michele, a knowledgeable medical assistant. 
-Respond naturally and conversationally as if speaking directly to the patient.
-Focus on understanding their symptoms and asking relevant follow-up questions.
-
-Important guidelines:
-1. Start responses with phrases like "Based on what you've described..." or "I understand that..."
-2. Ask only one follow-up question at a time
-3. Keep responses direct and conversational
-4. Never use any special formatting or markdown
-5. Never use headers or labels
-6. Never mention confidence levels or care recommendations in your response
-7. Focus solely on understanding and discussing the symptoms
-
-Example response:
-"I understand you're experiencing [symptom]. Can you tell me how long this has been happening?"
-
-Remember: Always maintain a natural conversation flow without any special formatting."""
-            }]
+            messages = [
+                {
+                    "role": "system",
+                    "content": SYSTEM_PROMPT
+                }
+            ]
             messages.extend(conversation_history)
             messages.append({"role": "user", "content": symptoms})
 
@@ -174,54 +151,31 @@ Remember: Always maintain a natural conversation flow without any special format
                 max_tokens=750
             )
 
-            # Validate OpenAI response
+            # Validate OpenAI response with improved logging
             if not response.choices or not response.choices[0].message.content:
+                logger.error(f"Invalid OpenAI response: {response}")
                 raise ValueError("Invalid response from OpenAI")
 
-            # Log raw response for debugging
-            raw_response = response.choices[0].message.content
-            logger.info(f"Raw AI Response: {raw_response}")
-
-            # Clean and format the response
-            ai_response = format_ai_response(raw_response)
+            # Get and clean the AI response
+            ai_response = clean_ai_response(response.choices[0].message.content)
             triage_level = determine_triage_level(ai_response, symptoms)
 
-            # Enhanced confidence scoring with improved structure
-            response_lower = ai_response.lower()
-            confidence_levels = [
-                (["several possibilities", "could be various", "multiple conditions",
-                  "not enough information", "need more details", "unclear", 
-                  "can't be certain", "difficult to determine"], 65),
-
-                (["most likely", "probably", "suggests", "indicates", 
-                  "appears to be", "may be", "could be"], 80),
-
-                (["one main condition", "clear indication", "strongly suggests", 
-                  "very likely", "typical presentation of", "characteristic of", 
-                  "definitive signs", "consistent with"], 95),
-
-                (["clear, definitive diagnosis", "conclusive evidence", 
-                  "definitive presentation", "certain", "absolutely clear"], 98)
-            ]
-
-            confidence = 50  # Default
-            for phrases, score in confidence_levels:
-                if any(phrase in response_lower for phrase in phrases):
-                    confidence = score
-                    break  # Stop checking once the highest match is found
-
-            # Set reasonable fallback confidence with explicit logging
-            if confidence == 50:
+            # Determine confidence score
+            confidence = None  # Start with None to ensure explicit setting
+            if "clear diagnosis" in ai_response.lower():
+                confidence = 95
+                logger.info("Clear diagnosis detected - setting confidence to 95%")
+            elif "very likely" in ai_response.lower():
+                confidence = 90
+                logger.info("Very likely condition detected - setting confidence to 90%")
+            elif "most likely" in ai_response.lower():
+                confidence = 85
+                logger.info("Most likely condition detected - setting confidence to 85%")
+            else:
                 confidence = 75
-                logger.info("No confidence keywords matched. Setting default confidence to 75%.")
+                logger.info("No specific confidence phrases detected - defaulting to 75%")
 
-            # Enhanced logging with more response context
-            logger.info(
-                f"Analyzed symptoms: {symptoms[:50]}... "
-                f"AI Response: {ai_response[:100]}... "
-                f"Triage Level: {triage_level}, "
-                f"Confidence: {confidence}%"
-            )
+            logger.debug(f"Final confidence: {confidence}%. Response snippet: '{ai_response[:100]}'")
 
             return jsonify({
                 'possible_conditions': ai_response,
