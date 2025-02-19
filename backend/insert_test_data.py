@@ -1,7 +1,6 @@
 from app import app
-from backend.routes.extensions import db
+from backend.routes.extensions import db, bcrypt
 from backend.models import User, Symptom, SymptomLog, Report, HealthData
-import bcrypt
 from datetime import datetime
 
 with app.app_context():
@@ -12,36 +11,34 @@ with app.app_context():
             db.session.delete(existing_user)
             db.session.commit()
 
-        # Hash password
-        hashed_password = bcrypt.hashpw("testpassword".encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+        # Hash password using Flask Bcrypt
+        hashed_password = bcrypt.generate_password_hash("testpassword").decode("utf-8")
 
-        # Insert into 'users'
+        # Insert user
         user = User(username="testuser", password=hashed_password)
         db.session.add(user)
         db.session.commit()
 
-        # Insert into 'symptoms'
-        symptom = Symptom(
-            user_id=user.id,
-            name="Headache",
-            description="Severe pain in the head",
-            intensity="High",
-            onset_date=datetime.utcnow(),
-        )
+        # Insert symptom
+        symptom = Symptom(name="Headache", description="Severe pain in the head")
         db.session.add(symptom)
         db.session.commit()
 
-        # Insert into 'symptom_logs'
-        symptom_log = SymptomLog(user_id=user.id, symptom="Headache", severity="Moderate", notes="Started yesterday")
+        # Insert symptom log (corrected to use symptom_id)
+        symptom_log = SymptomLog(user_id=user.id, symptom_id=symptom.id, severity=3, notes="Started yesterday")
         db.session.add(symptom_log)
         db.session.commit()
 
-        # Insert into 'reports'
-        report = Report(user_id=user.id, symptoms="Headache", timeline="Past week")
+        # Insert report (corrected to include title & content)
+        report = Report(
+            user_id=user.id,
+            title="Headache Analysis",
+            content="Patient reported a headache for the past week.",
+        )
         db.session.add(report)
         db.session.commit()
 
-        # Insert into 'health_data'
+        # Insert health data
         health_data = HealthData(user_id=user.id, data_type="Blood Pressure", value="120/80")
         db.session.add(health_data)
         db.session.commit()

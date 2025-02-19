@@ -32,6 +32,28 @@ const Chat = () => {
         return () => clearTimeout(scrollTimeout);
     }, [messages]);
 
+    const parseAIResponse = (response) => {
+        const sections = {
+            possibleConditions: '',
+            confidenceLevel: 75,
+            careRecommendation: ''
+        };
+
+        // Parse each section
+        const matches = {
+            possibleConditions: response.match(/Possible Conditions:\s*(.*?)(?=\nConfidence Level:|$)/s),
+            confidenceLevel: response.match(/Confidence Level:\s*(\d+)/),
+            careRecommendation: response.match(/Care Recommendation:\s*(.*?)$/s)
+        };
+
+        // Extract values
+        sections.possibleConditions = matches.possibleConditions?.[1]?.trim() || '';
+        sections.confidenceLevel = parseInt(matches.confidenceLevel?.[1]) || 75;
+        sections.careRecommendation = matches.careRecommendation?.[1]?.trim() || '';
+
+        return sections;
+    };
+
     const handleSendMessage = async () => {
         if (!userInput.trim() || signupPrompt) return;
 
@@ -69,6 +91,8 @@ const Chat = () => {
         setTyping(true);
 
         try {
+            console.log("Sending request with user input:", userInput);
+            
             const response = await axios.post('https://healthtrackerai.pythonanywhere.com/api/symptoms/analyze', {
                 symptoms: userInput,
                 conversation_history: messages.map(msg => ({
@@ -77,21 +101,17 @@ const Chat = () => {
                 })).slice(1)
             });
 
+            console.log("Raw API Response:", response.data);
+
             const { possible_conditions, triage_level, confidence } = response.data;
-            
-            console.log("API Response:", {
-                message: possible_conditions,
-                triage: triage_level,
-                confidence: confidence
-            });
+            const parsedResponse = parseAIResponse(possible_conditions);
 
             setTimeout(() => {
-                console.log("Displaying Message:", {
-                    message: possible_conditions,
-                    triage: triage_level,
-                    confidence: confidence
-                });
-                typeMessage(possible_conditions, triage_level, confidence);
+                typeMessage(
+                    parsedResponse.possibleConditions,
+                    triage_level,
+                    parsedResponse.confidenceLevel
+                );
             }, THINKING_DELAY);
 
         } catch (error) {
@@ -109,27 +129,41 @@ const Chat = () => {
     };
 
     const typeMessage = (message, triage, confidence) => {
+        console.log("Message entering typeMessage:", message);
+        
+        // Clean the message of any remaining asterisks or markdown
+        const cleanMessage = message.replace(/\*\*/g, '').replace(/\*/g, '');
+        console.log("Cleaned message:", cleanMessage);
+        
         let index = 0;
         setTyping(false);
         
-        setMessages(prev => [...prev, { 
-            sender: 'bot', 
-            text: "",
-            triage: triage,
-            confidence: confidence
-        }]);
+        setMessages(prev => {
+            console.log("Setting initial empty message");
+            return [...prev, { 
+                sender: 'bot', 
+                text: "",
+                triage: triage,
+                confidence: confidence
+            }];
+        });
 
         const interval = setInterval(() => {
             setMessages(prev => {
                 const updatedMessages = [...prev];
                 const lastMessageIndex = updatedMessages.length - 1;
-                if (lastMessageIndex >= 0 && index < message.length) {
-                    updatedMessages[lastMessageIndex].text = message.slice(0, index + 1);
+                if (lastMessageIndex >= 0 && index < cleanMessage.length) {
+                    const currentText = cleanMessage.slice(0, index + 1);
+                    console.log("Current text being set:", currentText);
+                    updatedMessages[lastMessageIndex].text = currentText;
                 }
                 return updatedMessages;
             });
             index++;
-            if (index >= message.length) clearInterval(interval);
+            if (index >= cleanMessage.length) {
+                console.log("Finished typing message");
+                clearInterval(interval);
+            }
         }, TYPING_SPEED);
     };
 
@@ -176,8 +210,16 @@ const Chat = () => {
                         {msg.sender === 'bot' && msg.text && (
                             <div className="metrics-container">
                                 {typeof msg.confidence === "number" && !isNaN(msg.confidence) && (
-                                    <div className="confidence">
-                                        Confidence Level: {msg.confidence}%
+                                    <div className="confidence-meter">
+                                        <div className="confidence-label">
+                                            Confidence: {msg.confidence}%
+                                        </div>
+                                        <div className="confidence-bar">
+                                            <div 
+                                                className="confidence-fill"
+                                                style={{width: `${msg.confidence}%`}}
+                                            />
+                                        </div>
                                     </div>
                                 )}
                                 {msg.triage && (
