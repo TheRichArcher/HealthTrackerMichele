@@ -167,7 +167,7 @@ def analyze_symptoms() -> tuple[Any, int]:
         ai_response = clean_ai_response(raw_response)
         triage_level = determine_triage_level(ai_response, symptoms)
 
-        confidence_match = re.search(f"{ResponseSection.CONFIDENCE}\s*(\d+)", ai_response)
+        confidence_match = re.search(fr"{ResponseSection.CONFIDENCE}\s*(\d+)", ai_response)
         confidence = int(confidence_match.group(1)) if confidence_match else DEFAULT_CONFIDENCE
 
         return jsonify({
