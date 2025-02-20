@@ -1,3 +1,5 @@
+/* frontend/src/styles/index.css */
+
 /* General Styles */
 body {
     font-family: 'Source Sans Pro', sans-serif;
@@ -86,7 +88,7 @@ input, textarea {
     margin-top: 20px;
 }
 
-/* User & Bot Messages */
+/* User Messages */
 .user-message {
     background-color: #f1f1f1;
     padding: 10px;
@@ -94,29 +96,38 @@ input, textarea {
     border-radius: 5px;
 }
 
-/* Prevent index.css from overriding Chat.css */
+/* 🔥 FIX: Removed bot-message styling to avoid conflicts with Chat.css */
 .bot-message {
-    background-color: #d1e7dd;
-    padding: 10px;
-    margin-bottom: 10px;
-    border-radius: 5px;
+    all: unset !important; /* Ensures no interference */
 }
 
-/* Explicitly ensure bot-message styles do not interfere with Chat.css */
-.chat-container .message.bot {
-    background-color: inherit !important;
+/* 🛑 Completely remove global overrides affecting .message.bot */
+.chat-container .message.bot,
+.chat-container .message.bot .metrics-container,
+.chat-container .message.bot .confidence-label,
+.chat-container .message.bot .care-recommendation {
+    all: unset !important;
+}
+
+/* ✅ Prevent unwanted global interference */
+.chat-container .message.bot * {
+    background: unset !important;
+    color: unset !important;
+    padding: unset !important;
+    border: unset !important;
+}
+
+/* 🔧 Ensure Chat.css fully controls bot messages */
+.message.bot {
+    background: inherit !important;
     color: inherit !important;
     border-radius: inherit !important;
     padding: inherit !important;
     margin: inherit !important;
 }
 
-/* Prevent global styles from affecting specific chat structures */
-.chat-container .message.bot .metrics-container,
-.chat-container .message.bot .confidence-label,
-.chat-container .message.bot .care-recommendation {
-    background: inherit !important;
-    color: inherit !important;
-    padding: inherit !important;
-    border: none !important;
+/* ✅ Final safeguard to prevent conflicts */
+.chat-container .message.bot .metrics-container {
+    display: inherit !important;
+    flex-direction: inherit !important;
 }

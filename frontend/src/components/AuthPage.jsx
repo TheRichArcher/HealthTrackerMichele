@@ -22,13 +22,13 @@ const AuthPage = () => {
 
     const from = location.state?.from?.pathname || '/dashboard';
 
-    // Clear error when input changes
+    // Reset error message on input change
     const handleInputChange = useCallback((setter) => (e) => {
         setError(null);
         setter(e.target.value.trim());
     }, []);
 
-    // Validate inputs
+    // Validate input fields
     const validateInputs = useCallback(() => {
         if (username.length < MIN_USERNAME_LENGTH) {
             setError(`Username must be at least ${MIN_USERNAME_LENGTH} characters long.`);
@@ -41,12 +41,12 @@ const AuthPage = () => {
         return true;
     }, [username, password]);
 
-    // Toggle login/signup mode
+    // Toggle between login and signup
     const toggleMode = useCallback(() => {
-        setIsLogin(!isLogin);
+        setIsLogin((prev) => !prev);
         setError(null);
         setMessage('');
-    }, [isLogin]);
+    }, []);
 
     // Handle form submission
     const handleSubmit = useCallback(async (e) => {
@@ -54,9 +54,7 @@ const AuthPage = () => {
         setError(null);
         setMessage('');
 
-        if (!validateInputs()) {
-            return;
-        }
+        if (!validateInputs()) return;
 
         setIsLoading(true);
         const endpoint = isLogin ? 'login' : 'signup';
@@ -81,9 +79,7 @@ const AuthPage = () => {
 
             await checkAuth();
 
-            setTimeout(() => {
-                navigate(from, { replace: true });
-            }, 1000);
+            setTimeout(() => navigate(from, { replace: true }), 1000);
         } catch (error) {
             console.error(`${isLogin ? 'Login' : 'Signup'} error:`, error);
             setError(error.message);
@@ -93,7 +89,7 @@ const AuthPage = () => {
         }
     }, [isLogin, username, password, validateInputs, checkAuth, navigate, from]);
 
-    // Handle loading state
+    // Show loading spinner after a short delay
     useEffect(() => {
         let timer;
         if (isLoading) {
@@ -134,13 +130,13 @@ const AuthPage = () => {
                     {error && <p className="auth-error">{error}</p>}
                     {message && <p className="auth-success">{message}</p>}
                     <button type="submit" className="auth-button" disabled={isLoading}>
-                        {showLoading ? "Processing..." : isLogin ? "Sign In" : "Sign Up"}
+                        {showLoading ? 'Processing...' : isLogin ? 'Sign In' : 'Sign Up'}
                     </button>
                 </form>
                 <p className="auth-toggle">
                     {isLogin ? "Don't have an account? " : "Already have an account? "}
                     <button onClick={toggleMode} className="auth-toggle-button" disabled={isLoading}>
-                        {isLogin ? "Sign Up" : "Sign In"}
+                        {isLogin ? 'Sign Up' : 'Sign In'}
                     </button>
                 </p>
             </div>

@@ -83,8 +83,8 @@
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
-/* Bot message styling */
-.message-bot {
+/* ✅ Renamed from .message-bot to .message-global-bot to prevent conflicts */
+.message-global-bot {
     align-self: flex-start;
     background: #f0f4f8;
     color: #2c3e50;
@@ -92,8 +92,8 @@
     padding: 10px;
 }
 
-/* Styling for bot response sections */
-.message-bot .metrics-container {
+/* ✅ Also updated child selectors */
+.message-global-bot .metrics-container {
     margin-top: 10px;
     padding: 10px;
     border-top: 1px solid rgba(0, 0, 0, 0.1);
@@ -234,7 +234,7 @@
     }
 
     .message-user,
-    .message-bot {
+    .message-global-bot {
         max-width: 90%;
     }
 
@@ -264,7 +264,7 @@
         color: white;
     }
 
-    .message-bot {
+    .message-global-bot {
         background: #333;
         color: #ddd;
     }
