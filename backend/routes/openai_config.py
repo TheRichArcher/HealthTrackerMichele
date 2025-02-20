@@ -128,7 +128,7 @@ def validate_ai_format(response: str) -> str:
 
     # Ensure proper spacing after section labels
     for section in required_sections:
-        response = re.sub(f"{section}(?!\s)", f"{section} ", response)
+        response = re.sub(fr"{section}(?!\s)", f"{section} ", response)
     
     # Handle confidence level
     confidence_match = re.search(r"Confidence Level:\s*(\d+)", response)
