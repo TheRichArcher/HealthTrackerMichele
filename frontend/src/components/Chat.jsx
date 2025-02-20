@@ -1,147 +1,227 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import PropTypes from 'prop-types';
 import axios from 'axios';
 import '../styles/Chat.css';
 
-const DEBUG_MODE = true;
-const MAX_FREE_MESSAGES = 15;
-const TYPING_SPEED = 30;
-const THINKING_DELAY = 1000;
-const DEFAULT_CONFIDENCE = 75;
-const MIN_CONFIDENCE = 50;
+// Constants
+const CONFIG = {
+    DEBUG_MODE: true,
+    MAX_FREE_MESSAGES: 15,
+    TYPING_SPEED: 30,
+    THINKING_DELAY: 1000,
+    DEFAULT_CONFIDENCE: 75,
+    MIN_CONFIDENCE: 50,
+    MAX_CONFIDENCE: 95,
+    API_URL: 'https://healthtrackerai.pythonanywhere.com/api/symptoms/analyze'
+};
+
+// Message type definitions
+const MessageType = {
+    USER: 'user',
+    BOT: 'bot'
+};
+
+const TriageLevel = {
+    MILD: 'mild',
+    MODERATE: 'moderate',
+    SEVERE: 'severe'
+};
+
+// Initial bot message
+const WELCOME_MESSAGE = {
+    sender: MessageType.BOT,
+    text: "Hi, I'm Michele—your AI medical assistant. Think of me as that doctor you absolutely trust, here to listen, guide, and help you make sense of your symptoms. While I can't replace a real doctor, I can give you insights, ask the right questions, and help you feel more in control of your health. So, tell me—what's going on today?",
+    confidence: null,
+    careRecommendation: null
+};
 
 const Chat = () => {
-    const [messages, setMessages] = useState([
-        { 
-            sender: 'bot', 
-            text: "Hi, I'm Michele—your AI medical assistant. Think of me as that doctor you absolutely trust, here to listen, guide, and help you make sense of your symptoms. While I can't replace a real doctor, I can give you insights, ask the right questions, and help you feel more in control of your health. So, tell me—what's going on today?",
-            confidence: null,
-            careRecommendation: null
-        }
-    ]);
+    // State management
+    const [messages, setMessages] = useState([WELCOME_MESSAGE]);
     const [userInput, setUserInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [messageCount, setMessageCount] = useState(0);
     const [signupPrompt, setSignupPrompt] = useState(false);
     const [typing, setTyping] = useState(false);
+    const [error, setError] = useState(null);
+    
+    // Refs
     const messagesEndRef = useRef(null);
+    const abortControllerRef = useRef(null);
 
-    const scrollToBottom = () => {
+    // Auto-scrolling
+    const scrollToBottom = useCallback(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    };
+    }, []);
 
     useEffect(() => {
-        const scrollTimeout = setTimeout(() => scrollToBottom(), 100);
+        const scrollTimeout = setTimeout(scrollToBottom, 100);
         return () => clearTimeout(scrollTimeout);
-    }, [messages]);
+    }, [messages, scrollToBottom]);
 
-    const cleanText = (text) => {
+    // Text cleaning utilities
+    const cleanText = useCallback((text) => {
         if (!text) return '';
-        return text
-            .replace(/\*\*/g, '')  
-            .replace(/\*/g, '')     
-            .replace(/`/g, '')      
-            .replace(/#/g, '')      
-            .replace(/\n\s*-\s*/g, '\n') 
-            .replace(/\[\]/g, '')   
-            .trim();
-    };
+        
+        const cleaningSteps = [
+            [/\*\*([^*]+)\*\*/g, '$1'],  // Remove **bold** but keep content
+            [/\*([^*]+)\*/g, '$1'],       // Remove *italic* but keep content
+            [/`([^`]+)`/g, '$1'],         // Remove `code` but keep content
+            [/#\s*/g, ''],                // Remove markdown headers
+            [/^\s*[-•]\s*/gm, ''],        // Remove bullet points at start of lines
+            [/\n\s*[-•]\s*/g, '\n'],      // Remove bullet points after newlines
+            [/\[\]/g, ''],                // Remove empty brackets
+            [/\s+/g, ' ']                 // Normalize whitespace
+        ];
 
-    const parseAIResponse = (response) => {
-        if (!response) return { possibleConditions: '', confidenceLevel: DEFAULT_CONFIDENCE, careRecommendation: '' };
+        return cleaningSteps.reduce(
+            (text, [pattern, replacement]) => text.replace(pattern, replacement),
+            text
+        ).trim();
+    }, []);
+
+    // Response parsing
+    const parseAIResponse = useCallback((response) => {
+        if (!response) {
+            return {
+                possibleConditions: '',
+                confidenceLevel: CONFIG.DEFAULT_CONFIDENCE,
+                careRecommendation: TriageLevel.MODERATE
+            };
+        }
 
         const cleanedResponse = cleanText(response);
         
+        // Extract sections using more reliable patterns
         const sections = {
             possibleConditions: '',
-            confidenceLevel: DEFAULT_CONFIDENCE,
-            careRecommendation: ''
+            confidenceLevel: CONFIG.DEFAULT_CONFIDENCE,
+            careRecommendation: TriageLevel.MODERATE
         };
 
-        const matches = {
-            possibleConditions: cleanedResponse.match(/Possible Conditions:\s*(.*?)(?=\nConfidence Level:|$)/s),
-            confidenceLevel: cleanedResponse.match(/Confidence Level:\s*(\d+)/),
-            careRecommendation: cleanedResponse.match(/Care Recommendation:\s*(.*?)$/s)
-        };
+        try {
+            // Extract possible conditions
+            const conditionsMatch = cleanedResponse.match(
+                /Possible Conditions:\s*(.*?)(?=\nConfidence Level:|$)/s
+            );
+            sections.possibleConditions = cleanText(conditionsMatch?.[1] || '');
 
-        sections.possibleConditions = cleanText(matches.possibleConditions?.[1] || '');
-        sections.confidenceLevel = Math.max(
-            MIN_CONFIDENCE,
-            parseInt(matches.confidenceLevel?.[1]) || DEFAULT_CONFIDENCE
-        );
-        sections.careRecommendation = cleanText(matches.careRecommendation?.[1] || '');
+            // Extract confidence level
+            const confidenceMatch = cleanedResponse.match(/Confidence Level:\s*(\d+)/);
+            sections.confidenceLevel = Math.min(
+                Math.max(
+                    CONFIG.MIN_CONFIDENCE,
+                    parseInt(confidenceMatch?.[1]) || CONFIG.DEFAULT_CONFIDENCE
+                ),
+                CONFIG.MAX_CONFIDENCE
+            );
+
+            // Extract care recommendation
+            const careMatch = cleanedResponse.match(/Care Recommendation:\s*(.*?)(?=\n|$)/s);
+            sections.careRecommendation = cleanText(careMatch?.[1] || TriageLevel.MODERATE);
+
+        } catch (error) {
+            console.error('Error parsing AI response:', error);
+        }
 
         return sections;
-    };
+    }, [cleanText]);
 
+    // Message handling
     const handleSendMessage = async () => {
-        if (!userInput.trim() || signupPrompt) return;
+        if (!userInput.trim() || signupPrompt || loading) return;
 
         const newMessageCount = messageCount + 1;
         setMessageCount(newMessageCount);
+        setError(null);
 
-        setMessages(prev => [...prev, { 
-            sender: 'user', 
-            text: userInput,
+        // Add user message
+        const userMessage = {
+            sender: MessageType.USER,
+            text: userInput.trim(),
             confidence: null,
             careRecommendation: null
-        }]);
+        };
+        
+        setMessages(prev => [...prev, userMessage]);
         setUserInput('');
         setLoading(true);
         setTyping(true);
 
-        if (newMessageCount >= MAX_FREE_MESSAGES) {
-            setSignupPrompt(true);
-            setMessages(prev => [...prev, { 
-                sender: 'bot', 
-                text: "You've reached the free message limit. Sign up to continue!",
-                confidence: null,
-                careRecommendation: null
-            }]);
-            setLoading(false);
-            setTyping(false);
+        // Check message limit
+        if (newMessageCount >= CONFIG.MAX_FREE_MESSAGES) {
+            handleFreeMessageLimit();
             return;
         }
 
+        // Create new abort controller
+        abortControllerRef.current = new AbortController();
+
         try {
-            const response = await axios.post('https://healthtrackerai.pythonanywhere.com/api/symptoms/analyze', {
-                symptoms: userInput,
-                conversation_history: messages.map(msg => ({
-                    role: msg.sender === 'user' ? 'user' : 'assistant',
-                    content: msg.text
-                })).slice(1)
-            });
+            const response = await axios.post(
+                CONFIG.API_URL,
+                {
+                    symptoms: userMessage.text,
+                    conversation_history: messages
+                        .map(msg => ({
+                            role: msg.sender === MessageType.USER ? 'user' : 'assistant',
+                            content: msg.text
+                        }))
+                        .slice(1)
+                },
+                {
+                    signal: abortControllerRef.current.signal,
+                    timeout: 10000
+                }
+            );
 
             const { possible_conditions, triage_level, confidence } = response.data;
             const parsedResponse = parseAIResponse(possible_conditions);
 
             setTimeout(() => {
-                typeMessage(
+                addBotMessage(
                     parsedResponse.possibleConditions,
-                    triage_level || parsedResponse.careRecommendation || "moderate",
-                    confidence ?? parsedResponse.confidenceLevel ?? MIN_CONFIDENCE
+                    triage_level || parsedResponse.careRecommendation,
+                    confidence ?? parsedResponse.confidenceLevel
                 );
-            }, THINKING_DELAY);
+            }, CONFIG.THINKING_DELAY);
 
         } catch (error) {
-            setTimeout(() => {
-                typeMessage(
-                    "Sorry, I couldn't process your request. Please try again.",
-                    "moderate",
-                    MIN_CONFIDENCE
-                );
-            }, THINKING_DELAY);
-        } finally {
-            setLoading(false);
+            if (!axios.isCancel(error)) {
+                handleError(error);
+            }
         }
     };
 
-    const typeMessage = (message, triage, confidence) => {
-        const cleanMessage = cleanText(message);
+    // Helper functions
+    const handleFreeMessageLimit = () => {
+        setSignupPrompt(true);
+        addBotMessage(
+            "You've reached the free message limit. Sign up to continue!",
+            TriageLevel.MODERATE,
+            CONFIG.MIN_CONFIDENCE
+        );
+    };
+
+    const handleError = (error) => {
+        console.error('Chat error:', error);
+        const errorMessage = "Sorry, I couldn't process your request. Please try again.";
+        addBotMessage(errorMessage, TriageLevel.MODERATE, CONFIG.MIN_CONFIDENCE);
+        setError(errorMessage);
+    };
+
+    const addBotMessage = (text, triage, confidence) => {
         setTyping(false);
+        setLoading(false);
         
         setMessages(prev => [
             ...prev,
-            { sender: 'bot', text: cleanMessage, confidence, careRecommendation: triage }
+            {
+                sender: MessageType.BOT,
+                text: cleanText(text),
+                confidence,
+                careRecommendation: triage
+            }
         ]);
     };
 
@@ -151,6 +231,76 @@ const Chat = () => {
             handleSendMessage();
         }
     };
+
+    // Cleanup
+    useEffect(() => {
+        return () => {
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+            }
+        };
+    }, []);
+
+    // Render methods
+    const renderMessage = (msg, index) => (
+        <div key={index} className={`message ${msg.sender}`}>
+            <div className="message-content">
+                <p>{msg.text}</p>
+                {(msg.confidence !== null || msg.careRecommendation) && (
+                    <>
+                        <hr className="divider" />
+                        <div className="response-metrics">
+                            {msg.confidence !== null && (
+                                <span className="confidence-badge">
+                                    Confidence: {msg.confidence}%
+                                </span>
+                            )}
+                            {msg.careRecommendation && (
+                                <span className="care-badge">
+                                    Care Recommendation: {msg.careRecommendation}
+                                </span>
+                            )}
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+
+    const renderInput = () => (
+        !signupPrompt ? (
+            <>
+                <textarea
+                    className="chat-input"
+                    value={userInput}
+                    onChange={(e) => setUserInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Describe your symptoms..."
+                    disabled={loading}
+                    aria-label="Symptom description input"
+                />
+                <button 
+                    className="send-button"
+                    onClick={handleSendMessage} 
+                    disabled={loading || !userInput.trim()}
+                    aria-label="Send message"
+                >
+                    {loading ? 'Sending...' : 'Send'}
+                </button>
+            </>
+        ) : (
+            <div className="signup-prompt">
+                <p>You've reached the free message limit.</p>
+                <button 
+                    className="signup-button" 
+                    onClick={() => window.location.href = '/auth'}
+                    aria-label="Sign up to continue"
+                >
+                    Sign up to continue
+                </button>
+            </div>
+        )
+    );
 
     return (
         <div className="chat-container">
@@ -163,60 +313,37 @@ const Chat = () => {
             </div>
 
             <div className="messages-container">
-                {messages.map((msg, index) => (
-                    <div key={index} className={`message ${msg.sender}`}>
-                        <div className="message-content">
-                            <p>{msg.text}</p>
-                            <hr className="divider" />
-                            <div className="response-metrics">
-                                {msg.confidence !== null && (
-                                    <span className="confidence-badge">
-                                        Confidence: {msg.confidence}%
-                                    </span>
-                                )}
-                                {msg.careRecommendation && (
-                                    <span className="care-badge">
-                                        Care Recommendation: {msg.careRecommendation}
-                                    </span>
-                                )}
-                            </div>
-                        </div>
+                {messages.map(renderMessage)}
+                {typing && (
+                    <div className="typing-indicator">
+                        HealthTracker AI is typing...
                     </div>
-                ))}
-                {typing && <div className="typing-indicator">HealthTracker AI is typing...</div>}
+                )}
+                {error && (
+                    <div className="error-message">
+                        {error}
+                    </div>
+                )}
                 <div ref={messagesEndRef} />
             </div>
 
             <div className="input-container">
-                {!signupPrompt ? (
-                    <>
-                        <textarea
-                            className="chat-input"
-                            value={userInput}
-                            onChange={(e) => setUserInput(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            placeholder="Describe your symptoms..."
-                            disabled={loading}
-                        />
-                        <button 
-                            className="send-button"
-                            onClick={handleSendMessage} 
-                            disabled={loading || !userInput.trim()}
-                        >
-                            {loading ? 'Sending...' : 'Send'}
-                        </button>
-                    </>
-                ) : (
-                    <div className="signup-prompt">
-                        <p>You've reached the free message limit.</p>
-                        <button className="signup-button" onClick={() => window.location.href = '/auth'}>
-                            Sign up to continue
-                        </button>
-                    </div>
-                )}
+                {renderInput()}
             </div>
         </div>
     );
+};
+
+Chat.propTypes = {
+    maxFreeMessages: PropTypes.number,
+    apiUrl: PropTypes.string,
+    debug: PropTypes.bool
+};
+
+Chat.defaultProps = {
+    maxFreeMessages: CONFIG.MAX_FREE_MESSAGES,
+    apiUrl: CONFIG.API_URL,
+    debug: CONFIG.DEBUG_MODE
 };
 
 export default Chat;

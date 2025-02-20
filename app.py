@@ -70,7 +70,7 @@ with app.app_context():
         raise
 
 # Import and register blueprints
-from backend.routes.symptom_and_static_routes import symptom_routes
+from backend.routes.symptom_routes import symptom_routes
 from backend.routes.health_data_routes import health_data_routes
 from backend.routes.report_routes import report_routes
 from backend.routes.user_routes import user_routes
