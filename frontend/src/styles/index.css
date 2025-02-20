@@ -1,3 +1,4 @@
+/* General Styles */
 body {
     font-family: 'Source Sans Pro', sans-serif;
     margin: 0;
@@ -5,12 +6,14 @@ body {
     box-sizing: border-box;
 }
 
+/* App Container */
 .app-container {
     max-width: 1200px;
     margin: 0 auto;
     padding: 20px;
 }
 
+/* Navbar */
 .navbar {
     background-color: #4CAF50;
     padding: 10px 20px;
@@ -41,11 +44,13 @@ body {
     text-decoration: underline;
 }
 
+/* Error Messages */
 .error {
     color: red;
     font-weight: bold;
 }
 
+/* Buttons */
 button {
     background-color: #4CAF50;
     color: white;
@@ -54,6 +59,11 @@ button {
     border-radius: 5px;
     cursor: pointer;
     font-size: 16px;
+    transition: background-color 0.2s ease-in-out;
+}
+
+button:hover:not(:disabled) {
+    background-color: #388E3C;
 }
 
 button:disabled {
@@ -61,6 +71,7 @@ button:disabled {
     cursor: not-allowed;
 }
 
+/* Inputs & Textareas */
 input, textarea {
     width: 100%;
     padding: 10px;
@@ -70,10 +81,12 @@ input, textarea {
     font-size: 16px;
 }
 
+/* Conversation Log */
 .conversation-log {
     margin-top: 20px;
 }
 
+/* User & Bot Messages */
 .user-message {
     background-color: #f1f1f1;
     padding: 10px;
@@ -81,9 +94,29 @@ input, textarea {
     border-radius: 5px;
 }
 
+/* Prevent index.css from overriding Chat.css */
 .bot-message {
     background-color: #d1e7dd;
     padding: 10px;
     margin-bottom: 10px;
     border-radius: 5px;
+}
+
+/* Explicitly ensure bot-message styles do not interfere with Chat.css */
+.chat-container .message.bot {
+    background-color: inherit !important;
+    color: inherit !important;
+    border-radius: inherit !important;
+    padding: inherit !important;
+    margin: inherit !important;
+}
+
+/* Prevent global styles from affecting specific chat structures */
+.chat-container .message.bot .metrics-container,
+.chat-container .message.bot .confidence-label,
+.chat-container .message.bot .care-recommendation {
+    background: inherit !important;
+    color: inherit !important;
+    padding: inherit !important;
+    border: none !important;
 }

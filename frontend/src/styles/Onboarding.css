@@ -1,3 +1,5 @@
+/* frontend/src/styles/Onboarding.css */
+
 .onboarding-container {
   max-width: 1200px;
   margin: 0 auto;
@@ -29,7 +31,8 @@
   border-radius: 4px;
 }
 
-.message.bot {
+/* 🚀 Renamed .message.bot to .message.onboarding-bot to prevent conflicts */
+.message.onboarding-bot {
   background-color: #f0f4f8;
 }
 
@@ -95,6 +98,24 @@ button:disabled {
   margin-top: 1rem;
 }
 
+/* ✅ Ensuring Chat Styles Don’t Interfere with Onboarding */
+.onboarding-chat-container .message {
+  font-size: 1rem;
+  line-height: 1.4;
+  padding: 1rem;
+}
+
+.onboarding-chat-container .message.onboarding-bot {
+  background: #e0e7ff; /* Light blue for bot messages */
+  color: #1c3d5a;
+}
+
+.onboarding-chat-container .message.user {
+  background: #d1f7c4; /* Light green for user messages */
+  color: #1a3e2d;
+}
+
+/* Responsive Design */
 @media (max-width: 768px) {
   .onboarding-container {
     grid-template-columns: 1fr;

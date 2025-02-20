@@ -8,13 +8,13 @@ const Onboarding = () => {
   const navigate = useNavigate();
   const chatRef = useRef(null);
   const [messages, setMessages] = useState([
-    { role: 'bot', content: "Welcome to HealthTrackerAI! What brings you into the office today?" },
+    { sender: 'bot', text: "Welcome to HealthTrackerAI! What brings you into the office today?" }
   ]);
   const [input, setInput] = useState("");
   const [vitals, setVitals] = useState({
     age: "", weight: "", height: "", temperature: "", heartRate: "",
     respiratoryRate: "", oxygenSaturation: "", waistCircumference: "",
-    symptoms: "", medications: "",
+    symptoms: "", medications: ""
   });
   const [unitSystem, setUnitSystem] = useState("Imperial");
   const [error, setError] = useState(null);
@@ -24,7 +24,7 @@ const Onboarding = () => {
 
   useEffect(() => {
     if (!userId) {
-      navigate('/auth');  // ✅ Fixed: Changed from '/login' to '/auth'
+      navigate('/auth');
     }
   }, [userId, navigate]);
 
@@ -33,7 +33,7 @@ const Onboarding = () => {
   }, [messages]);
 
   const toggleUnitSystem = () => {
-    setUnitSystem(prevUnit => prevUnit === "Imperial" ? "Metric" : "Imperial");
+    setUnitSystem(prevUnit => (prevUnit === "Imperial" ? "Metric" : "Imperial"));
   };
 
   const sendMessage = async () => {
@@ -41,7 +41,7 @@ const Onboarding = () => {
       setError("Please enter a valid message.");
       return;
     }
-    setMessages(prev => [...prev, { role: 'user', content: input }]);
+    setMessages(prev => [...prev, { sender: 'user', text: input }]);
     setIsLoading(true);
     setError(null);
 
@@ -50,7 +50,7 @@ const Onboarding = () => {
         'https://healthtrackerai.pythonanywhere.com/api/onboarding',
         { user_id: userId, initial_symptom: input }
       );
-      setMessages(prev => [...prev, { role: 'bot', content: response.data.response }]);
+      setMessages(prev => [...prev, { sender: 'bot', text: response.data.response }]);
     } catch (err) {
       console.error("Error:", err);
       setError("An error occurred while sending your message. Please try again.");
@@ -66,19 +66,21 @@ const Onboarding = () => {
   };
 
   const submitVitals = async () => {
-    const { age, weight, height, temperature, heartRate, respiratoryRate, oxygenSaturation, waistCircumference, symptoms, medications } = vitals;
-    if (!age || !weight || !height || !temperature || !heartRate || !symptoms || !medications) {
-      setError("Please fill in all required fields before submitting.");
-      return;
+    const requiredFields = ["age", "weight", "height", "temperature", "heartRate", "symptoms", "medications"];
+    for (const field of requiredFields) {
+      if (!vitals[field]) {
+        setError("Please fill in all required fields before submitting.");
+        return;
+      }
     }
 
     setError(null);
     try {
-      const response = await axios.post(
+      await axios.post(
         'https://healthtrackerai.pythonanywhere.com/api/vitals',
         { user_id: userId, ...vitals }
       );
-      setMessages(prev => [...prev, { role: 'bot', content: "Vitals submitted successfully!" }]);
+      setMessages(prev => [...prev, { sender: 'bot', text: "Vitals submitted successfully!" }]);
     } catch (err) {
       console.error("Error submitting vitals:", err);
       setError("An error occurred while submitting your vitals. Please try again.");
@@ -91,8 +93,8 @@ const Onboarding = () => {
         <h2>Chat with HealthTrackerAI</h2>
         <div className="messages">
           {messages.map((msg, index) => (
-            <div key={index} ref={chatRef} className={msg.role === 'bot' ? 'message bot' : 'message user'}>
-              <strong>{msg.role === 'bot' ? 'Bot:' : 'You:'}</strong> {msg.content}
+            <div key={index} ref={chatRef} className={`message ${msg.sender}`}>
+              <strong>{msg.sender === 'bot' ? 'Bot:' : 'You:'}</strong> {msg.text}
             </div>
           ))}
         </div>
@@ -118,16 +120,16 @@ const Onboarding = () => {
         </button>
         <form>
           <div className="vitals-grid">
-            <input type="number" name="age" placeholder="Age" value={vitals.age} onChange={handleVitalsChange} />
-            <input type="number" name="weight" placeholder={`Weight (${unitSystem === "Imperial" ? "lbs" : "kg"})`} value={vitals.weight} onChange={handleVitalsChange} />
-            <input type="text" name="height" placeholder={`Height (${unitSystem === "Imperial" ? "ft/in" : "cm"})`} value={vitals.height} onChange={handleVitalsChange} />
-            <input type="number" name="temperature" placeholder={`Temperature (${unitSystem === "Imperial" ? "°F" : "°C"})`} value={vitals.temperature} onChange={handleVitalsChange} />
-            <input type="number" name="heartRate" placeholder="Heart Rate (BPM)" value={vitals.heartRate} onChange={handleVitalsChange} />
-            <input type="number" name="respiratoryRate" placeholder="Respiratory Rate (breaths/min)" value={vitals.respiratoryRate} onChange={handleVitalsChange} />
-            <input type="number" name="oxygenSaturation" placeholder="Oxygen Saturation (%)" value={vitals.oxygenSaturation} onChange={handleVitalsChange} />
-            <input type="number" name="waistCircumference" placeholder={`Waist Circumference (${unitSystem === "Imperial" ? "in" : "cm"})`} value={vitals.waistCircumference} onChange={handleVitalsChange} />
-            <input type="text" name="symptoms" placeholder="Symptoms" value={vitals.symptoms} onChange={handleVitalsChange} />
-            <input type="text" name="medications" placeholder="Medications" value={vitals.medications} onChange={handleVitalsChange} />
+            {Object.entries(vitals).map(([key, value]) => (
+              <input
+                key={key}
+                type="text"
+                name={key}
+                placeholder={key.charAt(0).toUpperCase() + key.slice(1)}
+                value={value}
+                onChange={handleVitalsChange}
+              />
+            ))}
           </div>
           <button type="button" onClick={submitVitals}>Submit Vitals</button>
         </form>
