@@ -10,6 +10,7 @@ from backend.routes.openai_config import SYSTEM_PROMPT, clean_ai_response
 
 # Logger setup
 logger = logging.getLogger("symptom_routes")
+logger.setLevel(logging.DEBUG)  # Enable debug logging
 
 # Blueprint setup
 symptom_routes = Blueprint("symptom_routes", __name__)
@@ -144,6 +145,8 @@ def analyze_symptoms():
             messages.extend(conversation_history)
             messages.append({"role": "user", "content": symptoms})
 
+            logger.debug("🚀 Sending request to OpenAI with messages: %s", messages)
+
             response = client.chat.completions.create(
                 model="gpt-4-turbo-preview",
                 messages=messages,
@@ -156,32 +159,47 @@ def analyze_symptoms():
                 logger.error(f"Invalid OpenAI response: {response}")
                 raise ValueError("Invalid response from OpenAI")
 
-            # Get and clean the AI response
-            ai_response = clean_ai_response(response.choices[0].message.content)
-            triage_level = determine_triage_level(ai_response, symptoms)
+            # Log raw response for debugging
+            raw_response = response.choices[0].message.content
+            logger.debug("📝 Raw OpenAI response: %s", raw_response)
 
-            # Determine confidence score
-            confidence = None  # Start with None to ensure explicit setting
+            # Clean the response and log the result
+            ai_response = clean_ai_response(raw_response)
+            logger.debug("🧹 Cleaned response: %s", ai_response)
+
+            # Double-check for any remaining asterisks
+            if '*' in ai_response:
+                logger.warning("⚠️ Asterisks found after cleaning: %s", ai_response)
+                ai_response = ai_response.replace('*', '')
+                logger.debug("🔄 Response after asterisk removal: %s", ai_response)
+
+            triage_level = determine_triage_level(ai_response, symptoms)
+            logger.debug("🏥 Determined triage level: %s", triage_level)
+
+            # Determine confidence score with improved logging
+            confidence = None
             if "clear diagnosis" in ai_response.lower():
                 confidence = 95
-                logger.info("Clear diagnosis detected - setting confidence to 95%")
+                logger.debug("💯 Clear diagnosis - confidence: 95%")
             elif "very likely" in ai_response.lower():
                 confidence = 90
-                logger.info("Very likely condition detected - setting confidence to 90%")
+                logger.debug("📈 Very likely - confidence: 90%")
             elif "most likely" in ai_response.lower():
                 confidence = 85
-                logger.info("Most likely condition detected - setting confidence to 85%")
+                logger.debug("📊 Most likely - confidence: 85%")
             else:
                 confidence = 75
-                logger.info("No specific confidence phrases detected - defaulting to 75%")
+                logger.debug("📉 Default confidence: 75%")
 
-            logger.debug(f"Final confidence: {confidence}%. Response snippet: '{ai_response[:100]}'")
-
-            return jsonify({
+            # Final response check
+            final_response = {
                 'possible_conditions': ai_response,
                 'triage_level': triage_level,
                 'confidence': confidence
-            })
+            }
+            logger.debug("📤 Sending final response: %s", final_response)
+
+            return jsonify(final_response)
 
         except openai.APIError as e:
             logger.error(f"OpenAI API Error: {e}")
