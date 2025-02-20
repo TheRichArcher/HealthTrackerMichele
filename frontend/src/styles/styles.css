@@ -83,7 +83,7 @@
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
-/* ✅ Renamed from .message-bot to .message-global-bot to prevent conflicts */
+/* ✅ Renamed from .message-global-bot to .message-global-bot to prevent conflicts */
 .message-global-bot {
     align-self: flex-start;
     background: #f0f4f8;
