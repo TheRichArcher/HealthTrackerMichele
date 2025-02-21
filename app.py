@@ -17,8 +17,8 @@ load_dotenv()
 # Initialize Flask application
 app = Flask(
     __name__,
-    static_folder='backend/static/dist',
-    static_url_path=''
+    static_folder=os.path.abspath('backend/static/dist'),  # Ensure absolute path
+    static_url_path='/static'
 )
 
 # Configure app before initializing extensions
