@@ -1,180 +1,231 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HealthTracker AI</title>
+from flask import Blueprint, request, jsonify, send_from_directory
+from backend.routes.extensions import db
+from backend.models import SymptomLog
+from datetime import datetime
+import logging
+import openai
+import os
+import re
+from backend.routes.openai_config import SYSTEM_PROMPT, clean_ai_response
 
-    <!-- Open Graph Meta Tags -->
-    <meta property="og:title" content="HealthTracker AI">
-    <meta property="og:description" content="AI Medical Assistant">
-    <meta property="og:type" content="website">
-    <meta property="og:image" content="/public/doctor-avatar.png">
+# Logger setup
+logger = logging.getLogger("symptom_routes")
+logger.setLevel(logging.DEBUG)  # Enable debug logging
 
-    <!-- Favicon -->
-    <link rel="icon" href="/assets/doctor-avatar-5e717cbe.png" type="image/png">
+# Blueprint setup
+symptom_routes = Blueprint("symptom_routes", __name__)
 
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-gray-50">
-    <!-- Navigation Bar -->
-    <nav class="bg-white shadow-sm fixed top-0 left-0 right-0 z-50">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex justify-between h-16 items-center">
-                <a href="/" class="text-2xl font-bold text-blue-600">HealthTracker AI</a>
-                <div class="flex items-center space-x-4">
-                    <a href="/" class="text-gray-600 hover:text-blue-600">Chat</a>
-                    <a href="/auth" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors">
-                        Sign In
-                    </a>
-                </div>
-            </div>
-        </div>
-    </nav>
+def sanitize_input(text):
+    """Sanitize user input by removing excess whitespace and special characters."""
+    if not isinstance(text, str):
+        return ""
+    # Remove excess whitespace
+    text = " ".join(text.split())
+    # Remove special characters except basic punctuation
+    text = re.sub(r'[^a-zA-Z0-9\s.,!?-]', '', text)
+    # Limit length to 1000 characters
+    return text[:1000]
 
-    <!-- Chat Interface -->
-    <div class="max-w-4xl mx-auto mt-20 px-4 pb-8">
-        <div class="bg-[#282c34] rounded-lg shadow-lg overflow-hidden">
-            <!-- Chat Header -->
-            <div class="p-4 flex items-center justify-between">
-                <div class="flex items-center space-x-3">
-                    <div class="w-10 h-10 bg-gray-300 rounded-full overflow-hidden">
-                        <img 
-                            src="/assets/doctor-avatar-5e717cbe.png" 
-                            alt="Michele - AI Medical Assistant" 
-                            class="w-full h-full object-cover"
-                            onerror="this.src='https://via.placeholder.com/40?text=AI'"
-                        >
-                    </div>
-                    <div>
-                        <h2 class="text-white font-semibold">HealthTracker AI</h2>
-                        <p class="text-gray-400 text-sm">AI Medical Assistant</p>
-                    </div>
-                </div>
-                <div class="text-gray-400 text-sm text-right max-w-[200px] sm:max-w-none">
-                    For informational purposes only. Not a substitute for professional medical advice.
-                </div>
-            </div>
+@symptom_routes.route("/", methods=["POST", "GET"])
+def symptoms():
+    """Handle symptom logging and retrieval."""
+    if request.method == "POST":
+        try:
+            data = request.get_json()
+            user_id = data.get("user_id")
+            symptom_name = sanitize_input(data.get("symptom", "")).lower()
+            notes = sanitize_input(data.get("notes", ""))
 
-            <!-- Chat Messages -->
-            <div class="bg-gray-50 p-4 sm:p-6">
-                <div id="chat-box" class="space-y-4 min-h-[300px] max-h-[500px] overflow-y-auto">
-                    <div class="bg-white rounded-lg p-4 shadow-sm">
-                        <p class="text-gray-800 text-lg">
-                            Hi, I'm Michele—your AI medical assistant. Think of me as that doctor you absolutely trust, here to listen, guide, and help you make sense of your symptoms. While I can't replace a real doctor, I can give you insights, ask the right questions, and help you feel more in control of your health. So, tell me—what's going on today?
-                        </p>
-                    </div>
-                </div>
-            </div>
+            if not user_id or not symptom_name:
+                return jsonify({"error": "User ID and symptom name are required."}), 400
 
-            <!-- Chat Input -->
-            <div class="p-4 bg-gray-100">
-                <form id="chat-form" class="flex items-start space-x-4">
-                    <textarea 
-                        id="chat-input"
-                        class="flex-1 border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none min-h-[80px]"
-                        placeholder="Describe your symptoms..."
-                        rows="3"
-                        maxlength="1000"
-                    ></textarea>
-                    <button 
-                        type="submit"
-                        id="send-button"
-                        class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed h-[80px]"
-                    >
-                        Send
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
+            new_log = SymptomLog(
+                user_id=user_id,
+                symptom=symptom_name,
+                notes=notes,
+                date=datetime.utcnow(),
+            )
+            db.session.add(new_log)
+            db.session.commit()
 
-    <script>
-        document.addEventListener("DOMContentLoaded", function () {
-            const form = document.getElementById("chat-form");
-            const input = document.getElementById("chat-input");
-            const sendButton = document.getElementById("send-button");
-            const chatBox = document.getElementById("chat-box");
-
-            if (!form || !input || !sendButton || !chatBox) {
-                console.error("Chat elements not found.");
-                return;
-            }
-
-            form.addEventListener("submit", function (e) {
-                e.preventDefault();
-                handleSend();
-            });
-
-            input.addEventListener("keydown", function (e) {
-                if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSend();
+            logger.info(f"Symptom logged: {symptom_name} (User {user_id})")
+            return jsonify({
+                "message": "Symptom logged successfully.",
+                "logged_symptom": {
+                    "id": new_log.id,
+                    "symptom": new_log.symptom,
+                    "notes": new_log.notes,
+                    "date": new_log.date.strftime("%Y-%m-%d %H:%M:%S"),
                 }
-            });
+            }), 201
 
-            async function handleSend() {
-                const message = input.value.trim();
-                if (!message || input.disabled) return;
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error logging symptom: {e}")
+            return jsonify({"error": "Failed to log symptom."}), 500
 
-                setLoadingState(true);
-                appendMessage("user", message);
+    # GET method
+    try:
+        symptoms = SymptomLog.query.all()
+        return jsonify({
+            "symptoms": [{
+                "id": log.id,
+                "user_id": log.user_id,
+                "symptom": log.symptom,
+                "notes": log.notes,
+                "date": log.date.strftime("%Y-%m-%d %H:%M:%S")
+            } for log in symptoms]
+        }), 200
+    except Exception as e:
+        logger.error(f"Error retrieving symptoms: {e}")
+        return jsonify({"error": "Failed to retrieve symptoms"}), 500
 
-                try {
-                    const response = await fetch("https://healthtrackerai.pythonanywhere.com/api/symptoms/analyze", {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                        },
-                        body: JSON.stringify({ symptoms: message })
-                    });
+def determine_triage_level(ai_response, symptoms):
+    """Determine appropriate triage level based on symptoms and AI response."""
+    response_lower = ai_response.lower()
+    symptoms_lower = symptoms.lower()
 
-                    if (!response.ok) throw new Error("API request failed");
+    # Emergency conditions that require immediate attention
+    emergency_terms = [
+        "chest pain", "difficulty breathing", "shortness of breath",
+        "severe allergic reaction", "anaphylaxis", "unconscious",
+        "stroke", "heart attack", "severe bleeding", "head injury"
+    ]
+    if any(term in response_lower for term in emergency_terms):
+        return "severe"
 
-                    const data = await response.json();
-                    const confidenceLevel = data.confidence_level ? `${data.confidence_level}%` : "Unknown";
+    # Mild conditions that can typically be managed at home
+    mild_conditions = [
+        ('allergy', ['cat', 'dust', 'pollen', 'sneez']),
+        ('cold', ['runny nose', 'sore throat', 'cough']),
+        ('minor', ['headache', 'muscle ache']),
+        ('common', ['tired', 'fatigue'])
+    ]
 
-                    let careRecommendation = "Please consult a professional if needed.";
-                    if (data.health_guidance) {
-                        if (data.health_guidance.toLowerCase() === "mild") {
-                            careRecommendation = "You can likely manage this at home.";
-                        } else if (data.health_guidance.toLowerCase() === "moderate") {
-                            careRecommendation = "Consider seeing a doctor soon.";
-                        } else if (data.health_guidance.toLowerCase() === "severe") {
-                            careRecommendation = "You should seek urgent care.";
-                        }
-                    }
+    for condition, symptoms_list in mild_conditions:
+        if condition in symptoms_lower or any(s in symptoms_lower for s in symptoms_list):
+            if not any(emergency in response_lower for emergency in emergency_terms):
+                return "mild"
 
-                    appendMessage("bot", `
-                        **Possible Conditions:** ${data.possible_conditions || "Unknown"}  
-                        **Confidence Level:** ${confidenceLevel}  
-                        **Care Recommendation:** ${careRecommendation}
-                    `);
-                } catch (error) {
-                    console.error("Error:", error);
-                    appendMessage("bot", "⚠️ Error connecting to the AI. Please try again.");
-                } finally {
-                    setLoadingState(false);
-                    input.value = "";
+    return "moderate"
+
+@symptom_routes.route("/analyze", methods=["POST"])
+def analyze_symptoms():
+    """Handle AI analysis of symptoms."""
+    try:
+        data = request.get_json()
+        symptoms = sanitize_input(data.get('symptoms', ''))
+        conversation_history = data.get('conversation_history', [])
+
+        if not symptoms:
+            return jsonify({
+                'possible_conditions': "Please describe your symptoms.",
+                'triage_level': 'moderate',
+                'confidence': 50
+            }), 400
+
+        # Validate OpenAI API key
+        openai_api_key = os.getenv('OPENAI_API_KEY')
+        if not openai_api_key:
+            logger.error("OpenAI API key is missing")
+            return jsonify({
+                'possible_conditions': "AI service is temporarily unavailable.",
+                'triage_level': 'moderate',
+                'confidence': 50
+            }), 503
+
+        try:
+            client = openai.OpenAI(api_key=openai_api_key)
+            messages = [
+                {
+                    "role": "system",
+                    "content": SYSTEM_PROMPT
                 }
-            }
+            ]
+            messages.extend(conversation_history)
+            messages.append({"role": "user", "content": symptoms})
 
-            function setLoadingState(isLoading) {
-                input.disabled = isLoading;
-                sendButton.disabled = isLoading;
-                sendButton.textContent = isLoading ? "Sending..." : "Send";
-                if (!isLoading) input.focus();
-            }
+            logger.debug("🚀 Sending request to OpenAI with messages: %s", messages)
 
-            function appendMessage(sender, text) {
-                const messageDiv = document.createElement("div");
-                messageDiv.className = `max-w-[80%] ${sender === "user" ? "ml-auto" : "mr-auto"} p-3 rounded-lg ${sender === "user" ? "bg-blue-600 text-white" : "bg-white shadow-sm"}`;
-                messageDiv.innerHTML = text.replace(/\n/g, "<br>");
-                chatBox.appendChild(messageDiv);
-                chatBox.scrollTo({ top: chatBox.scrollHeight, behavior: "smooth" });
+            response = client.chat.completions.create(
+                model="gpt-4-turbo-preview",
+                messages=messages,
+                temperature=0.7,
+                max_tokens=750
+            )
+
+            # Validate OpenAI response with improved logging
+            if not response.choices or not response.choices[0].message.content:
+                logger.error(f"Invalid OpenAI response: {response}")
+                raise ValueError("Invalid response from OpenAI")
+
+            # Log raw response for debugging
+            raw_response = response.choices[0].message.content
+            logger.debug("📝 Raw OpenAI response: %s", raw_response)
+
+            # Clean the response and log the result
+            ai_response = clean_ai_response(raw_response)
+            logger.debug("🧹 Cleaned response: %s", ai_response)
+
+            # Double-check for any remaining asterisks
+            if '*' in ai_response:
+                logger.warning("⚠️ Asterisks found after cleaning: %s", ai_response)
+                ai_response = ai_response.replace('*', '')
+                logger.debug("🔄 Response after asterisk removal: %s", ai_response)
+
+            triage_level = determine_triage_level(ai_response, symptoms)
+            logger.debug("🏥 Determined triage level: %s", triage_level)
+
+            # Determine confidence score with improved logging
+            confidence = None
+            if "clear diagnosis" in ai_response.lower():
+                confidence = 95
+                logger.debug("💯 Clear diagnosis - confidence: 95%")
+            elif "very likely" in ai_response.lower():
+                confidence = 90
+                logger.debug("📈 Very likely - confidence: 90%")
+            elif "most likely" in ai_response.lower():
+                confidence = 85
+                logger.debug("📊 Most likely - confidence: 85%")
+            else:
+                confidence = 75
+                logger.debug("📉 Default confidence: 75%")
+
+            # Final response check
+            final_response = {
+                'possible_conditions': ai_response,
+                'triage_level': triage_level,
+                'confidence': confidence
             }
-        });
-    </script>
-</body>
-</html>
+            logger.debug("📤 Sending final response: %s", final_response)
+
+            return jsonify(final_response)
+
+        except openai.APIError as e:
+            logger.error(f"OpenAI API Error: {e}")
+            return jsonify({
+                'possible_conditions': "AI service is temporarily unavailable.",
+                'triage_level': 'moderate',
+                'confidence': 50
+            }), 503
+
+    except Exception as e:
+        logger.error(f'Error analyzing symptoms: {e}')
+        return jsonify({
+            'possible_conditions': "I apologize, but I'm having trouble processing your request right now. Please try again or seek medical attention if you're concerned about your symptoms.",
+            'triage_level': 'moderate',
+            'confidence': 50
+        }), 500
+
+@symptom_routes.route('/<path:filename>')
+def serve_static(filename):
+    """Serve static files."""
+    static_folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static', 'dist')
+
+    # Validate file exists before serving
+    file_path = os.path.join(static_folder, filename)
+    if not os.path.exists(file_path):
+        logger.error(f"Static file not found: {filename}")
+        return jsonify({"error": "File not found"}), 404
+
+    return send_from_directory(static_folder, filename)
