@@ -12,7 +12,7 @@ const CONFIG = {
     DEFAULT_CONFIDENCE: 75,
     MIN_CONFIDENCE: 50,
     MAX_CONFIDENCE: 95,
-    API_URL: 'https://healthtrackerai.pythonanywhere.com/api/symptoms/analyze'
+    API_URL: 'https://healthtrackermichele.onrender.com/api/symptoms/analyze'
 };
 
 // Message type definitions
