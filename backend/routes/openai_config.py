@@ -2,7 +2,7 @@ import re
 import logging
 from typing import Dict, List, Optional
 
-# Set up logging with more detailed format
+# Set up logging with detailed format
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
@@ -57,28 +57,28 @@ class ResponseSection:
 
 def clean_ai_response(response: Optional[str]) -> str:
     """
-    Remove all formatting and clean up whitespace in AI responses.
-    
+    Clean AI response and enforce structured format.
+
     Args:
         response (str): Raw response from OpenAI
-        
+
     Returns:
-        str: Cleaned and validated response
+        str: Cleaned and properly formatted response
     """
     if not response:
         logger.warning("Received empty response")
         return create_default_response()
-    
+
     logger.debug("Original AI response: %s", response)
-    
-    # Define cleaning patterns with their purposes
+
+    # Define cleaning patterns
     patterns: List[tuple] = [
         (r'\*\*([^*]+)\*\*', r'\1'),  # Remove **bold**
         (r'\*([^*]+)\*', r'\1'),      # Remove *italic*
         (r'_([^_]+)_', r'\1'),        # Remove _italic_
         (r'`([^`]+)`', r'\1'),        # Remove `code`
         (r'#\s*', ''),                # Remove markdown headers
-        (r'^\s*[-•]\s*', ''),         # Remove bullet points at start of lines
+        (r'^\s*[-•]\s*', ''),         # Remove bullet points
         (r'\n\s*[-•]\s*', '\n'),      # Remove bullet points after newlines
         (r'[\[\]]+', ''),             # Remove square brackets
         (r'\s+', ' '),                # Normalize all whitespace
@@ -86,31 +86,31 @@ def clean_ai_response(response: Optional[str]) -> str:
 
     cleaned = response
     for pattern, replacement in patterns:
-        before_cleaning = cleaned
         cleaned = re.sub(pattern, replacement, cleaned)
-        if before_cleaning != cleaned:
-            logger.debug("Applied pattern %s", pattern)
 
-    # Normalize whitespace more aggressively
+    # Strip unnecessary content before "Possible Conditions:"
+    if "Possible Conditions:" in cleaned:
+        cleaned = cleaned.split("Possible Conditions:", 1)[-1]
+        cleaned = "Possible Conditions: " + cleaned.strip()
+
+    # Normalize newlines
     cleaned = re.sub(r'\n\s*\n', '\n', cleaned)  # Remove empty lines
     cleaned = re.sub(r' *\n *', '\n', cleaned)   # Clean up around newlines
     cleaned = cleaned.strip()
 
-    logger.debug("After initial cleaning: %s", cleaned)
-    
-    # Validate and ensure required format
+    # Ensure response follows the correct format
     cleaned = validate_ai_format(cleaned)
-    
-    logger.debug("Final formatted response: %s", cleaned)
+
+    logger.debug("Final cleaned response: %s", cleaned)
     return cleaned
 
 def validate_ai_format(response: str) -> str:
     """
     Ensure AI response follows the expected format and contains all required sections.
-    
+
     Args:
         response (str): Cleaned response string
-        
+
     Returns:
         str: Validated and properly formatted response
     """
@@ -119,7 +119,7 @@ def validate_ai_format(response: str) -> str:
         ResponseSection.CONFIDENCE: str(DEFAULT_CONFIDENCE),
         ResponseSection.CARE: "moderate"
     }
-    
+
     # Check for missing sections
     for section, default_value in required_sections.items():
         if section not in response:
@@ -129,7 +129,7 @@ def validate_ai_format(response: str) -> str:
     # Ensure proper spacing after section labels
     for section in required_sections:
         response = re.sub(fr"{section}(?!\s)", f"{section} ", response)
-    
+
     # Handle confidence level
     confidence_match = re.search(r"Confidence Level:\s*(\d+)", response)
     if not confidence_match:
@@ -141,7 +141,7 @@ def validate_ai_format(response: str) -> str:
             logger.warning("Confidence %d out of range [%d-%d]", confidence, MIN_CONFIDENCE, MAX_CONFIDENCE)
             confidence = max(MIN_CONFIDENCE, min(MAX_CONFIDENCE, confidence))
             response = re.sub(r"Confidence Level:\s*\d+", f"Confidence Level: {confidence}", response)
-    
+
     return response
 
 def create_default_response() -> str:
