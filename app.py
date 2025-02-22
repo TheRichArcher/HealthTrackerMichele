@@ -1,7 +1,5 @@
 import os
 import logging
-import socket
-import subprocess
 from datetime import timedelta
 from flask import Flask, jsonify, request, send_from_directory
 from dotenv import load_dotenv
@@ -17,11 +15,11 @@ load_dotenv()
 # Initialize Flask application
 app = Flask(
     __name__,
-    static_folder=os.path.abspath('backend/static/dist'),  # Ensure absolute path
-    static_url_path='/static'
+    static_folder=os.path.abspath('backend/static/dist'),
+    static_url_path=''  # Serve static files from root
 )
 
-# Configure app before initializing extensions
+# Configure app
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(seconds=int(os.getenv('JWT_ACCESS_TOKEN_EXPIRES', 3600)))
 app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(seconds=int(os.getenv('JWT_REFRESH_TOKEN_EXPIRES', 2592000)))
@@ -37,12 +35,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Database Configuration - Ensure PostgreSQL Compatibility
+# Database Configuration
 DATABASE_URL = os.getenv('DATABASE_URL')
 if not DATABASE_URL:
     raise RuntimeError("❌ DATABASE_URL is missing! Set it in Render or the .env file.")
 
-# Convert Render's database URL format if needed
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
 
@@ -87,27 +84,16 @@ app.register_blueprint(library_routes, url_prefix='/api/library')
 # JWT error handlers
 @jwt.expired_token_loader
 def expired_token_callback(jwt_header, jwt_payload):
-    return jsonify({
-        'status': 401,
-        'sub_status': 42,
-        'msg': 'Token has expired'
-    }), 401
+    return jsonify({'status': 401, 'sub_status': 42, 'msg': 'Token has expired'}), 401
 
 @jwt.invalid_token_loader
 def invalid_token_callback(error):
-    return jsonify({
-        'status': 401,
-        'sub_status': 43,
-        'msg': 'Invalid token'
-    }), 401
+    return jsonify({'status': 401, 'sub_status': 43, 'msg': 'Invalid token'}), 401
 
 # Health Check Endpoint
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    return jsonify({
-        'status': 'healthy',
-        'message': 'The server is running smoothly.'
-    }), 200
+    return jsonify({'status': 'healthy', 'message': 'The server is running smoothly.'}), 200
 
 # User Signup Endpoint
 @app.route('/api/signup', methods=['POST'])
@@ -132,10 +118,7 @@ def signup():
         db.session.add(new_user)
         db.session.commit()
 
-        return jsonify({
-            'message': 'User created successfully',
-            'user_id': new_user.id
-        }), 201
+        return jsonify({'message': 'User created successfully', 'user_id': new_user.id}), 201
 
     except Exception as e:
         logger.error(f'Error creating user: {str(e)}')
@@ -148,57 +131,21 @@ def signup():
 def serve(path):
     if path.startswith('api/'):
         return {'error': 'Not Found'}, 404
-    
-    # Add logging to debug static file serving
-    logger.info(f"Serving path: {path}")
-    logger.info(f"Static folder: {app.static_folder}")
-    
-    if not os.path.exists(app.static_folder):
-        logger.error(f"Static folder does not exist: {app.static_folder}")
-        return {'error': 'Static folder not found'}, 500
-        
-    if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
+
+    if path and os.path.exists(os.path.join(app.static_folder, path)):
         return send_from_directory(app.static_folder, path)
-    
-    index_path = os.path.join(app.static_folder, 'index.html')
-    if not os.path.exists(index_path):
-        logger.error(f"index.html not found at: {index_path}")
-        return {'error': 'index.html not found'}, 500
-        
-    return send_from_directory(app.static_folder, 'index.html')
 
-# Find an available port
-def find_available_port(starting_port=5001):
-    current_port = starting_port
-    while current_port < 65535:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            if sock.connect_ex(('127.0.0.1', current_port)) != 0:
-                return current_port
-            current_port += 1
-    raise RuntimeError('No available ports found')
-
-# Kill any existing Flask process
-def kill_existing_flask():
     try:
-        output = subprocess.check_output(['pgrep', '-f', 'python.*app.py'], text=True).strip()
-        if output:
-            for pid in output.split('\n'):
-                try:
-                    subprocess.run(['kill', '-9', pid], check=True)
-                    logger.info(f'Killed existing Flask process: {pid}')
-                except subprocess.SubprocessError as e:
-                    logger.warning(f'Failed to kill process {pid}: {e}')
-    except subprocess.SubprocessError:
-        logger.info('No existing Flask process found')
+        return send_from_directory(app.static_folder, 'index.html')
+    except Exception as e:
+        logger.error(f"Error serving index.html: {str(e)}")
+        return jsonify({'error': 'Failed to serve application'}), 500
 
 # WSGI application
 application = app
 
 # Run Flask application
 if __name__ == '__main__':
-    logger.info('Starting Flask application...')
-    kill_existing_flask()
-    port = find_available_port(5001)
-    os.environ['FLASK_RUN_PORT'] = str(port)
+    port = int(os.getenv('PORT', 5000))
     logger.info(f'Starting server on port {port}')
-    app.run(host=os.getenv('HOST', '0.0.0.0'), port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=False)
