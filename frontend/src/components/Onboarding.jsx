@@ -44,6 +44,7 @@ const Onboarding = () => {
     const [error, setError] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
     const [submitSuccess, setSubmitSuccess] = useState(false);
+    const [confidenceScore, setConfidenceScore] = useState(0);
 
     const userId = getLocalStorageItem("user_id");
 
@@ -77,11 +78,19 @@ const Onboarding = () => {
         setError(null);
 
         try {
+            const previousAnswers = messages
+                .filter(msg => msg.sender === 'user')
+                .map(msg => msg.text)
+                .join('. ');
+
             const response = await axios.post(
-                `${API_BASE_URL}/onboarding`,
+                `${API_BASE_URL}/onboarding/`,
                 { 
                     user_id: userId, 
-                    initial_symptom: input 
+                    initial_symptom: input,
+                    previous_answers: previousAnswers,
+                    question_count: messages.filter(msg => msg.sender === 'bot').length,
+                    confidence_score: confidenceScore
                 },
                 {
                     headers: {
@@ -89,7 +98,22 @@ const Onboarding = () => {
                     }
                 }
             );
-            setMessages(prev => [...prev, { sender: 'bot', text: response.data.response }]);
+
+            if (response.data.next_question) {
+                setMessages(prev => [...prev, { 
+                    sender: 'bot', 
+                    text: response.data.next_question 
+                }]);
+                
+                if (response.data.confidence_score) {
+                    setConfidenceScore(response.data.confidence_score);
+                }
+
+                if (response.data.logged_symptom) {
+                    console.log('Symptom logged:', response.data.logged_symptom);
+                }
+            }
+
         } catch (err) {
             console.error("Error:", err);
             setError("An error occurred while sending your message. Please try again.");

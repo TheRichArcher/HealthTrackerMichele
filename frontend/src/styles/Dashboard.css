@@ -1,0 +1,174 @@
+/* Dashboard.css */
+
+.dashboard-container {
+    max-width: 1200px;  /* Match other container widths */
+    margin: 2rem auto;
+    padding: var(--spacing-lg, 20px);
+    background: var(--background-light, #fff);
+    border-radius: var(--radius-lg, 8px);
+    box-shadow: var(--shadow-sm, 0 2px 4px rgba(0, 0, 0, 0.1));
+}
+
+.dashboard-title {
+    color: var(--text-primary, #2c3e50);
+    font-size: var(--font-size-xl, 24px);
+    margin-bottom: var(--spacing-lg, 20px);
+    text-align: center;
+}
+
+.loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-lg, 20px);
+}
+
+.spinner {
+    border: 4px solid var(--border-light, rgba(0, 0, 0, 0.1));
+    border-left-color: var(--primary, #007bff);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.error-container {
+    background-color: var(--error-bg, #f8d7da);
+    color: var(--error-text, #721c24);
+    padding: var(--spacing-md, 10px);
+    border-radius: var(--radius-md, 5px);
+    margin-top: var(--spacing-md, 10px);
+    border: 1px solid var(--error-border, #f5c6cb);
+}
+
+.retry-button {
+    background-color: var(--error, #dc3545);
+    color: var(--text-light, #fff);
+    border: none;
+    padding: var(--spacing-md, 10px) var(--spacing-lg, 20px);
+    cursor: pointer;
+    border-radius: var(--radius-md, 5px);
+    margin-top: var(--spacing-md, 10px);
+    transition: background-color 0.2s ease;
+}
+
+.retry-button:hover {
+    background-color: var(--error-dark, #c82333);
+}
+
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--overlay, rgba(0, 0, 0, 0.5));
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: var(--z-modal, 1000);
+}
+
+.modal-content {
+    background: var(--background-light, #fff);
+    padding: var(--spacing-xl, 30px);
+    border-radius: var(--radius-lg, 8px);
+    text-align: center;
+    max-width: 90%;
+    width: 400px;
+    box-shadow: var(--shadow-lg, 0 4px 6px rgba(0, 0, 0, 0.1));
+}
+
+.modal-buttons {
+    display: flex;
+    justify-content: center;
+    gap: var(--spacing-md, 10px);
+    margin-top: var(--spacing-lg, 20px);
+}
+
+.action-button {
+    background-color: var(--primary, #007bff);
+    color: var(--text-light, #fff);
+    border: none;
+    padding: var(--spacing-md, 10px) var(--spacing-lg, 20px);
+    border-radius: var(--radius-md, 5px);
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    font-weight: var(--font-weight-medium, 500);
+}
+
+.action-button:hover {
+    background-color: var(--primary-dark, #0056b3);
+}
+
+.logout-button {
+    background-color: var(--error, #dc3545);
+}
+
+.logout-button:hover {
+    background-color: var(--error-dark, #c82333);
+}
+
+.cancel-button {
+    background-color: var(--gray-light, #e9ecef);
+    color: var(--text-dark, #343a40);
+}
+
+.cancel-button:hover {
+    background-color: var(--gray, #dee2e6);
+}
+
+.welcome-section {
+    margin-bottom: var(--spacing-xl, 30px);
+    padding: var(--spacing-lg, 20px);
+    background: var(--background-alt, #f8f9fa);
+    border-radius: var(--radius-lg, 8px);
+}
+
+.button-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--spacing-md, 10px);
+    margin-top: var(--spacing-lg, 20px);
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .dashboard-container {
+        background: var(--background-dark, #1a1a1a);
+    }
+
+    .modal-content {
+        background: var(--background-dark, #1a1a1a);
+        color: var(--text-light, #fff);
+    }
+
+    .cancel-button {
+        background-color: var(--gray-dark, #343a40);
+        color: var(--text-light, #fff);
+    }
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .dashboard-container {
+        margin: var(--spacing-md, 10px);
+        padding: var(--spacing-md, 10px);
+    }
+
+    .button-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .modal-content {
+        width: 95%;
+        padding: var(--spacing-lg, 20px);
+    }
+}
