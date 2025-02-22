@@ -3,7 +3,6 @@ import axios from 'axios';
 import PropTypes from 'prop-types';
 import '../styles/Chat.css';
 
-// Configuration constants
 const CONFIG = {
     MAX_FREE_MESSAGES: 15,
     TYPING_SPEED: 30,
@@ -15,8 +14,8 @@ const CONFIG = {
 const WELCOME_MESSAGE = {
     sender: 'bot',
     text: "Hi, I'm Michele—your AI medical assistant. Think of me as that doctor you absolutely trust, here to listen, guide, and help you make sense of your symptoms. While I can't replace a real doctor, I can give you insights, ask the right questions, and help you feel more in control of your health. So, tell me—what's going on today?",
-    triage: null,
-    confidence: null
+    confidence: null,
+    careRecommendation: null
 };
 
 const Chat = () => {
@@ -48,14 +47,14 @@ const Chat = () => {
         };
     }, []);
 
-    const typeMessage = (message, triage, confidence) => {
+    const typeMessage = (message, confidence, careRecommendation) => {
         let index = 0;
         setTyping(false);
         setMessages(prev => [...prev, {
             sender: 'bot',
             text: "",
-            triage: triage,
-            confidence: confidence
+            confidence,
+            careRecommendation
         }]);
 
         const interval = setInterval(() => {
@@ -79,39 +78,27 @@ const Chat = () => {
         setMessageCount(newMessageCount);
         setError(null);
 
-        // Check message limit
-        if (newMessageCount >= CONFIG.MAX_FREE_MESSAGES - 3 && newMessageCount < CONFIG.MAX_FREE_MESSAGES) {
-            setMessages(prev => [...prev, {
-                sender: 'bot',
-                text: `You have ${CONFIG.MAX_FREE_MESSAGES - newMessageCount} free messages left before signing up.`,
-                triage: null,
-                confidence: null
-            }]);
-        }
-
         if (newMessageCount >= CONFIG.MAX_FREE_MESSAGES) {
             setSignupPrompt(true);
             setMessages(prev => [...prev, {
                 sender: 'bot',
                 text: "You've reached the free message limit. Sign up to continue!",
-                triage: null,
-                confidence: null
+                confidence: null,
+                careRecommendation: null
             }]);
             return;
         }
 
-        // Add user message
         setMessages(prev => [...prev, {
             sender: 'user',
             text: userInput.trim(),
-            triage: null,
-            confidence: null
+            confidence: null,
+            careRecommendation: null
         }]);
         setUserInput('');
         setLoading(true);
         setTyping(true);
 
-        // Create new abort controller
         abortControllerRef.current = new AbortController();
 
         try {
@@ -132,21 +119,26 @@ const Chat = () => {
                 }
             );
 
-            const botResponse = response.data.possible_conditions || "I apologize, but I couldn't process that properly.";
-            const triageLevel = response.data.triage_level || "moderate";
-            const confidenceScore = response.data.confidence || 85;
-
+            const { possible_conditions, triage_level, confidence } = response.data;
+            
+            // Format the response as a conversational message
+            const botResponse = possible_conditions || "I need more information to help you better. Could you tell me more about your symptoms?";
+            
             setTimeout(() => {
-                typeMessage(botResponse, triageLevel, confidenceScore);
+                typeMessage(
+                    botResponse,
+                    confidence || null,
+                    triage_level || null
+                );
             }, CONFIG.THINKING_DELAY);
 
         } catch (error) {
             if (!axios.isCancel(error)) {
                 console.error("API error:", error);
-                const errorMessage = "I apologize, but I'm having trouble processing your request. Please try again.";
+                const errorMessage = "I apologize, but I'm having trouble processing your request. Could you try rephrasing that?";
                 setError(errorMessage);
                 setTimeout(() => {
-                    typeMessage(errorMessage, "moderate", null);
+                    typeMessage(errorMessage, null, null);
                 }, CONFIG.THINKING_DELAY);
             }
         } finally {
@@ -161,15 +153,16 @@ const Chat = () => {
         }
     };
 
-    const getCareRecommendation = (triage) => {
-        switch(triage) {
+    const getCareRecommendation = (level) => {
+        switch(level) {
             case 'mild':
-                return "You can likely manage this at home.";
+                return "You can likely manage this at home";
             case 'severe':
-                return "You should seek urgent care.";
+                return "You should seek urgent care";
             case 'moderate':
+                return "Consider seeing a doctor soon";
             default:
-                return "Consider seeing a doctor soon.";
+                return null;
         }
     };
 
@@ -178,8 +171,8 @@ const Chat = () => {
             <div className="chat-header">
                 <div className="chat-header-left">
                     <img
-                        src="/michele-avatar.png"
-                        alt="Michele"
+                        src="/doctor-avatar.png"
+                        alt="Dr. Michele"
                         className="chat-avatar"
                         onError={(e) => {
                             e.target.onerror = null;
@@ -200,47 +193,45 @@ const Chat = () => {
                 {messages.map((msg, index) => (
                     <div key={index} className={`message ${msg.sender}`}>
                         <div className="message-content">{msg.text}</div>
-                        {(msg.confidence || msg.triage) && (
+                        {(msg.confidence || msg.careRecommendation) && (
                             <div className="metrics-container">
                                 {msg.confidence && (
                                     <div className="confidence">
                                         Confidence: {msg.confidence}%
                                     </div>
                                 )}
-                                {msg.triage && (
-                                    <div className={`care-recommendation ${msg.triage.toLowerCase()}`}>
-                                        Care Recommendation: {getCareRecommendation(msg.triage)}
+                                {msg.careRecommendation && (
+                                    <div className={`care-recommendation ${msg.careRecommendation}`}>
+                                        {getCareRecommendation(msg.careRecommendation)}
                                     </div>
                                 )}
                             </div>
                         )}
                     </div>
                 ))}
-                {typing && <div className="typing-indicator">HealthTracker AI is typing...</div>}
+                {typing && <div className="typing-indicator">Michele is typing...</div>}
                 {error && <div className="error-message">{error}</div>}
                 <div ref={messagesEndRef} />
             </div>
 
             <div className="chat-input-container">
                 <div className="chat-input-form">
-                    <div className="chat-input-wrapper">
-                        <textarea
-                            className="chat-input"
-                            value={userInput}
-                            onChange={(e) => setUserInput(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            placeholder="Describe your symptoms in detail..."
-                            disabled={loading || signupPrompt}
-                            aria-label="Symptom description input"
-                        />
-                    </div>
+                    <textarea
+                        className="chat-input"
+                        value={userInput}
+                        onChange={(e) => setUserInput(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder="Describe your symptoms in detail..."
+                        disabled={loading || signupPrompt}
+                        aria-label="Symptom description input"
+                    />
                     <button
                         className="send-button"
                         onClick={handleSendMessage}
                         disabled={loading || signupPrompt || !userInput.trim()}
                         aria-label="Send message"
                     >
-                        {loading ? 'Sending...' : signupPrompt ? 'Sign Up' : 'Send'}
+                        {loading ? 'Sending...' : 'Send'}
                     </button>
                 </div>
             </div>
