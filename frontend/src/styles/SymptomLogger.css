@@ -1,4 +1,4 @@
-/* Symptom Logger Styles */
+/* SymptomLogger.css - Fully scoped to prevent conflicts */
 
 .symptom-logger-container {
   max-width: 800px;
@@ -9,32 +9,32 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.header {
+.symptom-logger-container .header {
   color: #2c3e50;
   text-align: center;
   margin-bottom: 2rem;
   font-size: 1.8rem;
 }
 
-.form {
+.symptom-logger-container .form {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
 }
 
-.form-group {
+.symptom-logger-container .form-group {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
 }
 
-.form-group.error input,
-.form-group.error textarea {
+.symptom-logger-container .form-group.error input,
+.symptom-logger-container .form-group.error textarea {
   border-color: #dc3545;
   background-color: #fff8f8;
 }
 
-.form-group label {
+.symptom-logger-container .form-group label {
   color: #2c3e50;
   font-weight: 500;
   display: flex;
@@ -42,8 +42,8 @@
   align-items: center;
 }
 
-.form-group input,
-.form-group textarea {
+.symptom-logger-container .form-group input,
+.symptom-logger-container .form-group textarea {
   padding: 0.75rem;
   border: 1px solid #ddd;
   border-radius: 4px;
@@ -51,32 +51,30 @@
   transition: all 0.3s ease;
 }
 
-.form-group input:focus,
-.form-group textarea:focus {
+.symptom-logger-container .form-group input:focus,
+.symptom-logger-container .form-group textarea:focus {
   outline: none;
   border-color: #007bff;
   box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
 }
 
-.form-group input:disabled,
-.form-group textarea:disabled {
+.symptom-logger-container .form-group input:disabled,
+.symptom-logger-container .form-group textarea:disabled {
   background-color: #e9ecef;
   cursor: not-allowed;
 }
 
-.form-group textarea {
+.symptom-logger-container .form-group textarea {
   resize: vertical;
   min-height: 100px;
 }
 
-/* Fix: Added standard appearance property for compatibility */
-.form-group input[type="date"] {
+.symptom-logger-container .form-group input[type="date"] {
   appearance: none;
   -webkit-appearance: none;
 }
 
-/* Range input styling */
-.form-group input[type="range"] {
+.symptom-logger-container .form-group input[type="range"] {
   appearance: none;
   -webkit-appearance: none;
   width: 100%;
@@ -88,7 +86,7 @@
   margin: 10px 0;
 }
 
-.form-group input[type="range"]::-webkit-slider-thumb {
+.symptom-logger-container .form-group input[type="range"]::-webkit-slider-thumb {
   appearance: none;
   -webkit-appearance: none;
   width: 20px;
@@ -99,12 +97,12 @@
   transition: all 0.2s ease;
 }
 
-.form-group input[type="range"]::-webkit-slider-thumb:hover {
+.symptom-logger-container .form-group input[type="range"]::-webkit-slider-thumb:hover {
   background: #0056b3;
   transform: scale(1.1);
 }
 
-.range-labels {
+.symptom-logger-container .range-labels {
   display: flex;
   justify-content: space-between;
   color: #6c757d;
@@ -112,7 +110,7 @@
   margin-top: 0.25rem;
 }
 
-.intensity-value {
+.symptom-logger-container .intensity-value {
   background: #e9ecef;
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
@@ -120,15 +118,14 @@
   color: #495057;
 }
 
-/* Button styles */
-.button-group {
+.symptom-logger-container .button-group {
   display: flex;
   gap: 1rem;
   margin-top: 1rem;
   flex-wrap: wrap;
 }
 
-.button-group button {
+.symptom-logger-container .button-group button {
   padding: 0.75rem 1.5rem;
   border: none;
   border-radius: 4px;
@@ -139,79 +136,77 @@
   min-width: 120px;
 }
 
-.submit-button {
+.symptom-logger-container .submit-button {
   background-color: #007bff;
   color: white;
 }
 
-.submit-button:hover:not(:disabled) {
+.symptom-logger-container .submit-button:hover:not(:disabled) {
   background-color: #0056b3;
   transform: translateY(-1px);
 }
 
-.reset-button {
+.symptom-logger-container .reset-button {
   background-color: #6c757d;
   color: white;
 }
 
-.reset-button:hover:not(:disabled) {
+.symptom-logger-container .reset-button:hover:not(:disabled) {
   background-color: #5a6268;
 }
 
-.restore-button {
+.symptom-logger-container .restore-button {
   background-color: #28a745;
   color: white;
 }
 
-.restore-button:hover:not(:disabled) {
+.symptom-logger-container .restore-button:hover:not(:disabled) {
   background-color: #218838;
 }
 
-button:disabled {
+.symptom-logger-container button:disabled {
   opacity: 0.7;
   cursor: not-allowed;
   transform: none !important;
 }
 
-/* Message styles */
-.message {
+.symptom-logger-container .message {
   padding: 1rem;
   border-radius: 4px;
   margin-bottom: 1rem;
-  animation: slideDown 0.3s ease;
+  animation: symptomLoggerSlideDown 0.3s ease;
 }
 
-.message.success {
+.symptom-logger-container .message.success {
   background-color: #d4edda;
   color: #155724;
   border: 1px solid #c3e6cb;
 }
 
-.message.error {
+.symptom-logger-container .message.error {
   background-color: #f8d7da;
   color: #721c24;
   border: 1px solid #f5c6cb;
 }
 
-.error-message {
+.symptom-logger-container .error-message {
   color: #dc3545;
   font-size: 0.875rem;
   margin-top: 0.25rem;
-  animation: slideDown 0.3s ease;
+  animation: symptomLoggerSlideDown 0.3s ease;
 }
 
-/* Loading spinner */
-.spinner {
+.symptom-logger-container .spinner {
   width: 40px;
   height: 40px;
   border: 4px solid #f3f3f3;
   border-top: 4px solid #007bff;
   border-radius: 50%;
-  animation: spin 1s linear infinite;
+  animation: symptomLoggerSpin 1s linear infinite;
 }
 
-/* Animations */
-@keyframes slideDown {
+/* Renamed animations to prevent conflicts */
+@keyframes symptomLoggerSlideDown {
   from {
       opacity: 0;
       transform: translateY(-10px);
@@ -222,7 +217,7 @@ button:disabled {
   }
 }
 
-@keyframes spin {
+@keyframes symptomLoggerSpin {
   to {
       transform: rotate(360deg);
   }
@@ -235,19 +230,19 @@ button:disabled {
       padding: 1rem;
   }
 
-  .button-group {
+  .symptom-logger-container .button-group {
       flex-direction: column;
   }
 
-  .button-group button {
+  .symptom-logger-container .button-group button {
       width: 100%;
   }
 }
 
 /* Focus styles for accessibility */
-button:focus-visible,
-input:focus-visible,
-textarea:focus-visible {
+.symptom-logger-container button:focus-visible,
+.symptom-logger-container input:focus-visible,
+.symptom-logger-container textarea:focus-visible {
   outline: 2px solid #007bff;
   outline-offset: 2px;
 }
