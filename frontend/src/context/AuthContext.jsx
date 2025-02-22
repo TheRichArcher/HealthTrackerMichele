@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { getLocalStorageItem, removeLocalStorageItem, setLocalStorageItem } from '../utils/utils';
 import axios from 'axios';
 
-// API URL handling with warning for missing environment variable
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://healthtrackerai.pythonanywhere.com/api';
 if (!import.meta.env.VITE_API_URL) {
     console.warn('VITE_API_URL not set in environment variables, using fallback URL');
@@ -14,22 +13,34 @@ export const AuthProvider = ({ children }) => {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
 
-    const refreshAccessToken = async (refreshToken) => {
+    const refreshToken = useCallback(async () => {
+        const refreshTokenValue = getLocalStorageItem('refresh_token');
+        if (!refreshTokenValue) {
+            throw new Error('No refresh token available');
+        }
+
         try {
             const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
-                refresh_token: refreshToken
+                refresh_token: refreshTokenValue
             });
 
             if (response.data && response.data.access_token) {
                 setLocalStorageItem('access_token', response.data.access_token);
+                if (response.data.refresh_token) {
+                    setLocalStorageItem('refresh_token', response.data.refresh_token);
+                }
                 return true;
             }
-            return false;
+            throw new Error('Invalid refresh token response');
         } catch (error) {
             console.error('Token refresh failed:', error);
-            return false;
+            // Clear tokens on refresh failure
+            removeLocalStorageItem('access_token');
+            removeLocalStorageItem('refresh_token');
+            setIsAuthenticated(false);
+            throw error;
         }
-    };
+    }, []);
 
     const validateToken = async (token, isRetry = false) => {
         if (!token) return false;
@@ -43,19 +54,16 @@ export const AuthProvider = ({ children }) => {
             return response.status === 200;
         } catch (error) {
             if (error.response?.status === 401 && !isRetry) {
-                // Token expired, try to refresh
-                const refreshToken = getLocalStorageItem('refresh_token');
-                if (refreshToken) {
-                    const refreshSuccess = await refreshAccessToken(refreshToken);
-                    if (refreshSuccess) {
-                        // Retry validation with new token
-                        const newToken = getLocalStorageItem('access_token');
-                        if (!newToken) return false; // Explicit check for new token
-                        return await validateToken(newToken, true);
-                    }
+                try {
+                    await refreshToken();
+                    const newToken = getLocalStorageItem('access_token');
+                    if (!newToken) return false;
+                    return await validateToken(newToken, true);
+                } catch (refreshError) {
+                    return false;
                 }
             }
-            return false; // Explicit return false for all other cases
+            return false;
         }
     };
 
@@ -63,34 +71,33 @@ export const AuthProvider = ({ children }) => {
         const accessToken = getLocalStorageItem('access_token');
         const userId = getLocalStorageItem('user_id');
 
-        // Simple check for required tokens
         if (!accessToken || !userId) {
             setIsAuthenticated(false);
             setIsLoading(false);
             return;
         }
 
-        // Single validation call that handles refresh internally
-        const isValid = await validateToken(accessToken);
-        setIsAuthenticated(isValid);
-        setIsLoading(false);
+        try {
+            const isValid = await validateToken(accessToken);
+            setIsAuthenticated(isValid);
+        } catch (error) {
+            setIsAuthenticated(false);
+        } finally {
+            setIsLoading(false);
+        }
     }, []);
 
     const logout = useCallback(async () => {
-        // Immediate UI update
         setIsAuthenticated(false);
         setIsLoading(true);
 
-        // Get token before clearing storage
         const token = getLocalStorageItem('access_token');
 
-        // Clear all auth-related data immediately
         removeLocalStorageItem('access_token');
         removeLocalStorageItem('refresh_token');
         removeLocalStorageItem('user_id');
         removeLocalStorageItem('lastPath');
 
-        // Only attempt server logout if we have a token
         if (token) {
             try {
                 await axios.post(`${API_BASE_URL}/logout`, {}, {
@@ -99,7 +106,6 @@ export const AuthProvider = ({ children }) => {
                     }
                 });
             } catch (error) {
-                // Log but don't handle - local logout is already complete
                 console.error('Server logout notification failed:', error);
             }
         }
@@ -108,20 +114,16 @@ export const AuthProvider = ({ children }) => {
     }, []);
 
     useEffect(() => {
-        // Initial auth check
         checkAuth();
 
-        // Periodic auth check every 60 seconds
         const interval = setInterval(checkAuth, 60000);
 
-        // Handle storage changes across tabs
         const handleStorageChange = (e) => {
             if (['access_token', 'refresh_token', 'user_id'].includes(e.key)) {
                 checkAuth();
             }
         };
 
-        // Handle visibility changes
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'visible') {
                 checkAuth();
@@ -144,7 +146,8 @@ export const AuthProvider = ({ children }) => {
         isAuthenticated,
         isLoading,
         checkAuth,
-        logout
+        logout,
+        refreshToken  // Added refreshToken to the context value
     };
 
     return (
