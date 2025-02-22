@@ -12,37 +12,6 @@ body {
     padding: 20px;
 }
 
-/* Navbar */
-.navbar {
-    background-color: #4CAF50;
-    padding: 10px 20px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    color: white;
-}
-
-.nav-links {
-    list-style: none;
-    padding: 0;
-    display: flex;
-    gap: 15px;
-}
-
-.nav-links li {
-    display: inline;
-}
-
-.nav-links a {
-    text-decoration: none;
-    color: white;
-    font-weight: bold;
-}
-
-.nav-links a:hover {
-    text-decoration: underline;
-}
-
 /* ✅ Scoped Loading Spinner Message */
 .app-container .loading-spinner-message {
     font-size: 1rem;
@@ -52,7 +21,7 @@ body {
     font-weight: bold;
 }
 
-/* ✅ Scoped Error Message (Fixing conflicts) */
+/* ✅ Scoped Error Message */
 .app-container .error-message {
     color: red;
     font-size: 0.9rem;
@@ -62,27 +31,6 @@ body {
     border: 1px solid #f8d7da;
     background-color: #f8d7da;
     border-radius: 4px;
-}
-
-/* Buttons */
-button {
-    background-color: #4CAF50;
-    color: white;
-    padding: 10px 20px;
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-    font-size: 16px;
-    transition: background-color 0.2s ease-in-out;
-}
-
-button:hover:not(:disabled) {
-    background-color: #388E3C;
-}
-
-button:disabled {
-    background-color: #a5d6a7;
-    cursor: not-allowed;
 }
 
 /* Inputs & Textareas */
