@@ -17,7 +17,23 @@ import ProtectedRoute from './components/ProtectedRoute';
 
 // Styles
 import './styles/App.css';
+import './styles/navbar.css';
 import './styles/Chat.css';
+
+// Protected Route Wrapper
+const PrivateRoute = ({ children }) => {
+    const { isAuthenticated, isLoading } = useAuth();
+
+    if (isLoading) {
+        return <LoadingSpinner message="Checking authentication..." />;
+    }
+
+    if (!isAuthenticated) {
+        return <Navigate to="/auth" replace />;
+    }
+
+    return children;
+};
 
 // Main App Component
 const App = () => {
@@ -36,41 +52,41 @@ const App = () => {
                         <Route 
                             path="/dashboard" 
                             element={
-                                <ProtectedRoute>
+                                <PrivateRoute>
                                     <Dashboard />
-                                </ProtectedRoute>
+                                </PrivateRoute>
                             } 
                         />
                         <Route 
                             path="/symptom-logger" 
                             element={
-                                <ProtectedRoute>
+                                <PrivateRoute>
                                     <SymptomLogger />
-                                </ProtectedRoute>
+                                </PrivateRoute>
                             } 
                         />
                         <Route 
                             path="/report" 
                             element={
-                                <ProtectedRoute>
+                                <PrivateRoute>
                                     <Report />
-                                </ProtectedRoute>
+                                </PrivateRoute>
                             } 
                         />
                         <Route 
                             path="/onboarding" 
                             element={
-                                <ProtectedRoute>
+                                <PrivateRoute>
                                     <Onboarding />
-                                </ProtectedRoute>
+                                </PrivateRoute>
                             } 
                         />
                         <Route 
                             path="/medical-info" 
                             element={
-                                <ProtectedRoute>
+                                <PrivateRoute>
                                     <MedicalInfo />
-                                </ProtectedRoute>
+                                </PrivateRoute>
                             } 
                         />
 
