@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from backend.routes.extensions import db
-from backend.models import Symptom, SymptomLog  # Added Symptom model
+from backend.models import Symptom, SymptomLog
 from datetime import datetime
 import openai
 import logging
@@ -66,7 +66,7 @@ def ensure_single_question(response_text: str) -> str:
     questions = [q.strip() for q in response_text.split('?') if q.strip()]
     return questions[0] + "?" if questions else "Can you provide more information?"
 
-@onboarding_routes.route("/", methods=["POST"])
+@onboarding_routes.route("/api/onboarding", methods=["POST"])
 def onboarding():
     try:
         data = request.get_json()
@@ -94,7 +94,7 @@ def onboarding():
 
         new_log = SymptomLog(
             user_id=user_id,
-            symptom_id=symptom_obj.id,  # Changed from symptom to symptom_id
+            symptom_id=symptom_obj.id,
             notes=previous_answers,
             timestamp=datetime.utcnow()
         )
@@ -102,8 +102,8 @@ def onboarding():
         db.session.commit()
 
         system_instruction = (
-            "You are a medical assistant guiding a patient through diagnostic questions. "
-            "Ask one specific follow-up question at a time."
+            "You are a knowledgeable medical assistant guiding a patient through diagnostic questions. "
+            "Ask one specific follow-up question at a time. Avoid repeated questions on the same topic unless necessary."
         )
         prompt = (
             f"The patient mentioned: '{initial_symptom}'.\n"
@@ -117,15 +117,15 @@ def onboarding():
         return jsonify({
             "next_question": next_question,
             "question_count": question_count + 1,
-            "confidence_score": confidence_score + CONFIDENCE_INCREMENT,
+            "confidence_score": confidence_score,
             "logged_symptom": {
                 "id": new_log.id,
-                "symptom": symptom_obj.name,  # Changed to use symptom_obj.name
+                "symptom": symptom_obj.name,
                 "notes": new_log.notes,
                 "timestamp": new_log.timestamp.strftime("%Y-%m-%d %H:%M:%S")
             }
         })
     except Exception as e:
         logger.error(f"Error during onboarding: {str(e)}")
-        db.session.rollback()  # Added session rollback on error
+        db.session.rollback()
         return jsonify({"error": "Unexpected error during onboarding."}), 500
