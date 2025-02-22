@@ -1,5 +1,4 @@
-/* frontend/src/styles/Onboarding.css */
-
+/* Onboarding specific styles */
 .onboarding-container {
   max-width: 1200px;
   margin: 0 auto;
@@ -9,14 +8,15 @@
   grid-template-columns: 1fr 1fr;
 }
 
-.chat-section {
+/* Onboarding chat section */
+.onboarding-chat-container {
   background: white;
   padding: 1.5rem;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.messages {
+.onboarding-chat-container .messages {
   height: 400px;
   overflow-y: auto;
   margin-bottom: 1rem;
@@ -25,34 +25,39 @@
   border-radius: 4px;
 }
 
-.message {
+/* Scoped message styles for onboarding only */
+.onboarding-chat-container .message {
   margin-bottom: 1rem;
   padding: 0.75rem;
   border-radius: 4px;
+  font-size: 1rem;
+  line-height: 1.4;
 }
 
-/* 🚀 Renamed .message.bot to .message.onboarding-bot to prevent conflicts */
-.message.onboarding-bot {
-  background-color: #f0f4f8;
+.onboarding-chat-container .message.onboarding-bot {
+  background: #e0e7ff !important;
+  color: #1c3d5a !important;
 }
 
-.message.user {
-  background-color: #e3f2fd;
+.onboarding-chat-container .message.user {
+  background: #e3f2fd !important;
   margin-left: 1rem;
+  color: #1a3e2d !important;
 }
 
-.input-section {
+.onboarding-chat-container .input-section {
   display: flex;
   gap: 1rem;
 }
 
-.input-section input {
+.onboarding-chat-container .input-section input {
   flex: 1;
   padding: 0.75rem;
   border: 1px solid #ddd;
   border-radius: 4px;
 }
 
+/* Vitals section */
 .vitals-section {
   background: white;
   padding: 1.5rem;
@@ -74,7 +79,8 @@
   border-radius: 4px;
 }
 
-button {
+/* Onboarding buttons */
+.onboarding-chat-container button {
   padding: 0.75rem 1.5rem;
   background-color: #007bff;
   color: white;
@@ -84,49 +90,59 @@ button {
   transition: background-color 0.2s;
 }
 
-button:hover:not(:disabled) {
+.onboarding-chat-container button:hover:not(:disabled) {
   background-color: #0056b3;
 }
 
-button:disabled {
+.onboarding-chat-container button:disabled {
   background-color: #cccccc;
   cursor: not-allowed;
 }
 
-.error {
+/* Error handling */
+.onboarding-chat-container .error {
   color: #dc3545;
   margin-top: 1rem;
 }
 
-/* ✅ Ensuring Chat Styles Don’t Interfere with Onboarding */
-.onboarding-chat-container .message {
-  font-size: 1rem;
-  line-height: 1.4;
-  padding: 1rem;
-}
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .onboarding-chat-container,
+  .vitals-section {
+      background: #2c2c2c;
+      color: white;
+  }
 
-.onboarding-chat-container .message.onboarding-bot {
-  background: #e0e7ff; /* Light blue for bot messages */
-  color: #1c3d5a;
-}
+  .onboarding-chat-container .message.onboarding-bot {
+      background: #2d333b !important;
+      color: #e1e4e8 !important;
+  }
 
-.onboarding-chat-container .message.user {
-  background: #d1f7c4; /* Light green for user messages */
-  color: #1a3e2d;
+  .onboarding-chat-container .message.user {
+      background: #1c2c4f !important;
+      color: #e1e4e8 !important;
+  }
+
+  .onboarding-chat-container input,
+  .vitals-grid input {
+      background: #2d333b;
+      border-color: #444c56;
+      color: white;
+  }
 }
 
 /* Responsive Design */
 @media (max-width: 768px) {
   .onboarding-container {
-    grid-template-columns: 1fr;
-    padding: 1rem;
+      grid-template-columns: 1fr;
+      padding: 1rem;
   }
 
   .vitals-grid {
-    grid-template-columns: 1fr;
+      grid-template-columns: 1fr;
   }
 
-  .input-section {
-    flex-direction: column;
+  .onboarding-chat-container .input-section {
+      flex-direction: column;
   }
 }

@@ -121,7 +121,6 @@ const Chat = () => {
 
             const { possible_conditions, triage_level, confidence } = response.data;
             
-            // Format the response as a conversational message
             const botResponse = possible_conditions || "I need more information to help you better. Could you tell me more about your symptoms?";
             
             setTimeout(() => {
@@ -201,7 +200,7 @@ const Chat = () => {
                                     </div>
                                 )}
                                 {msg.careRecommendation && (
-                                    <div className={`care-recommendation ${msg.careRecommendation}`}>
+                                    <div className="care-recommendation">
                                         {getCareRecommendation(msg.careRecommendation)}
                                     </div>
                                 )}
