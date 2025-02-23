@@ -80,7 +80,7 @@ app.register_blueprint(report_routes, url_prefix='/api/reports')
 app.register_blueprint(user_routes, url_prefix='/api/users')
 app.register_blueprint(utils_health_bp, url_prefix='/api')
 app.register_blueprint(library_routes, url_prefix='/api/library')
-app.register_blueprint(onboarding_routes, url_prefix='/api')
+app.register_blueprint(onboarding_routes, url_prefix='/api/onboarding')
 
 # JWT error handlers
 @jwt.expired_token_loader
