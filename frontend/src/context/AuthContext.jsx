@@ -2,7 +2,8 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { getLocalStorageItem, removeLocalStorageItem, setLocalStorageItem } from '../utils/utils';
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://healthtrackerai.pythonanywhere.com/api';
+// API URL handling with warning for missing environment variable
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://healthtrackermichele.onrender.com/api';
 if (!import.meta.env.VITE_API_URL) {
     console.warn('VITE_API_URL not set in environment variables, using fallback URL');
 }

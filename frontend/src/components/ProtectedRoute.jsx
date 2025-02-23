@@ -13,6 +13,7 @@ const ProtectedRoute = ({ children }) => {
         if (isLoading) {
             timer = setTimeout(() => setShowLoading(true), 200);
         } else {
+            clearTimeout(timer);  // ✅ Prevents flicker when loading state changes quickly
             setShowLoading(false);
         }
         return () => clearTimeout(timer);

@@ -1,6 +1,6 @@
 import React, { Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';  // ✅ Added `useAuth`
 
 // Component Imports
 import Chat from './components/Chat';
@@ -22,7 +22,7 @@ import './styles/Chat.css';
 
 // Protected Route Wrapper
 const PrivateRoute = ({ children }) => {
-    const { isAuthenticated, isLoading } = useAuth();
+    const { isAuthenticated, isLoading } = useAuth();  // ✅ useAuth now properly imported
 
     if (isLoading) {
         return <LoadingSpinner message="Checking authentication..." />;

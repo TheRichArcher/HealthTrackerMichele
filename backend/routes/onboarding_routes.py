@@ -66,7 +66,7 @@ def ensure_single_question(response_text: str) -> str:
     questions = [q.strip() for q in response_text.split('?') if q.strip()]
     return questions[0] + "?" if questions else "Can you provide more information?"
 
-@onboarding_routes.route("/api/onboarding", methods=["POST"])
+@onboarding_routes.route("/", methods=["POST"])
 def onboarding():
     try:
         data = request.get_json()

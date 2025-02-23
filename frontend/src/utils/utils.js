@@ -1,5 +1,4 @@
-// utils.jsx
-import React from 'react';
+// utils.js (not utils.jsx, since no React components are used)
 
 // Local Storage Functions with optimized JSON handling
 export const setLocalStorageItem = (key, value) => {
