@@ -72,6 +72,7 @@ from backend.routes.report_routes import report_routes
 from backend.routes.user_routes import user_routes
 from backend.routes.utils_health_routes import utils_health_bp
 from backend.routes.library_routes import library_routes
+from backend.routes.onboarding_routes import onboarding_routes
 
 app.register_blueprint(symptom_routes, url_prefix='/api/symptoms')
 app.register_blueprint(health_data_routes, url_prefix='/api/health-data')
@@ -79,6 +80,7 @@ app.register_blueprint(report_routes, url_prefix='/api/reports')
 app.register_blueprint(user_routes, url_prefix='/api/users')
 app.register_blueprint(utils_health_bp, url_prefix='/api')
 app.register_blueprint(library_routes, url_prefix='/api/library')
+app.register_blueprint(onboarding_routes, url_prefix='/api')
 
 # JWT error handlers
 @jwt.expired_token_loader
