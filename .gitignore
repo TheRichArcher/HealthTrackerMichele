@@ -1,5 +1,3 @@
-# .gitignore file for Health Tracker AI
-
 # 🔹 Node.js dependencies
 node_modules/
 
@@ -11,8 +9,20 @@ venv/
 
 # 🔹 Environment variables (DO NOT COMMIT SECRETS)
 .env
+.env.local
+.env.*.local
+.env.production
+.env.development
 backend/.env
+backend/.env.local
+backend/.env.*.local
+backend/.env.production
+backend/.env.development
 frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+frontend/.env.production
+frontend/.env.development
 
 # 🔹 Database files
 *.sqlite*
@@ -20,7 +30,7 @@ frontend/.env
 backend/instance/
 instance/
 
-# 🔹 Flask migration files (ignore auto-generated files)
+# 🔹 Flask migration files
 migrations/
 migrations/versions/
 
@@ -34,8 +44,10 @@ frontend/dist/
 logs/
 logs/*.log
 backend/app.log
+backend/logs/
+frontend/logs/
 
-# 🔹 IDE-specific & OS-generated files
+# 🔹 IDE and OS files
 .vscode/
 .idea/
 .DS_Store
@@ -45,29 +57,37 @@ Thumbs.db
 .cache/
 __pycache__/
 backend/routes/__pycache__/
+*.pyc
 
-# 🔹 Test coverage reports
+# 🔹 Test coverage
 coverage/
 htmlcov/
+.coverage
+.pytest_cache/
 
-# 🔹 Backup and old files (cleanup workspace)
+# 🔹 Backup files
 *.bak
 *.swp
 *.old
 backend/backup_old_versions/
 backend/backups/
 
-# 🔹 React-specific build artifacts
+# 🔹 React build artifacts
 public/*.cache
 public/*.map
 frontend/generated-icon.png
 
-# 🔹 Miscellaneous temporary files
+# 🔹 Debug logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+debug.log
 *.pid
 
-# 🔹 Allow backend static dist directory
+# 🔹 Allow specific directories
 !backend/static/dist/
 !backend/static/dist/**/*
+
+# 🔹 Temporary files
+.tmp/
+temp/
