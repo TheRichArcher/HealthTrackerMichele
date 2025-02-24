@@ -5,6 +5,8 @@ import { getLocalStorageItem, setLocalStorageItem } from "../utils/utils";
 import debounce from 'lodash/debounce';
 import '../styles/SymptomLogger.css';
 
+const API_BASE_URL = 'https://healthtrackermichele.onrender.com/api';
+
 // Validation constants
 const VALIDATION_RULES = {
     respiratoryRate: { min: 8, max: 40, label: 'Respiratory rate' },
@@ -64,18 +66,23 @@ const SymptomLogger = () => {
     const { isAuthenticated, checkAuth } = useAuth();
     const navigate = useNavigate();
     const userId = getLocalStorageItem("user_id");
+    const accessToken = getLocalStorageItem("access_token");
 
     // Load last entry on mount
     useEffect(() => {
         const savedEntry = getLocalStorageItem("lastSymptomEntry");
         if (savedEntry) {
-            const parsedEntry = JSON.parse(savedEntry);
-            setLastEntry(parsedEntry);
-            setFormData(prev => ({
-                ...prev,
-                ...parsedEntry,
-                onsetDate: new Date().toISOString().split('T')[0]
-            }));
+            try {
+                const parsedEntry = JSON.parse(savedEntry);
+                setLastEntry(parsedEntry);
+                setFormData(prev => ({
+                    ...prev,
+                    ...parsedEntry,
+                    onsetDate: new Date().toISOString().split('T')[0]
+                }));
+            } catch (error) {
+                console.error('Error parsing saved entry:', error);
+            }
         }
     }, []);
 
@@ -90,7 +97,7 @@ const SymptomLogger = () => {
     // Redirect if not authenticated
     useEffect(() => {
         if (!isAuthenticated) {
-            navigate('/auth');
+            navigate('/auth', { state: { from: { pathname: '/symptom-logger' } } });
         }
     }, [isAuthenticated, navigate]);
 
@@ -130,7 +137,7 @@ const SymptomLogger = () => {
     const validateForm = useCallback(() => {
         const newErrors = {};
 
-        if (!userId) {
+        if (!userId || !accessToken) {
             newErrors.general = "User session not found. Please log in.";
         }
 
@@ -149,7 +156,7 @@ const SymptomLogger = () => {
 
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
-    }, [userId, formData]);
+    }, [userId, accessToken, formData]);
 
     // Handle form reset
     const handleReset = useCallback(() => {
@@ -185,13 +192,13 @@ const SymptomLogger = () => {
         setLogStatus(null);
 
         try {
-            const response = await fetch(
-                "https://healthtrackerai.pythonanywhere.com/api/symptoms/",
+            const apiResponse = await fetch(
+                `${API_BASE_URL}/symptoms`,
                 {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        "Authorization": `Bearer ${getLocalStorageItem('access_token')}`
+                        "Authorization": `Bearer ${accessToken}`
                     },
                     body: JSON.stringify({
                         user_id: userId,
@@ -205,12 +212,12 @@ const SymptomLogger = () => {
                 }
             );
 
-            if (!response.ok) {
-                if (response.status === 401) {
+            if (!apiResponse.ok) {
+                if (apiResponse.status === 401) {
                     await checkAuth();
                     throw new Error("Session expired. Please log in again.");
                 }
-                const errorData = await response.json();
+                const errorData = await apiResponse.json();
                 throw new Error(errorData.error || "Failed to log the symptom.");
             }
 
@@ -231,6 +238,9 @@ const SymptomLogger = () => {
         }
     };
 
+    // Rest of the component remains the same...
+    // (The JSX return part is unchanged)
+
     return (
         <div className="symptom-logger-container">
             <h1 className="header">Log Your Symptom</h1>
@@ -245,6 +255,9 @@ const SymptomLogger = () => {
             )}
 
             <form onSubmit={handleSubmit} className="form">
+                {/* Form fields remain the same... */}
+                {/* Just copying the existing form JSX here */}
+                
                 <div className={`form-group ${errors.symptom ? 'error' : ''}`}>
                     <label htmlFor="symptom">Symptom:</label>
                     <input

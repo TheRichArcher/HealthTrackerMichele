@@ -6,6 +6,7 @@ import '../styles/AuthPage.css';
 
 const MIN_USERNAME_LENGTH = 3;
 const MIN_PASSWORD_LENGTH = 6;
+const API_BASE_URL = 'https://healthtrackermichele.onrender.com/api';
 
 const AuthPage = () => {
     const [isLogin, setIsLogin] = useState(true);
@@ -60,7 +61,7 @@ const AuthPage = () => {
         const endpoint = isLogin ? 'login' : 'signup';
 
         try {
-            const response = await fetch(`https://healthtrackerai.pythonanywhere.com/api/${endpoint}`, {
+            const response = await fetch(`${API_BASE_URL}/auth/${endpoint}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password }),
