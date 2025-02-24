@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from backend.routes.extensions import db
 from backend.models import Symptom, SymptomLog
 from datetime import datetime
+from dotenv import load_dotenv
 import openai
 import logging
 import time
@@ -9,12 +10,23 @@ import re
 import os
 from typing import Optional
 
-# Configure logging
+# Load environment variables from .env in backend folder
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../.env"))
+
+# Configure logging before using it
+logger = logging.getLogger(__name__)  # ✅ Fix: Defined before use
+
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.DEBUG
 )
-logger = logging.getLogger(__name__)
+
+# Set OpenAI API key
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+if not openai.api_key:
+    logger.error("ERROR: OpenAI API key is missing! Make sure .env is loaded.")
+    raise RuntimeError("ERROR: OpenAI API key is missing! Make sure .env is loaded.")
 
 # Blueprint setup
 onboarding_routes = Blueprint('onboarding_routes', __name__, url_prefix='/api/onboarding')
@@ -52,12 +64,6 @@ def check_for_emergency(symptom_text: str, severity_score: int) -> bool:
 
 def send_openai_request(prompt: str) -> str:
     fallback_question = "Can you provide more details?"
-    
-    try:
-        client = openai.OpenAI()
-    except Exception as e:
-        logger.error(f"Failed to initialize OpenAI client: {e}")
-        return fallback_question
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -65,7 +71,7 @@ def send_openai_request(prompt: str) -> str:
                 logger.debug(f"Sending OpenAI request (attempt {attempt + 1})")
                 logger.debug(f"Prompt: {prompt}")
 
-            response = client.chat.completions.create(
+            response = openai.ChatCompletion.create(
                 model="gpt-4",
                 messages=[
                     {"role": "system", "content": "You are a medical assistant helping with symptom analysis."},
@@ -82,7 +88,7 @@ def send_openai_request(prompt: str) -> str:
                 time.sleep(RETRY_DELAY)
                 continue
 
-            response_text = response.choices[0].message.content
+            response_text = response['choices'][0]['message']['content']
             if not response_text or not response_text.strip():
                 logger.error(f"Empty response from OpenAI (attempt {attempt + 1})")
                 if attempt == MAX_RETRIES - 1:
