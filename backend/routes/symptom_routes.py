@@ -8,15 +8,15 @@ import logging
 import time
 import re
 import os
-from typing import Any
+from typing import Any, Dict, Union
 from backend.routes.openai_config import (
     SYSTEM_PROMPT,
     clean_ai_response,
+    create_default_response,
+    validate_response_format,
     MIN_CONFIDENCE,
     MAX_CONFIDENCE,
-    DEFAULT_CONFIDENCE,
-    ResponseSection,
-    calculate_confidence
+    DEFAULT_CONFIDENCE
 )
 
 # Load environment variables from .env in backend folder
@@ -58,12 +58,12 @@ def sanitize_input(text: str) -> str:
     text = re.sub(r'[^a-zA-Z0-9\s.,!?-]', '', text)
     return text[:MAX_INPUT_LENGTH]
 
-def create_error_response(message: str, status_code: int) -> tuple[Any, int]:
+def create_error_response(message: str, status_code: int) -> tuple[Dict[str, Any], int]:
     """Create standardized error response."""
     return jsonify({
         'possible_conditions': message,
-        'triage_level': TriageLevel.MODERATE,
-        'confidence': MIN_CONFIDENCE
+        'confidence': MIN_CONFIDENCE,
+        'care_recommendation': TriageLevel.MODERATE
     }), status_code
 
 def determine_triage_level(ai_response: str, symptoms: str) -> str:
@@ -77,7 +77,7 @@ def determine_triage_level(ai_response: str, symptoms: str) -> str:
         "stroke", "heart attack", "severe bleeding", "head injury",
         "severe confusion", "severe headache", "sudden vision loss",
         "coughing up blood", "severe abdominal pain", "suicide",
-        "overdose", "seizure", "severe burn"
+        "overdose", "seizure", "severe burn", "urgent:"
     ]
     
     if any(term in response_lower or term in symptoms_lower for term in emergency_terms):
@@ -108,7 +108,7 @@ def determine_triage_level(ai_response: str, symptoms: str) -> str:
     return TriageLevel.MODERATE
 
 @symptom_routes.route("/analyze", methods=["POST"])
-def analyze_symptoms() -> tuple[Any, int]:
+def analyze_symptoms() -> tuple[Dict[str, Any], int]:
     """Handle AI analysis of symptoms."""
     try:
         data = request.get_json()
@@ -122,10 +122,14 @@ def analyze_symptoms() -> tuple[Any, int]:
             logger.error("OpenAI API key is missing")
             return create_error_response("AI service is temporarily unavailable.", 503)
 
-        client = openai.OpenAI(api_key=api_key)  # Initialize OpenAI client
+        client = openai.OpenAI(api_key=api_key)
 
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        messages.extend(conversation_history)
+        
+        # Add conversation history if available
+        if conversation_history:
+            messages.extend(conversation_history)
+            
         messages.append({"role": "user", "content": symptoms})
 
         if logger.isEnabledFor(logging.DEBUG):
@@ -148,26 +152,40 @@ def analyze_symptoms() -> tuple[Any, int]:
                     time.sleep(RETRY_DELAY)
                     continue
 
-                ai_response = clean_ai_response(response_text)
-                confidence_score = calculate_confidence(ai_response)
-                triage_level = determine_triage_level(ai_response, symptoms)
+                parsed_response = clean_ai_response(response_text)
                 
+                # Validate the response format
+                if not validate_response_format(parsed_response):
+                    logger.error("Invalid response format from OpenAI")
+                    if attempt == MAX_RETRIES - 1:
+                        return create_error_response("Invalid response format from AI service.", 500)
+                    time.sleep(RETRY_DELAY)
+                    continue
+
+                # Override care recommendation based on triage level if necessary
+                triage_level = determine_triage_level(
+                    parsed_response['possible_conditions'], 
+                    symptoms
+                )
+                if triage_level == TriageLevel.SEVERE:
+                    parsed_response['care_recommendation'] = TriageLevel.SEVERE
+
                 response_data = {
-                    'possible_conditions': ai_response,
-                    'triage_level': triage_level,
-                    'confidence': confidence_score
+                    'possible_conditions': parsed_response['possible_conditions'],
+                    'confidence': parsed_response['confidence'],
+                    'care_recommendation': parsed_response['care_recommendation']
                 }
 
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug("Final response data: %s", response_data)
 
-                return jsonify(response_data)
+                return jsonify(response_data), 200
 
             except openai.RateLimitError as e:
                 logger.error(f"OpenAI rate limit exceeded (attempt {attempt + 1}): {e}")
                 if attempt == MAX_RETRIES - 1:
                     return create_error_response("AI service is temporarily busy. Please try again later.", 429)
-                time.sleep(RETRY_DELAY * (attempt + 2))  # Longer delay for rate limits
+                time.sleep(RETRY_DELAY * (attempt + 2))
 
             except openai.APIConnectionError as e:
                 logger.error(f"OpenAI API connection error (attempt {attempt + 1}): {e}")
