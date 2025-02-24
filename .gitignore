@@ -26,7 +26,6 @@ migrations/versions/
 
 # 🔹 Build outputs
 build/
-dist/
 frontend/build/
 frontend/dist/
 
@@ -68,5 +67,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 *.pid
+
+# 🔹 Allow backend static dist directory
 !backend/static/dist/
-!backend/static/dist/
+!backend/static/dist/**/*
