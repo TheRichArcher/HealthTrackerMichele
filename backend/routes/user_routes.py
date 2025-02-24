@@ -11,13 +11,17 @@ from backend.models import User
 from datetime import datetime, timedelta
 import logging
 
-# Logger setup
+# Enhanced logger setup
 logger = logging.getLogger("user_routes")
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+logger.addHandler(handler)
+logger.setLevel(logging.INFO)
 
-# Create Flask Blueprint
-user_routes = Blueprint("user_routes", __name__)
+# Create Flask Blueprint with API prefix
+user_routes = Blueprint("user_routes", __name__, url_prefix="/api")
 
-@user_routes.route("/login", methods=["POST"])
+@user_routes.route("/auth/login/", methods=["POST"])
 def login():
     """Handle user login and token generation."""
     try:
@@ -28,7 +32,8 @@ def login():
         if not username or not password:
             return jsonify({"error": "Username and password are required."}), 400
 
-        user = User.query.filter_by(username=username).first()
+        # Case-insensitive username lookup
+        user = User.query.filter(User.username.ilike(username)).first()
         if not user or not bcrypt.check_password_hash(user.password, password):
             return jsonify({"error": "Invalid username or password."}), 401
 
@@ -36,6 +41,7 @@ def login():
         access_token = create_access_token(identity=user.id)
         refresh_token = create_refresh_token(identity=user.id)
 
+        logger.info(f"Successful login for user: {username}")
         return jsonify({
             "message": "Login successful",
             "access_token": access_token,
@@ -45,7 +51,7 @@ def login():
         }), 200
 
     except Exception as e:
-        logger.error(f"Login error: {e}")
+        logger.error(f"Login error: {str(e)}")
         return jsonify({"error": "An error occurred during login."}), 500
 
 @user_routes.route("/auth/refresh/", methods=["POST"])
@@ -54,17 +60,26 @@ def refresh():
     """Refresh access token."""
     try:
         current_user_id = get_jwt_identity()
-        new_access_token = create_access_token(identity=current_user_id)
+        user = User.query.get(current_user_id)
+        
+        if not user:
+            logger.warning(f"Token refresh failed: User {current_user_id} not found")
+            return jsonify({"error": "User not found"}), 404
 
+        new_access_token = create_access_token(identity=current_user_id)
+        
+        logger.info(f"Token refreshed for user: {user.username}")
         return jsonify({
-            "access_token": new_access_token
+            "access_token": new_access_token,
+            "user_id": user.id,
+            "username": user.username
         }), 200
 
     except Exception as e:
-        logger.error(f"Token refresh error: {e}")
+        logger.error(f"Token refresh error: {str(e)}")
         return jsonify({"error": "Error refreshing access token."}), 500
 
-@user_routes.route("/", methods=["POST"])
+@user_routes.route("/users/", methods=["POST"])
 def create_user():
     """Create a new user."""
     try:
@@ -75,7 +90,8 @@ def create_user():
         if not username or not password:
             return jsonify({"error": "Username and password are required."}), 400
 
-        existing_user = User.query.filter_by(username=username).first()
+        # Case-insensitive username check
+        existing_user = User.query.filter(User.username.ilike(username)).first()
         if existing_user:
             return jsonify({"error": "Username already exists."}), 409
 
@@ -106,10 +122,10 @@ def create_user():
 
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error creating user: {e}")
+        logger.error(f"Error creating user: {str(e)}")
         return jsonify({"error": "An error occurred during signup."}), 500
 
-@user_routes.route("/", methods=["GET"])
+@user_routes.route("/users/", methods=["GET"])
 @jwt_required()
 def get_users():
     """Fetch a list of users with pagination."""
@@ -130,10 +146,10 @@ def get_users():
         })
 
     except Exception as e:
-        logger.error(f"Error fetching users: {e}")
+        logger.error(f"Error fetching users: {str(e)}")
         return jsonify({"error": "An error occurred while fetching users."}), 500
 
-@user_routes.route("/<int:user_id>", methods=["GET"])
+@user_routes.route("/users/<int:user_id>/", methods=["GET"])
 @jwt_required()
 def get_user(user_id):
     """Fetch user information by user ID."""
@@ -153,10 +169,10 @@ def get_user(user_id):
         })
 
     except Exception as e:
-        logger.error(f"Error fetching user {user_id}: {e}")
+        logger.error(f"Error fetching user {user_id}: {str(e)}")
         return jsonify({"error": "An error occurred while fetching the user."}), 500
 
-@user_routes.route("/<int:user_id>", methods=["PUT"])
+@user_routes.route("/users/<int:user_id>/", methods=["PUT"])
 @jwt_required()
 def update_user(user_id):
     """Update user information by user ID."""
@@ -170,7 +186,17 @@ def update_user(user_id):
             return jsonify({"error": "User not found."}), 404
 
         data = request.get_json()
-        user.username = data.get("username", user.username)
+        new_username = data.get("username")
+        
+        if new_username:
+            existing_user = User.query.filter(
+                User.username.ilike(new_username),
+                User.id != user_id
+            ).first()
+            if existing_user:
+                return jsonify({"error": "Username already exists."}), 409
+            user.username = new_username
+
         user.updated_at = datetime.utcnow()
         db.session.commit()
 
@@ -183,10 +209,10 @@ def update_user(user_id):
 
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error updating user {user_id}: {e}")
+        logger.error(f"Error updating user {user_id}: {str(e)}")
         return jsonify({"error": "An error occurred while updating user."}), 500
 
-@user_routes.route("/<int:user_id>/password", methods=["PUT"])
+@user_routes.route("/users/<int:user_id>/password/", methods=["PUT"])
 @jwt_required()
 def update_password(user_id):
     """Update user password by user ID."""
@@ -213,14 +239,15 @@ def update_password(user_id):
         user.updated_at = datetime.utcnow()
         db.session.commit()
 
+        logger.info(f"Password updated for user: {user.username}")
         return jsonify({"message": "Password updated successfully.", "user_id": user.id})
 
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error updating password for user {user_id}: {e}")
+        logger.error(f"Error updating password for user {user_id}: {str(e)}")
         return jsonify({"error": "An error occurred while updating password."}), 500
 
-@user_routes.route("/<int:user_id>", methods=["DELETE"])
+@user_routes.route("/users/<int:user_id>/", methods=["DELETE"])
 @jwt_required()
 def delete_user(user_id):
     """Delete a user by user ID."""
@@ -233,43 +260,54 @@ def delete_user(user_id):
         if not user:
             return jsonify({"error": "User not found."}), 404
 
+        username = user.username  # Store for logging
         db.session.delete(user)
         db.session.commit()
 
-        return jsonify({"message": "User deleted successfully.", "user_id": user.id})
+        logger.info(f"User deleted: {username}")
+        return jsonify({"message": "User deleted successfully.", "user_id": user_id})
 
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error deleting user {user_id}: {e}")
+        logger.error(f"Error deleting user {user_id}: {str(e)}")
         return jsonify({"error": "An error occurred while deleting user."}), 500
 
 @user_routes.route("/auth/validate/", methods=["GET"])
 @jwt_required()
 def validate_token():
-    """Validate an access token by ensuring it's still valid."""
+    """Validate an access token and return user information."""
     try:
         current_user_id = get_jwt_identity()
         user = User.query.get(current_user_id)
+        
         if not user:
-            return jsonify({"error": "User not found"}), 404
-            
+            logger.warning(f"Token validation failed: User {current_user_id} not found")
+            return jsonify({"valid": False, "error": "User not found"}), 404
+
+        logger.info(f"Token validated for user: {user.username}")
         return jsonify({
-            "message": "Token is valid",
+            "valid": True,
             "user_id": current_user_id,
             "username": user.username
         }), 200
-    except Exception as e:
-        logger.error(f"Token validation error: {e}")
-        return jsonify({"error": "Invalid or expired token"}), 401
 
-@user_routes.route("/logout/", methods=["POST"])
+    except Exception as e:
+        logger.error(f"Token validation error: {str(e)}")
+        return jsonify({"valid": False, "error": "Invalid or expired token"}), 401
+
+@user_routes.route("/auth/logout/", methods=["POST"])
 @jwt_required()
 def logout():
     """Handle user logout."""
     try:
+        current_user_id = get_jwt_identity()
+        user = User.query.get(current_user_id)
         jti = get_jwt()["jti"]
-        # You could blacklist the token here if needed
+        # You could add token to a blacklist here if implementing token invalidation
+        
+        logger.info(f"User logged out: {user.username if user else current_user_id}")
         return jsonify({"message": "Successfully logged out"}), 200
+
     except Exception as e:
-        logger.error(f"Logout error: {e}")
+        logger.error(f"Logout error: {str(e)}")
         return jsonify({"error": "An error occurred during logout"}), 500
