@@ -22,10 +22,9 @@ from backend.routes.openai_config import (
 # Load environment variables from .env in backend folder
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../.env"))
 
-# Set OpenAI API key
-openai.api_key = os.environ.get("OPENAI_API_KEY")
-
-if not openai.api_key:
+# Get OpenAI API key
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
     logging.warning("⚠️ OpenAI API key is missing! Make sure .env is loaded.")
 
 # Configure logging
@@ -108,60 +107,6 @@ def determine_triage_level(ai_response: str, symptoms: str) -> str:
 
     return TriageLevel.MODERATE
 
-@symptom_routes.route("/", methods=["POST", "GET"])
-def symptoms() -> tuple[Any, int]:
-    """Handle symptom logging and retrieval."""
-    if request.method == "POST":
-        try:
-            data = request.get_json()
-            user_id = data.get("user_id")
-            symptom_name = sanitize_input(data.get("symptom", "")).lower()
-            notes = sanitize_input(data.get("notes", ""))
-
-            if not user_id or not symptom_name:
-                return jsonify({"error": "User ID and symptom name are required."}), 400
-
-            new_log = SymptomLog(
-                user_id=user_id,
-                symptom=symptom_name,
-                notes=notes,
-                date=datetime.utcnow(),
-            )
-            db.session.add(new_log)
-            db.session.commit()
-
-            logger.info("Symptom logged: %s (User %s)", symptom_name, user_id)
-            return jsonify({
-                "message": "Symptom logged successfully.",
-                "logged_symptom": {
-                    "id": new_log.id,
-                    "symptom": new_log.symptom,
-                    "notes": new_log.notes,
-                    "date": new_log.date.strftime("%Y-%m-%d %H:%M:%S"),
-                }
-            }), 201
-
-        except Exception as e:
-            db.session.rollback()
-            logger.error("Error logging symptom: %s", str(e))
-            return jsonify({"error": "Failed to log symptom."}), 500
-
-    # GET method
-    try:
-        symptoms = SymptomLog.query.all()
-        return jsonify({
-            "symptoms": [{
-                "id": log.id,
-                "user_id": log.user_id,
-                "symptom": log.symptom,
-                "notes": log.notes,
-                "date": log.date.strftime("%Y-%m-%d %H:%M:%S")
-            } for log in symptoms]
-        }), 200
-    except Exception as e:
-        logger.error("Error retrieving symptoms: %s", str(e))
-        return jsonify({"error": "Failed to retrieve symptoms"}), 500
-
 @symptom_routes.route("/analyze", methods=["POST"])
 def analyze_symptoms() -> tuple[Any, int]:
     """Handle AI analysis of symptoms."""
@@ -173,9 +118,11 @@ def analyze_symptoms() -> tuple[Any, int]:
         if not symptoms:
             return create_error_response("Please describe your symptoms.", 400)
 
-        if not openai.api_key:
+        if not api_key:
             logger.error("OpenAI API key is missing")
             return create_error_response("AI service is temporarily unavailable.", 503)
+
+        client = openai.OpenAI(api_key=api_key)  # Initialize OpenAI client
 
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages.extend(conversation_history)
@@ -186,14 +133,14 @@ def analyze_symptoms() -> tuple[Any, int]:
 
         for attempt in range(MAX_RETRIES):
             try:
-                response = openai.ChatCompletion.create(
+                response = client.chat.completions.create(
                     model=MODEL_NAME,
                     messages=messages,
                     temperature=DEFAULT_TEMPERATURE,
                     max_tokens=MAX_TOKENS
                 )
 
-                response_text = response.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+                response_text = response.choices[0].message.content.strip() if response.choices else ""
                 if not response_text:
                     logger.error(f"Empty response from OpenAI (attempt {attempt + 1})")
                     if attempt == MAX_RETRIES - 1:
@@ -216,11 +163,37 @@ def analyze_symptoms() -> tuple[Any, int]:
 
                 return jsonify(response_data)
 
-            except Exception as e:
-                logger.error(f"OpenAI API Error (attempt {attempt + 1}): {e}")
+            except openai.RateLimitError as e:
+                logger.error(f"OpenAI rate limit exceeded (attempt {attempt + 1}): {e}")
                 if attempt == MAX_RETRIES - 1:
-                    return create_error_response("Error communicating with AI service.", 500)
+                    return create_error_response("AI service is temporarily busy. Please try again later.", 429)
+                time.sleep(RETRY_DELAY * (attempt + 2))  # Longer delay for rate limits
+
+            except openai.APIConnectionError as e:
+                logger.error(f"OpenAI API connection error (attempt {attempt + 1}): {e}")
+                if attempt == MAX_RETRIES - 1:
+                    return create_error_response("Unable to connect to AI service. Please try again later.", 503)
                 time.sleep(RETRY_DELAY * (attempt + 1))
+
+            except openai.APIError as e:
+                logger.error(f"OpenAI API error (attempt {attempt + 1}): {e}")
+                if attempt == MAX_RETRIES - 1:
+                    return create_error_response("AI service error. Please try again later.", 500)
+                time.sleep(RETRY_DELAY * (attempt + 1))
+
+            except openai.AuthenticationError as e:
+                logger.error(f"OpenAI authentication error: {e}")
+                return create_error_response("AI service configuration error.", 500)
+
+            except openai.InvalidRequestError as e:
+                logger.error(f"OpenAI invalid request error: {e}")
+                return create_error_response("Invalid request to AI service.", 400)
+
+            except Exception as e:
+                logger.error(f"Unexpected error (attempt {attempt + 1}): {e}")
+                if attempt == MAX_RETRIES - 1:
+                    return create_error_response("Unable to process your request.", 500)
+                time.sleep(RETRY_DELAY)
 
         return create_error_response("Maximum retries reached with AI service.", 500)
 
