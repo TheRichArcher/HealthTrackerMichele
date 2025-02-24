@@ -18,35 +18,32 @@ CONVERSATION GUIDELINES:
 - Ask only one follow-up question at a time.
 - Focus on the most relevant symptoms first.
 
-STRICT OUTPUT FORMAT:
-Possible Conditions: [your analysis]
-Confidence Level: [number between 75-95]
-Care Recommendation: [your recommendation]
+REQUIRED OUTPUT FORMAT (EXACTLY AS SHOWN):
+Possible Conditions: [List primary condition first, then alternatives if any]
+Confidence Level: [single number 75-95]
+Care Recommendation: [must be one of: mild, moderate, severe]
 
 CRITICAL FORMATTING RULES:
-- NO asterisks (*) or double asterisks (**) anywhere in the response
-- NO markdown formatting of any kind
-- NO special characters or symbols
+- MUST include all three sections in exact order shown above
+- Each section MUST be on its own line
+- NO additional sections or text allowed
+- NO asterisks or markdown
 - NO bullet points or lists
-- NO headers or separators
-- Use plain text only
-- Use single newlines between sections
+- NO explanatory text between sections
 - Keep responses brief and clear
 
-DIAGNOSTIC APPROACH:
-1. Primary Condition assessment (75-95% confidence based on certainty)
-2. Alternative possibilities with explanations
-3. Triage levels (mild/moderate/severe) based on symptoms
+RESPONSE GUIDELINES:
+- Confidence Level must be a single number between 75-95
+- Care Recommendation must be exactly 'mild', 'moderate', or 'severe'
+- Possible Conditions should be clear and concise
+- No diagnostic language (e.g., "it might be" or "possibly")
+- No medical advice beyond basic triage level
 
-IMPORTANT RESTRICTIONS:
-- Do not provide a definitive diagnosis
-- Do not use complex medical jargon
-- Do not reference external sources
-- Do not use conditional language (e.g., "it might be")
-- Keep responses concise and relevant
-- Always use numerical values for confidence (75-95)
+EXAMPLE RESPONSE:
+Possible Conditions: Tension headache with possible dehydration
+Confidence Level: 85
+Care Recommendation: mild
 
-DISCLAIMER:
 This tool does not provide medical diagnoses. Always consult a doctor for medical concerns."""
 
 class ResponseSection:
@@ -56,93 +53,49 @@ class ResponseSection:
     CARE = "Care Recommendation:"
 
 def clean_ai_response(response: Optional[str]) -> str:
-    """
-    Clean AI response and enforce structured format.
-
-    Args:
-        response (str): Raw response from OpenAI
-
-    Returns:
-        str: Cleaned and properly formatted response
-    """
-    if not response:
-        logger.warning("Received empty response")
+    """Clean and validate AI response format."""
+    if not isinstance(response, str) or not response.strip():
+        logger.warning("Invalid or empty response")
         return create_default_response()
 
     logger.debug("Original AI response: %s", response)
 
-    # Define cleaning patterns
-    patterns: List[tuple] = [
-        (r'\*\*([^*]+)\*\*', r'\1'),  # Remove **bold**
-        (r'\*([^*]+)\*', r'\1'),      # Remove *italic*
-        (r'_([^_]+)_', r'\1'),        # Remove _italic_
-        (r'`([^`]+)`', r'\1'),        # Remove `code`
-        (r'#\s*', ''),                # Remove markdown headers
-        (r'^\s*[-•]\s*', ''),         # Remove bullet points
-        (r'\n\s*[-•]\s*', '\n'),      # Remove bullet points after newlines
-        (r'[\[\]]+', ''),             # Remove square brackets
-        (r'\s+', ' '),                # Normalize all whitespace
-    ]
-
-    cleaned = response
-    for pattern, replacement in patterns:
-        cleaned = re.sub(pattern, replacement, cleaned)
-
-    # Strip unnecessary content before "Possible Conditions:"
-    if "Possible Conditions:" in cleaned:
-        cleaned = cleaned.split("Possible Conditions:", 1)[-1]
-        cleaned = "Possible Conditions: " + cleaned.strip()
-
-    # Normalize newlines
-    cleaned = re.sub(r'\n\s*\n', '\n', cleaned)  # Remove empty lines
-    cleaned = re.sub(r' *\n *', '\n', cleaned)   # Clean up around newlines
-    cleaned = cleaned.strip()
-
-    # Ensure response follows the correct format
-    cleaned = validate_ai_format(cleaned)
-
-    logger.debug("Final cleaned response: %s", cleaned)
-    return cleaned
-
-def validate_ai_format(response: str) -> str:
-    """
-    Ensure AI response follows the expected format and contains all required sections.
-
-    Args:
-        response (str): Cleaned response string
-
-    Returns:
-        str: Validated and properly formatted response
-    """
-    required_sections = {
-        ResponseSection.CONDITIONS: "Unable to determine conditions",
-        ResponseSection.CONFIDENCE: str(DEFAULT_CONFIDENCE),
-        ResponseSection.CARE: "moderate"
+    # Extract sections using more precise regex
+    sections = {
+        'conditions': None,
+        'confidence': None,
+        'care': None
     }
 
-    # Check for missing sections
-    for section, default_value in required_sections.items():
-        if section not in response:
-            logger.warning("Missing section: %s", section)
-            response += f"\n{section} {default_value}"
+    # Look for each section with strict formatting
+    conditions_match = re.search(r'Possible Conditions:\s*(.+?)(?=\nConfidence Level:|$)', response, re.DOTALL)
+    confidence_match = re.search(r'Confidence Level:\s*(\d+)', response)
+    care_match = re.search(r'Care Recommendation:\s*(mild|moderate|severe)', response, re.IGNORECASE)
 
-    # Ensure proper spacing after section labels
-    for section in required_sections:
-        response = re.sub(fr"{section}(?!\s)", f"{section} ", response)
-
-    # Handle confidence level
-    confidence_match = re.search(r"Confidence Level:\s*(\d+)", response)
-    if not confidence_match:
-        logger.warning("No valid confidence level found")
-        response = re.sub(r"Confidence Level:.*", f"Confidence Level: {DEFAULT_CONFIDENCE}", response)
-    else:
+    # Validate and store each section
+    if conditions_match:
+        sections['conditions'] = conditions_match.group(1).strip()
+    if confidence_match:
         confidence = int(confidence_match.group(1))
-        if confidence < MIN_CONFIDENCE or confidence > MAX_CONFIDENCE:
-            logger.warning("Confidence %d out of range [%d-%d]", confidence, MIN_CONFIDENCE, MAX_CONFIDENCE)
-            confidence = max(MIN_CONFIDENCE, min(MAX_CONFIDENCE, confidence))
-            response = re.sub(r"Confidence Level:\s*\d+", f"Confidence Level: {confidence}", response)
+        sections['confidence'] = str(max(MIN_CONFIDENCE, min(MAX_CONFIDENCE, confidence)))
+    if care_match:
+        sections['care'] = care_match.group(1).lower()
 
-    return response
+    # If any section is missing, use defaults
+    if not all(sections.values()):
+        logger.warning("Missing sections in response: %s", 
+                      [k for k, v in sections.items() if not v])
+        return create_default_response()
+
+    # Construct properly formatted response
+    formatted_response = (
+        f"Possible Conditions: {sections['conditions']}\n"
+        f"Confidence Level: {sections['confidence']}\n"
+        f"Care Recommendation: {sections['care']}"
+    )
+
+    logger.debug("Cleaned response: %s", formatted_response)
+    return formatted_response
 
 def create_default_response() -> str:
     """Create a default response when the AI response is invalid or empty."""

@@ -165,14 +165,23 @@ def analyze_symptoms() -> tuple[Any, int]:
 
         raw_response = response.choices[0].message.content
         ai_response = clean_ai_response(raw_response)
-        triage_level = determine_triage_level(ai_response, symptoms)
 
-        confidence_match = re.search(fr"{ResponseSection.CONFIDENCE}\s*(\d+)", ai_response)
+        # Parse sections more reliably
+        conditions_match = re.search(r'Possible Conditions:\s*(.+?)(?=\nConfidence Level:|$)', ai_response, re.DOTALL)
+        confidence_match = re.search(r'Confidence Level:\s*(\d+)', ai_response)
+        care_match = re.search(r'Care Recommendation:\s*(mild|moderate|severe)', ai_response, re.IGNORECASE)
+
+        conditions = conditions_match.group(1).strip() if conditions_match else "Unable to determine conditions"
         confidence = int(confidence_match.group(1)) if confidence_match else DEFAULT_CONFIDENCE
+        care = care_match.group(1).lower() if care_match else TriageLevel.MODERATE
+
+        # Use determine_triage_level as a safety check
+        suggested_triage = determine_triage_level(conditions, symptoms)
+        final_triage = suggested_triage if suggested_triage == TriageLevel.SEVERE else care
 
         return jsonify({
             'possible_conditions': ai_response,
-            'triage_level': triage_level,
+            'triage_level': final_triage,
             'confidence': confidence
         })
 
