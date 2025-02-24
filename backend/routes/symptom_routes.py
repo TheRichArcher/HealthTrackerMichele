@@ -165,7 +165,7 @@ def analyze_symptoms() -> tuple[Any, int]:
             logger.error("OpenAI API key is missing")
             return create_error_response("AI service is temporarily unavailable.", 503)
 
-        openai.api_key = openai_api_key
+        client = openai.OpenAI(api_key=openai_api_key)
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages.extend(conversation_history)
         messages.append({"role": "user", "content": symptoms})
@@ -174,8 +174,8 @@ def analyze_symptoms() -> tuple[Any, int]:
             logger.debug("Sending request to OpenAI with messages: %s", messages)
 
         try:
-            # Fixed OpenAI API call
-            response = openai.ChatCompletion.create(
+            # Updated OpenAI API call for version 1.0+
+            response = client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=messages,
                 temperature=DEFAULT_TEMPERATURE,
