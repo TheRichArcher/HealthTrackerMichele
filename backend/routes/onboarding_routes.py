@@ -6,17 +6,25 @@ import openai
 import logging
 import time
 import re
+import os
+from typing import Optional
 
-logger = logging.getLogger("onboarding_routes")
+# Configure logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.DEBUG
+)
+logger = logging.getLogger(__name__)
 
+# Blueprint setup
 onboarding_routes = Blueprint('onboarding_routes', __name__, url_prefix='/api/onboarding')
 
-# Configuration
+# Constants
+MAX_RETRIES = 3
+RETRY_DELAY = 2
 CONFIDENCE_THRESHOLD = 90
 CONFIDENCE_INCREMENT = 15
 MAX_QUESTIONS_PER_SESSION = 20
-RETRY_DELAY = 2
-MAX_RETRIES = 3
 SEVERITY_SCORE_THRESHOLD = 9
 
 EMERGENCY_KEYWORDS = [
@@ -44,9 +52,20 @@ def check_for_emergency(symptom_text: str, severity_score: int) -> bool:
 
 def send_openai_request(prompt: str) -> str:
     fallback_question = "Can you provide more details?"
+    
+    try:
+        client = openai.OpenAI()
+    except Exception as e:
+        logger.error(f"Failed to initialize OpenAI client: {e}")
+        return fallback_question
+
     for attempt in range(MAX_RETRIES):
         try:
-            response = openai.ChatCompletion.create(
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Sending OpenAI request (attempt {attempt + 1})")
+                logger.debug(f"Prompt: {prompt}")
+
+            response = client.chat.completions.create(
                 model="gpt-4",
                 messages=[
                     {"role": "system", "content": "You are a medical assistant helping with symptom analysis."},
@@ -55,11 +74,30 @@ def send_openai_request(prompt: str) -> str:
                 max_tokens=400,
                 temperature=0.7
             )
-            response_text = response['choices'][0]['message']['content'].strip()
-            return response_text if response_text else fallback_question
-        except openai.OpenAIError as api_error:
-            logger.error(f"OpenAI API Error (Attempt {attempt + 1}): {api_error}")
-            time.sleep(RETRY_DELAY)
+
+            if not response or not response.choices:
+                logger.error(f"Invalid response from OpenAI (attempt {attempt + 1}): {response}")
+                if attempt == MAX_RETRIES - 1:
+                    return fallback_question
+                time.sleep(RETRY_DELAY)
+                continue
+
+            response_text = response.choices[0].message.content
+            if not response_text or not response_text.strip():
+                logger.error(f"Empty response from OpenAI (attempt {attempt + 1})")
+                if attempt == MAX_RETRIES - 1:
+                    return fallback_question
+                time.sleep(RETRY_DELAY)
+                continue
+
+            return response_text.strip()
+
+        except Exception as e:
+            logger.error(f"OpenAI API Error (attempt {attempt + 1}): {e}")
+            if attempt == MAX_RETRIES - 1:
+                return fallback_question
+            time.sleep(RETRY_DELAY * (attempt + 1))
+
     return fallback_question
 
 def ensure_single_question(response_text: str) -> str:
