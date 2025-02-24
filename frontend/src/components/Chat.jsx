@@ -13,7 +13,8 @@ const CONFIG = {
     MAX_MESSAGE_LENGTH: 1000,
     MIN_MESSAGE_LENGTH: 3,
     SCROLL_DEBOUNCE_DELAY: 100,
-    LOCAL_STORAGE_KEY: 'healthtracker_chat_messages'
+    LOCAL_STORAGE_KEY: 'healthtracker_chat_messages',
+    DEBUG_MODE: process.env.NODE_ENV === 'development'
 };
 
 const WELCOME_MESSAGE = {
@@ -25,17 +26,16 @@ const WELCOME_MESSAGE = {
 
 // Error Boundary Component
 class ChatErrorBoundary extends React.Component {
-    constructor(props) {
-        super(props);
-        this.state = { hasError: false };
-    }
+    state = { hasError: false };
 
     static getDerivedStateFromError(error) {
         return { hasError: true };
     }
 
     componentDidCatch(error, errorInfo) {
-        console.error('Chat Error:', error, errorInfo);
+        if (CONFIG.DEBUG_MODE) {
+            console.error('Chat Error:', error, errorInfo);
+        }
     }
 
     render() {
@@ -55,36 +55,35 @@ class ChatErrorBoundary extends React.Component {
 
 // Memoized Message Component
 const Message = memo(({ message, onRetry, index }) => {
+    const { sender, text, confidence, careRecommendation } = message;
+
     const getCareRecommendation = useCallback((level) => {
-        switch(level) {
-            case 'mild':
-                return "You can likely manage this at home";
-            case 'severe':
-                return "You should seek urgent care";
-            case 'moderate':
-                return "Consider seeing a doctor soon";
-            default:
-                return null;
+        switch(level?.toLowerCase()) {
+            case 'mild': return "You can likely manage this at home";
+            case 'severe': return "You should seek urgent care";
+            case 'moderate': return "Consider seeing a doctor soon";
+            default: return null;
         }
     }, []);
+
     return (
-        <div className={`message ${message.sender}`}>
-            <div className="message-content">{message.text}</div>
-            {(message.confidence || message.careRecommendation) && (
+        <div className={`message ${sender}`}>
+            <div className="message-content">{text}</div>
+            {(confidence || careRecommendation) && (
                 <div className="metrics-container">
-                    {message.confidence && (
+                    {confidence && (
                         <div className="confidence">
-                            Confidence: {message.confidence}%
+                            Confidence: {confidence}%
                         </div>
                     )}
-                    {message.careRecommendation && (
+                    {careRecommendation && (
                         <div className="care-recommendation">
-                            {getCareRecommendation(message.careRecommendation)}
+                            {getCareRecommendation(careRecommendation)}
                         </div>
                     )}
                 </div>
             )}
-            {message.sender === 'bot' && message.text.includes("trouble processing") && (
+            {sender === 'bot' && text.includes("trouble processing") && (
                 <button 
                     className="retry-button"
                     onClick={() => onRetry(index)}
@@ -98,7 +97,6 @@ const Message = memo(({ message, onRetry, index }) => {
 });
 
 Message.displayName = 'Message';
-
 Message.propTypes = {
     message: PropTypes.shape({
         sender: PropTypes.string.isRequired,
@@ -109,10 +107,18 @@ Message.propTypes = {
     onRetry: PropTypes.func.isRequired,
     index: PropTypes.number.isRequired
 };
+
 const Chat = () => {
     const [messages, setMessages] = useState(() => {
-        const savedMessages = localStorage.getItem(CONFIG.LOCAL_STORAGE_KEY);
-        return savedMessages ? JSON.parse(savedMessages) : [WELCOME_MESSAGE];
+        try {
+            const savedMessages = localStorage.getItem(CONFIG.LOCAL_STORAGE_KEY);
+            return savedMessages ? JSON.parse(savedMessages) : [WELCOME_MESSAGE];
+        } catch (error) {
+            if (CONFIG.DEBUG_MODE) {
+                console.error('Error loading saved messages:', error);
+            }
+            return [WELCOME_MESSAGE];
+        }
     });
     const [userInput, setUserInput] = useState('');
     const [loading, setLoading] = useState(false);
@@ -126,10 +132,18 @@ const Chat = () => {
     const abortControllerRef = useRef(null);
     const chatContainerRef = useRef(null);
 
+    // Persist messages to localStorage
     useEffect(() => {
-        localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify(messages));
+        try {
+            localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify(messages));
+        } catch (error) {
+            if (CONFIG.DEBUG_MODE) {
+                console.error('Error saving messages:', error);
+            }
+        }
     }, [messages]);
 
+    // Debounced scroll to bottom
     const debouncedScrollToBottom = useCallback(
         debounce(() => {
             messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -142,6 +156,7 @@ const Chat = () => {
         return () => debouncedScrollToBottom.cancel();
     }, [messages, debouncedScrollToBottom]);
 
+    // Cleanup AbortController
     useEffect(() => {
         return () => {
             if (abortControllerRef.current) {
@@ -255,22 +270,66 @@ const Chat = () => {
                 }
             );
 
-            const { possible_conditions, triage_level, confidence } = response.data;
+            const { possible_conditions, triage_level, confidence: apiConfidence } = response.data;
+
+            // Safely handle possible_conditions
+            const parsedConditions = typeof possible_conditions === 'string' ? 
+                possible_conditions.split('\n') : [];
+
+            // Extract all sections in one pass with safe defaults
+            const sections = parsedConditions.reduce((acc, line) => {
+                const sectionMatches = {
+                    conditions: line.match(/^Possible Conditions:\s*(.+)/),
+                    confidence: line.match(/^Confidence Level:\s*(\d+)/),
+                    care: line.match(/^Care Recommendation:\s*(.+)/)
+                };
+
+                Object.entries(sectionMatches).forEach(([key, match]) => {
+                    if (match) acc[key] = match[1].trim();
+                });
+
+                return acc;
+            }, {
+                conditions: 'Unable to determine conditions',
+                confidence: '75',
+                care: 'moderate'
+            });
+
+            // Safely parse confidence value with fallback
+            const confidenceValue = Number(apiConfidence) || Number(sections.confidence) || 75;
             
-            const botResponse = possible_conditions || 
-                "I need more information to help you better. Could you tell me more about your symptoms?";
+            // Ensure confidence is within valid range (75-95)
+            const normalizedConfidence = Math.min(Math.max(confidenceValue, 75), 95);
+
+            // Use API triage_level if available, fallback to parsed care recommendation
+            const careRecommendation = triage_level || sections.care;
+
+            const botResponse = sections.conditions;
+            
+            // Debug logging only in development
+            if (CONFIG.DEBUG_MODE) {
+                console.debug('Parsed response:', {
+                    sections,
+                    confidenceValue,
+                    normalizedConfidence,
+                    careRecommendation,
+                    rawResponse: possible_conditions
+                });
+            }
             
             setTimeout(() => {
                 typeMessage(
                     botResponse,
-                    confidence || null,
-                    triage_level || null
+                    normalizedConfidence,
+                    careRecommendation
                 );
             }, CONFIG.THINKING_DELAY);
 
         } catch (error) {
             if (!axios.isCancel(error)) {
-                console.error("API error:", error);
+                if (CONFIG.DEBUG_MODE) {
+                    console.error("API error details:", error);
+                }
                 const errorMessage = "I apologize, but I'm having trouble processing your request. Could you try rephrasing that?";
                 setError(errorMessage);
                 setTimeout(() => {
