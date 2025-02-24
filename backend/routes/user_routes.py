@@ -3,7 +3,8 @@ from flask_jwt_extended import (
     create_access_token,
     create_refresh_token,
     get_jwt_identity,
-    jwt_required
+    jwt_required,
+    get_jwt
 )
 from backend.routes.extensions import db, bcrypt
 from backend.models import User
@@ -47,7 +48,7 @@ def login():
         logger.error(f"Login error: {e}")
         return jsonify({"error": "An error occurred during login."}), 500
 
-@user_routes.route("/refresh", methods=["POST"])
+@user_routes.route("/auth/refresh/", methods=["POST"])
 @jwt_required(refresh=True)
 def refresh():
     """Refresh access token."""
@@ -241,3 +242,34 @@ def delete_user(user_id):
         db.session.rollback()
         logger.error(f"Error deleting user {user_id}: {e}")
         return jsonify({"error": "An error occurred while deleting user."}), 500
+
+@user_routes.route("/auth/validate/", methods=["GET"])
+@jwt_required()
+def validate_token():
+    """Validate an access token by ensuring it's still valid."""
+    try:
+        current_user_id = get_jwt_identity()
+        user = User.query.get(current_user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+            
+        return jsonify({
+            "message": "Token is valid",
+            "user_id": current_user_id,
+            "username": user.username
+        }), 200
+    except Exception as e:
+        logger.error(f"Token validation error: {e}")
+        return jsonify({"error": "Invalid or expired token"}), 401
+
+@user_routes.route("/logout/", methods=["POST"])
+@jwt_required()
+def logout():
+    """Handle user logout."""
+    try:
+        jti = get_jwt()["jti"]
+        # You could blacklist the token here if needed
+        return jsonify({"message": "Successfully logged out"}), 200
+    except Exception as e:
+        logger.error(f"Logout error: {e}")
+        return jsonify({"error": "An error occurred during logout"}), 500

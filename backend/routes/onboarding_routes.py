@@ -9,7 +9,7 @@ import re
 
 logger = logging.getLogger("onboarding_routes")
 
-onboarding_routes = Blueprint('onboarding_routes', __name__)
+onboarding_routes = Blueprint('onboarding_routes', __name__, url_prefix='/api/onboarding', strict_slashes=False)
 
 # Configuration
 CONFIDENCE_THRESHOLD = 90
