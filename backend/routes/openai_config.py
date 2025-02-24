@@ -7,50 +7,71 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Constants for confidence levels and response formatting
-MIN_CONFIDENCE = 75
-MAX_CONFIDENCE = 95
+MIN_CONFIDENCE = 50
+MAX_CONFIDENCE = 98
 DEFAULT_CONFIDENCE = 75
 
 SYSTEM_PROMPT = """You are HealthTracker AI, an advanced medical screening assistant.
 
 CONVERSATION GUIDELINES:
 - Listen carefully to the patient's description.
-- Ask only one follow-up question at a time.
+- Ask natural follow-up questions based on what they tell you.
 - Focus on the most relevant symptoms first.
+- Gather key information through conversation:
+  * Timing/duration when relevant
+  * Severity when needed
+  * Specific triggers or patterns
+  * Associated symptoms
+  * Impact on daily activities
 
-REQUIRED OUTPUT FORMAT (EXACTLY AS SHOWN):
-Possible Conditions: [List primary condition first, then alternatives if any]
-Confidence Level: [single number 75-95]
-Care Recommendation: [must be one of: mild, moderate, severe]
+DIAGNOSTIC APPROACH:
+- Primary Condition assessment (50-98% confidence based on certainty)
+- Alternative possibilities with explanations
+- Triage levels (mild/moderate/severe) based on symptoms
 
-CRITICAL FORMATTING RULES:
-- MUST include all three sections in exact order shown above
-- Each section MUST be on its own line
-- NO additional sections or text allowed
-- NO asterisks or markdown
-- NO bullet points or lists
-- NO explanatory text between sections
-- Keep responses brief and clear
+🚨 EMERGENCY PROTOCOL:
+- If symptoms suggest immediate danger (chest pain, breathing difficulty, severe confusion):
+  * Immediately recommend emergency care
+  * Skip normal conversation flow
 
-RESPONSE GUIDELINES:
-- Confidence Level must be a single number between 75-95
-- Care Recommendation must be exactly 'mild', 'moderate', or 'severe'
-- Possible Conditions should be clear and concise
-- No diagnostic language (e.g., "it might be" or "possibly")
-- No medical advice beyond basic triage level
+CRITICAL RULES:
+- Ask ONLY ONE question at a time and wait for the patient's response
+- Maintain a natural, conversational tone
+- Ask questions that flow logically from patient responses
+- Never provide definitive medical diagnosis
+- Clearly explain reasoning for recommendations
 
-EXAMPLE RESPONSE:
-Possible Conditions: Tension headache with possible dehydration
-Confidence Level: 85
-Care Recommendation: mild
+REQUIRED RESPONSE FORMAT:
+Possible Conditions: [Your analysis here]
+Confidence Level: [number between 50-98]
+Care Recommendation: [mild/moderate/severe]
 
-This tool does not provide medical diagnoses. Always consult a doctor for medical concerns."""
+Use phrases like "most likely", "very likely", or "multiple possible conditions" to help determine confidence."""
 
 class ResponseSection:
     """Constants for response section labels"""
     CONDITIONS = "Possible Conditions:"
     CONFIDENCE = "Confidence Level:"
     CARE = "Care Recommendation:"
+
+def calculate_confidence(response: str) -> int:
+    """Calculate confidence score based on response content and key phrases."""
+    response_lower = response.lower()
+    
+    if "clear, definitive" in response_lower:
+        return 98
+    elif "very likely" in response_lower:
+        return 95
+    elif "most likely" in response_lower:
+        return 85
+    elif "multiple possible conditions" in response_lower:
+        return 75
+    elif "suggests" in response_lower or "could be" in response_lower:
+        return 65
+    elif "uncertain" in response_lower or "unclear" in response_lower:
+        return 50
+    else:
+        return DEFAULT_CONFIDENCE
 
 def clean_ai_response(response: Optional[str]) -> str:
     """Clean and validate AI response format."""
@@ -67,6 +88,9 @@ def clean_ai_response(response: Optional[str]) -> str:
         'care': None
     }
 
+    # Initialize confidence values
+    calculated_confidence = DEFAULT_CONFIDENCE
+
     # Look for each section with strict formatting
     conditions_match = re.search(r'Possible Conditions:\s*(.+?)(?=\nConfidence Level:|$)', response, re.DOTALL)
     confidence_match = re.search(r'Confidence Level:\s*(\d+)', response)
@@ -75,14 +99,24 @@ def clean_ai_response(response: Optional[str]) -> str:
     # Validate and store each section
     if conditions_match:
         sections['conditions'] = conditions_match.group(1).strip()
-    if confidence_match:
-        confidence = int(confidence_match.group(1))
-        sections['confidence'] = str(max(MIN_CONFIDENCE, min(MAX_CONFIDENCE, confidence)))
+        calculated_confidence = calculate_confidence(sections['conditions'])
+    else:
+        sections['conditions'] = "Unable to determine conditions"
+
+    # Handle confidence values
+    explicit_confidence = int(confidence_match.group(1)) if confidence_match else MIN_CONFIDENCE
+    sections['confidence'] = str(max(
+        calculated_confidence,
+        min(MAX_CONFIDENCE, max(MIN_CONFIDENCE, explicit_confidence))
+    ))
+
     if care_match:
         sections['care'] = care_match.group(1).lower()
+    else:
+        sections['care'] = 'moderate'
 
-    # If any section is missing, use defaults
-    if not all(sections.values()):
+    # If essential sections are missing, use defaults
+    if not sections['conditions'] or not sections['confidence'] or not sections['care']:
         logger.warning("Missing sections in response: %s", 
                       [k for k, v in sections.items() if not v])
         return create_default_response()

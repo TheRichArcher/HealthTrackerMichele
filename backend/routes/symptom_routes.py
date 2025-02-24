@@ -11,8 +11,10 @@ from backend.routes.openai_config import (
     SYSTEM_PROMPT,
     clean_ai_response,
     MIN_CONFIDENCE,
+    MAX_CONFIDENCE,
     DEFAULT_CONFIDENCE,
-    ResponseSection
+    ResponseSection,
+    calculate_confidence
 )
 
 # Configure logging
@@ -106,18 +108,30 @@ def determine_triage_level(ai_response: str, symptoms: str) -> str:
     emergency_terms = [
         "chest pain", "difficulty breathing", "shortness of breath",
         "severe allergic reaction", "anaphylaxis", "unconscious",
-        "stroke", "heart attack", "severe bleeding", "head injury"
+        "stroke", "heart attack", "severe bleeding", "head injury",
+        "severe confusion", "severe headache", "sudden vision loss",
+        "coughing up blood", "severe abdominal pain", "suicide",
+        "overdose", "seizure", "severe burn"
     ]
     
     if any(term in response_lower or term in symptoms_lower for term in emergency_terms):
         logger.warning("Emergency condition detected in symptoms")
         return TriageLevel.SEVERE
 
+    urgent_terms = [
+        "moderate to severe", "worsening", "persistent",
+        "getting worse", "concerning", "unusual pain"
+    ]
+
+    if any(term in response_lower for term in urgent_terms):
+        return TriageLevel.MODERATE
+
     mild_conditions = [
         ('allergy', ['cat', 'dust', 'pollen', 'sneez']),
         ('cold', ['runny nose', 'sore throat', 'cough']),
         ('minor', ['headache', 'muscle ache']),
-        ('common', ['tired', 'fatigue'])
+        ('common', ['tired', 'fatigue']),
+        ('mild', ['discomfort', 'irritation'])
     ]
 
     for condition, symptoms_list in mild_conditions:
@@ -151,19 +165,37 @@ def analyze_symptoms() -> tuple[Any, int]:
             logger.error("OpenAI API key is missing")
             return create_error_response("AI service is temporarily unavailable.", 503)
 
-        client = openai.OpenAI(api_key=openai_api_key)
+        openai.api_key = openai_api_key
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages.extend(conversation_history)
         messages.append({"role": "user", "content": symptoms})
 
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=messages,
-            temperature=DEFAULT_TEMPERATURE,
-            max_tokens=MAX_TOKENS
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Sending request to OpenAI with messages: %s", messages)
 
-        raw_response = response.choices[0].message.content
+        try:
+            # Fixed OpenAI API call
+            response = openai.ChatCompletion.create(
+                model=MODEL_NAME,
+                messages=messages,
+                temperature=DEFAULT_TEMPERATURE,
+                max_tokens=MAX_TOKENS
+            )
+
+            if not response or not response.choices:
+                logger.error("Invalid response from OpenAI: %s", response)
+                return create_error_response("Invalid response from AI service.", 500)
+
+            raw_response = response.choices[0].message.content
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Raw OpenAI response: %s", raw_response)
+
+        except Exception as e:
+            logger.error("OpenAI API error: %s", str(e))
+            return create_error_response("Error communicating with AI service.", 500)
+
+        # Clean and structure the response
         ai_response = clean_ai_response(raw_response)
 
         # Parse sections more reliably
@@ -171,19 +203,38 @@ def analyze_symptoms() -> tuple[Any, int]:
         confidence_match = re.search(r'Confidence Level:\s*(\d+)', ai_response)
         care_match = re.search(r'Care Recommendation:\s*(mild|moderate|severe)', ai_response, re.IGNORECASE)
 
+        # Extract and validate conditions
         conditions = conditions_match.group(1).strip() if conditions_match else "Unable to determine conditions"
-        confidence = int(confidence_match.group(1)) if confidence_match else DEFAULT_CONFIDENCE
-        care = care_match.group(1).lower() if care_match else TriageLevel.MODERATE
+        
+        # Calculate confidence using both explicit value and content analysis
+        explicit_confidence = int(confidence_match.group(1)) if confidence_match else None
+        calculated_confidence = calculate_confidence(conditions)
+        
+        # Use the higher confidence value, but respect MIN/MAX bounds
+        final_confidence = max(
+            calculated_confidence,
+            explicit_confidence if explicit_confidence is not None else MIN_CONFIDENCE
+        )
+        final_confidence = min(max(final_confidence, MIN_CONFIDENCE), MAX_CONFIDENCE)
 
-        # Use determine_triage_level as a safety check
+        # Determine care recommendation
+        initial_care = care_match.group(1).lower() if care_match else TriageLevel.MODERATE
         suggested_triage = determine_triage_level(conditions, symptoms)
-        final_triage = suggested_triage if suggested_triage == TriageLevel.SEVERE else care
+        
+        # Always use SEVERE if detected, otherwise use AI's recommendation
+        final_triage = suggested_triage if suggested_triage == TriageLevel.SEVERE else initial_care
 
-        return jsonify({
-            'possible_conditions': ai_response,
+        # Construct the response
+        response_data = {
+            'possible_conditions': conditions,
             'triage_level': final_triage,
-            'confidence': confidence
-        })
+            'confidence': final_confidence
+        }
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Final response data: %s", response_data)
+
+        return jsonify(response_data)
 
     except Exception as e:
         logger.error("Error analyzing symptoms: %s", str(e))
