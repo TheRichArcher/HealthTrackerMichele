@@ -24,7 +24,6 @@ const WELCOME_MESSAGE = {
     careRecommendation: null
 };
 
-// Error Boundary Component
 class ChatErrorBoundary extends React.Component {
     state = { hasError: false };
 
@@ -53,7 +52,6 @@ class ChatErrorBoundary extends React.Component {
     }
 }
 
-// Memoized Message Component
 const Message = memo(({ message, onRetry, index }) => {
     const { sender, text, confidence, careRecommendation } = message;
 
@@ -132,7 +130,6 @@ const Chat = () => {
     const abortControllerRef = useRef(null);
     const chatContainerRef = useRef(null);
 
-    // Persist messages to localStorage
     useEffect(() => {
         try {
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify(messages));
@@ -143,7 +140,6 @@ const Chat = () => {
         }
     }, [messages]);
 
-    // Debounced scroll to bottom
     const debouncedScrollToBottom = useCallback(
         debounce(() => {
             messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -156,7 +152,6 @@ const Chat = () => {
         return () => debouncedScrollToBottom.cancel();
     }, [messages, debouncedScrollToBottom]);
 
-    // Cleanup AbortController
     useEffect(() => {
         return () => {
             if (abortControllerRef.current) {
@@ -276,7 +271,7 @@ const Chat = () => {
             const parsedConditions = typeof possible_conditions === 'string' ? 
                 possible_conditions.split('\n') : [];
 
-            // Extract all sections in one pass with safe defaults
+            // Extract sections without default values
             const sections = parsedConditions.reduce((acc, line) => {
                 const sectionMatches = {
                     conditions: line.match(/^Possible Conditions:\s*(.+)/),
@@ -289,38 +284,44 @@ const Chat = () => {
                 });
 
                 return acc;
-            }, {
-                conditions: 'Unable to determine conditions',
-                confidence: '75',
-                care: 'moderate'
-            });
+            }, {});
 
-            // Safely parse confidence value with fallback
-            const confidenceValue = Number(apiConfidence) || Number(sections.confidence) || 75;
-            
-            // Ensure confidence is within valid range (75-95)
-            const normalizedConfidence = Math.min(Math.max(confidenceValue, 75), 95);
+            // Only set values if they exist in the response
+            const botResponse = sections.conditions || 
+                (possible_conditions || '').trim() || 
+                'I need more information to determine your condition';
 
-            // Use API triage_level if available, fallback to parsed care recommendation
-            const careRecommendation = triage_level || sections.care;
+            // Calculate confidence only if we have actual conditions
+            const confidenceValue = sections.conditions ? (
+                Number(apiConfidence) || 
+                Number(sections.confidence) || 
+                75
+            ) : null;
 
-            const botResponse = sections.conditions;
-            
-            // Debug logging only in development
+            // Set care recommendation only if we have conditions
+            const careRecommendation = sections.conditions ? (
+                triage_level || 
+                sections.care || 
+                'moderate'
+            ) : null;
+
+            // Debug logging in development
             if (CONFIG.DEBUG_MODE) {
-                console.debug('Parsed response:', {
-                    sections,
-                    confidenceValue,
-                    normalizedConfidence,
-                    careRecommendation,
-                    rawResponse: possible_conditions
+                console.debug('Response parsing:', {
+                    original: possible_conditions,
+                    parsed: sections,
+                    final: {
+                        response: botResponse,
+                        confidence: confidenceValue,
+                        care: careRecommendation
+                    }
                 });
             }
-            
+
             setTimeout(() => {
                 typeMessage(
                     botResponse,
-                    normalizedConfidence,
+                    confidenceValue,
                     careRecommendation
                 );
             }, CONFIG.THINKING_DELAY);
@@ -424,9 +425,7 @@ const Chat = () => {
                         >
                             {loading ? (
                                 <span className="loading-spinner" aria-hidden="true" />
-                            ) : (
-                                'Send'
-                            )}
+                            ) : 'Send'}
                         </button>
                     </div>
                 </div>
