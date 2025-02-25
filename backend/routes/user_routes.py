@@ -7,7 +7,7 @@ from flask_jwt_extended import (
     get_jwt
 )
 from backend.routes.extensions import db, bcrypt
-from backend.models import User, RevokedToken  # Added RevokedToken import
+from backend.models import User, RevokedToken
 from datetime import datetime, timedelta
 import logging
 

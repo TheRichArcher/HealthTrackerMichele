@@ -90,6 +90,7 @@ def create_app():
     from backend.routes.utils_health_routes import utils_health_bp
     from backend.routes.library_routes import library_routes
     from backend.routes.onboarding_routes import onboarding_routes
+    from backend.routes.data_exporter import data_exporter
 
     # Register blueprints with proper URL prefixes
     # Note: Blueprint registration centralizes all URL prefixing for consistent route management
@@ -100,7 +101,8 @@ def create_app():
         (user_routes, '/api'),
         (utils_health_bp, '/api'),  # Changed to '/api' to standardize route prefixing
         (library_routes, '/api/library'),
-        (onboarding_routes, '/api/onboarding')
+        (onboarding_routes, '/api/onboarding'),
+        (data_exporter, '/api/export')
     ]
 
     for blueprint, url_prefix in blueprints:
