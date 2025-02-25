@@ -114,6 +114,10 @@ def analyze_symptoms() -> tuple[Any, int]:
         data = request.get_json()
         symptoms = sanitize_input(data.get('symptoms', ''))
         conversation_history = data.get('conversation_history', [])
+        
+        # Add this logging
+        logger.info(f"Received symptoms: '{symptoms}'")
+        logger.info(f"Conversation history: {conversation_history}")
 
         if not symptoms:
             return create_error_response("Please describe your symptoms.", 400)
@@ -141,6 +145,10 @@ def analyze_symptoms() -> tuple[Any, int]:
                 )
 
                 response_text = response.choices[0].message.content.strip() if response.choices else ""
+                
+                # Add this logging
+                logger.info(f"Raw OpenAI response: {response_text}")
+                
                 if not response_text:
                     logger.error(f"Empty response from OpenAI (attempt {attempt + 1})")
                     if attempt == MAX_RETRIES - 1:
