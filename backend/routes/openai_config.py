@@ -35,17 +35,19 @@ DIAGNOSTIC APPROACH:
   * Skip normal conversation flow
 
 CRITICAL RULES:
+- For initial inputs, always ask follow-up questions first
 - Ask ONLY ONE question at a time and wait for the patient's response
 - Maintain a natural, conversational tone
 - Ask questions that flow logically from patient responses
 - Never provide definitive medical diagnosis
-- Clearly explain reasoning for recommendations
-- ALWAYS provide an analysis for common symptoms like headache, stomach ache, fever, etc.
+- Only provide the structured format (Possible Conditions, etc.) when you have enough information
 
-REQUIRED RESPONSE FORMAT:
-Possible Conditions: [Your analysis here]
-Confidence Level: [number between 50-98]
-Care Recommendation: [mild/moderate/severe]
+RESPONSE FORMAT:
+- For follow-up questions: Just ask a natural question without any special formatting
+- For final assessment only:
+  Possible Conditions: [Your analysis here]
+  Confidence Level: [number between 50-98]
+  Care Recommendation: [mild/moderate/severe]
 
 Use phrases like "most likely", "very likely", or "multiple possible conditions" to help determine confidence."""
 
@@ -81,6 +83,12 @@ def clean_ai_response(response: Optional[str]) -> str:
         return create_default_response()
 
     logger.debug("Original AI response: %s", response)
+    
+    # Check if this is a conversational response (a question)
+    if '?' in response and not re.search(r'Possible Conditions:', response, re.IGNORECASE):
+        logger.info("Detected conversational response (question)")
+        # Return the question without structured format
+        return response.strip()
 
     # Extract sections using more lenient regex
     sections = {

@@ -64,10 +64,14 @@ const Message = memo(({ message, onRetry, index }) => {
         }
     }, []);
 
+    // Check if this is a question (likely ends with question mark)
+    const isQuestion = text.includes('?') && !text.includes('Possible Conditions:');
+
     return (
         <div className={`message ${sender}`}>
             <div className="message-content">{text}</div>
-            {(confidence || careRecommendation) && (
+            {/* Only show metrics if not a question and confidence or careRecommendation exists */}
+            {!isQuestion && (confidence || careRecommendation) && (
                 <div className="metrics-container">
                     {confidence && (
                         <div className="confidence">
@@ -266,8 +270,8 @@ const Chat = () => {
             );
 
             const { possible_conditions, triage_level, confidence: apiConfidence } = response.data;
-
-            // First, check if this is a conversational response (a question)
+            
+            // Check if this is a question (conversational response)
             const responseText = possible_conditions || '';
             const isQuestion = responseText.includes('?') && 
                               !responseText.toLowerCase().includes('possible conditions:');
@@ -279,76 +283,13 @@ const Chat = () => {
                 console.log("Is this a question?", isQuestion);
             }
 
-            if (isQuestion) {
-                // For conversational turns, don't try to parse structured data
-                setTimeout(() => {
-                    typeMessage(
-                        responseText,  // Just use the raw text
-                        null,          // No confidence for questions
-                        null           // No care recommendation for questions
-                    );
-                }, CONFIG.THINKING_DELAY);
-            } else {
-                // For structured responses, parse as before
-                // Safely handle possible_conditions
-                const parsedConditions = typeof possible_conditions === 'string' ? 
-                    possible_conditions.split('\n') : [];
-
-                // Extract sections without default values
-                const sections = parsedConditions.reduce((acc, line) => {
-                    const sectionMatches = {
-                        conditions: line.match(/^Possible Conditions:\s*(.+)/),
-                        confidence: line.match(/^Confidence Level:\s*(\d+)/),
-                        care: line.match(/^Care Recommendation:\s*(.+)/)
-                    };
-
-                    Object.entries(sectionMatches).forEach(([key, match]) => {
-                        if (match) acc[key] = match[1].trim();
-                    });
-
-                    return acc;
-                }, {});
-
-                // Only set values if they exist in the response
-                const botResponse = sections.conditions || 
-                    (possible_conditions || '').trim() || 
-                    'I need more information to determine your condition';
-
-                // Calculate confidence only if we have actual conditions
-                const confidenceValue = sections.conditions ? (
-                    Number(apiConfidence) || 
-                    Number(sections.confidence) || 
-                    75
-                ) : null;
-
-                // Set care recommendation only if we have conditions
-                const careRecommendation = sections.conditions ? (
-                    triage_level || 
-                    sections.care || 
-                    'moderate'
-                ) : null;
-
-                // Debug logging in development
-                if (CONFIG.DEBUG_MODE) {
-                    console.debug('Response parsing:', {
-                        original: possible_conditions,
-                        parsed: sections,
-                        final: {
-                            response: botResponse,
-                            confidence: confidenceValue,
-                            care: careRecommendation
-                        }
-                    });
-                }
-
-                setTimeout(() => {
-                    typeMessage(
-                        botResponse,
-                        confidenceValue,
-                        careRecommendation
-                    );
-                }, CONFIG.THINKING_DELAY);
-            }
+            setTimeout(() => {
+                typeMessage(
+                    responseText,
+                    isQuestion ? null : (Number(apiConfidence) || 75),
+                    isQuestion ? null : (triage_level || 'moderate')
+                );
+            }, CONFIG.THINKING_DELAY);
 
         } catch (error) {
             if (!axios.isCancel(error)) {
