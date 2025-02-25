@@ -9,7 +9,7 @@ const CONFIG = {
     TYPING_SPEED: 30,
     THINKING_DELAY: 1000,
     API_TIMEOUT: 10000,
-    API_URL: 'https://healthtrackermichele.onrender.com/api/symptoms/analyze',
+    API_URL: '/api/symptoms/analyze', // Changed to relative URL for better portability
     MAX_MESSAGE_LENGTH: 1000,
     MIN_MESSAGE_LENGTH: 3,
     SCROLL_DEBOUNCE_DELAY: 100,
@@ -19,9 +19,10 @@ const CONFIG = {
 
 const WELCOME_MESSAGE = {
     sender: 'bot',
-    text: "Hi, I'm Michele—your AI medical assistant. Think of me as that doctor you absolutely trust, here to listen, guide, and help you make sense of your symptoms. While I can't replace a real doctor, I can give you insights, ask the right questions, and help you feel more in control of your health. So, tell me—what's going on today?",
+    text: "Hello! I'm your AI medical assistant. Please describe your current symptoms.",
     confidence: null,
-    careRecommendation: null
+    careRecommendation: null,
+    isAssessment: false
 };
 
 class ChatErrorBoundary extends React.Component {
@@ -53,7 +54,7 @@ class ChatErrorBoundary extends React.Component {
 }
 
 const Message = memo(({ message, onRetry, index }) => {
-    const { sender, text, confidence, careRecommendation } = message;
+    const { sender, text, confidence, careRecommendation, isAssessment, triageLevel } = message;
 
     const getCareRecommendation = useCallback((level) => {
         switch(level?.toLowerCase()) {
@@ -64,23 +65,31 @@ const Message = memo(({ message, onRetry, index }) => {
         }
     }, []);
 
-    // Check if this is a question (likely ends with question mark)
-    const isQuestion = text.includes('?') && !text.includes('Possible Conditions:');
-
     return (
         <div className={`message ${sender}`}>
-            <div className="message-content">{text}</div>
-            {/* Only show metrics if not a question and confidence or careRecommendation exists */}
-            {!isQuestion && (confidence || careRecommendation) && (
+            <div className="message-content">
+                {text.split('\n').map((line, i) => (
+                    <p key={i}>{line}</p>
+                ))}
+            </div>
+            {/* Only show metrics if this is an assessment */}
+            {sender === 'bot' && isAssessment && (confidence || careRecommendation || triageLevel) && (
                 <div className="metrics-container">
                     {confidence && (
                         <div className="confidence">
                             Confidence: {confidence}%
                         </div>
                     )}
-                    {careRecommendation && (
+                    {(careRecommendation || triageLevel) && (
                         <div className="care-recommendation">
-                            {getCareRecommendation(careRecommendation)}
+                            {careRecommendation || getCareRecommendation(triageLevel)}
+                        </div>
+                    )}
+                    {triageLevel && (
+                        <div className="triage-level">
+                            <span className={`triage-badge ${triageLevel?.toLowerCase()}`}>
+                                {triageLevel}
+                            </span>
                         </div>
                     )}
                 </div>
@@ -104,7 +113,9 @@ Message.propTypes = {
         sender: PropTypes.string.isRequired,
         text: PropTypes.string.isRequired,
         confidence: PropTypes.number,
-        careRecommendation: PropTypes.string
+        careRecommendation: PropTypes.string,
+        isAssessment: PropTypes.bool,
+        triageLevel: PropTypes.string
     }).isRequired,
     onRetry: PropTypes.func.isRequired,
     index: PropTypes.number.isRequired
@@ -175,13 +186,15 @@ const Chat = () => {
         return null;
     }, []);
 
-    const typeMessage = useCallback((message, confidence, careRecommendation) => {
+    const typeMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null) => {
         let index = 0;
         setTyping(false);
         setMessages(prev => [...prev, {
             sender: 'bot',
             text: "",
+            isAssessment,
             confidence,
+            triageLevel,
             careRecommendation
         }]);
 
@@ -230,7 +243,8 @@ const Chat = () => {
                 sender: 'bot',
                 text: "You've reached the free message limit. Sign up to continue!",
                 confidence: null,
-                careRecommendation: null
+                careRecommendation: null,
+                isAssessment: false
             }]);
             return;
         }
@@ -239,7 +253,8 @@ const Chat = () => {
             sender: 'user',
             text: messageToSend.trim(),
             confidence: null,
-            careRecommendation: null
+            careRecommendation: null,
+            isAssessment: false
         }]);
         
         if (!retryMessage) setUserInput('');
@@ -255,13 +270,13 @@ const Chat = () => {
             const response = await axios.post(
                 CONFIG.API_URL,
                 {
-                    symptoms: messageToSend,
+                    symptom: messageToSend,
                     conversation_history: messages
+                        .filter(msg => msg.text.trim() !== "") // Filter out empty messages
                         .map(msg => ({
-                            role: msg.sender === 'user' ? 'user' : 'assistant',
-                            content: msg.text
+                            message: msg.text,
+                            isBot: msg.sender === 'bot'
                         }))
-                        .slice(1)
                 },
                 {
                     signal: abortControllerRef.current.signal,
@@ -269,26 +284,45 @@ const Chat = () => {
                 }
             );
 
-            const { possible_conditions, triage_level, confidence: apiConfidence } = response.data;
-            
-            // Check if this is a question (conversational response)
-            const responseText = possible_conditions || '';
-            const isQuestion = responseText.includes('?') && 
-                              !responseText.toLowerCase().includes('possible conditions:');
-
             // Debug logging
             if (CONFIG.DEBUG_MODE) {
                 console.log("Raw API response:", response.data);
-                console.log("Possible conditions text:", possible_conditions);
-                console.log("Is this a question?", isQuestion);
             }
 
             setTimeout(() => {
-                typeMessage(
-                    responseText,
-                    isQuestion ? null : (Number(apiConfidence) || 75),
-                    isQuestion ? null : (triage_level || 'moderate')
-                );
+                // Handle the response based on whether it's a question or assessment
+                if (response.data.is_assessment) {
+                    // It's a final assessment with conditions
+                    const conditions = response.data.assessment?.conditions || [];
+                    const triageLevel = response.data.assessment?.triage_level || 'UNKNOWN';
+                    const careRecommendation = response.data.assessment?.care_recommendation || '';
+                    const disclaimer = response.data.assessment?.disclaimer || '';
+                    
+                    // Format the message for display
+                    let formattedMessage = '';
+                    
+                    if (conditions.length > 0) {
+                        formattedMessage += 'Based on your symptoms, here are some possible conditions:\n\n';
+                        conditions.forEach(condition => {
+                            formattedMessage += `${condition.name} – ${condition.confidence}%\n`;
+                        });
+                        formattedMessage += `\n${careRecommendation}\n\n${disclaimer}`;
+                    } else {
+                        formattedMessage = "I need more information to provide an assessment. Could you tell me more about your symptoms?";
+                    }
+                    
+                    typeMessage(
+                        formattedMessage,
+                        true,
+                        conditions[0]?.confidence || null,
+                        triageLevel,
+                        careRecommendation
+                    );
+                } else {
+                    // It's a follow-up question
+                    const question = response.data.question || "Could you tell me more about your symptoms?";
+                    typeMessage(question, false);
+                }
             }, CONFIG.THINKING_DELAY);
 
         } catch (error) {
@@ -299,7 +333,7 @@ const Chat = () => {
                 const errorMessage = "I apologize, but I'm having trouble processing your request. Could you try rephrasing that?";
                 setError(errorMessage);
                 setTimeout(() => {
-                    typeMessage(errorMessage, null, null);
+                    typeMessage(errorMessage, false);
                 }, CONFIG.THINKING_DELAY);
             }
         } finally {

@@ -1,6 +1,8 @@
 import re
+import json
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
+from flask import current_app
 
 # Set up logging with detailed format
 logging.basicConfig(level=logging.DEBUG)
@@ -11,41 +13,44 @@ MIN_CONFIDENCE = 50
 MAX_CONFIDENCE = 98
 DEFAULT_CONFIDENCE = 75
 
-SYSTEM_PROMPT = """You are HealthTracker AI, an advanced medical screening assistant that mimics a doctor's visit.
-
-YOUR PRIMARY GOAL:
-- Build a conversation with the patient by asking follow-up questions
-- NEVER provide an immediate diagnosis on the first response
-- Only provide a final assessment after gathering sufficient information
+SYSTEM_PROMPT = """You are Michele, an AI medical assistant trained to have conversations like a doctor's visit. Your goal is to understand the user's symptoms through a conversation before providing any potential diagnosis.
 
 CONVERSATION FLOW:
-1. Patient shares initial symptom
-2. YOU ASK FOLLOW-UP QUESTIONS (at least 2-3) about:
-   * Duration/timing
-   * Severity
-   * Associated symptoms
-   * Triggers or patterns
-   * Impact on daily life
-3. Only after gathering sufficient information, provide a final assessment
+1. Begin by asking about symptoms if the user hasn't provided them.
+2. ALWAYS ask 2-3 follow-up questions about the symptoms before providing any diagnosis. These questions should gather details about:
+   - Duration and severity of symptoms
+   - Associated symptoms
+   - Aggravating or alleviating factors
+   - Relevant medical history
+3. Only after gathering sufficient information, provide a structured response with potential conditions.
 
-CRITICAL RULES:
-- For ANY initial symptom, ALWAYS respond with a follow-up question first
-- DO NOT provide "Possible Conditions" in your first 2-3 responses
-- Ask ONLY ONE question at a time
-- Maintain a natural, conversational tone
-- Never provide definitive medical diagnosis
+RESPONSE FORMATS:
+- During information gathering: Ask clear, focused questions without providing any diagnosis. Format as a simple question without any JSON structure.
+- For final assessment only: Provide a structured JSON response with potential conditions.
 
-RESPONSE FORMAT:
-- For follow-up questions: Just ask a natural question without any special formatting
-- For final assessment only (after sufficient information):
-  Possible Conditions: [Your analysis here]
-  Confidence Level: [number between 50-98]
-  Care Recommendation: [mild/moderate/severe]
+FINAL ASSESSMENT FORMAT:
+{
+  "assessment": {
+    "conditions": [
+      {"name": "Condition 1", "confidence": 70},
+      {"name": "Condition 2", "confidence": 20},
+      {"name": "Condition 3", "confidence": 10}
+    ],
+    "triage_level": "MILD|MODERATE|SEVERE",
+    "care_recommendation": "Brief recommendation based on triage level",
+    "disclaimer": "This assessment is for informational purposes only and does not replace professional medical advice."
+  }
+}
 
-🚨 EMERGENCY PROTOCOL:
-- If symptoms suggest immediate danger (chest pain, breathing difficulty, severe confusion):
-  * Immediately recommend emergency care
-  * Skip normal conversation flow"""
+IMPORTANT RULES:
+1. NEVER provide a diagnosis or assessment until you've asked at least 2-3 follow-up questions.
+2. ALWAYS use plain text for questions during information gathering.
+3. ONLY use the JSON format for your final assessment.
+4. If the user provides new symptoms after your assessment, restart the questioning process.
+5. For emergencies (difficulty breathing, severe chest pain, etc.), immediately recommend seeking emergency care.
+
+Remember: Your primary goal is to simulate a thoughtful medical conversation before offering any potential diagnosis.
+"""
 
 class ResponseSection:
     """Constants for response section labels"""
@@ -72,23 +77,56 @@ def calculate_confidence(response: str) -> int:
     else:
         return DEFAULT_CONFIDENCE
 
-def clean_ai_response(response: Optional[str]) -> str:
-    """Clean and validate AI response format."""
-    if not isinstance(response, str) or not response.strip():
+def clean_ai_response(response_text: str) -> Union[Dict, str]:
+    """
+    Process the AI response to determine if it's a question or a structured assessment.
+    
+    Args:
+        response_text (str): The raw response from the OpenAI API
+        
+    Returns:
+        dict: Either a question dict or a parsed assessment dict
+    """
+    if not isinstance(response_text, str) or not response_text.strip():
         logger.warning("Invalid or empty response")
         return create_default_response()
-
-    logger.debug("Original AI response: %s", response)
     
-    # Check if this is a conversational response (a question or doesn't have the structured format)
-    has_question = '?' in response
-    has_structured_format = re.search(r'Possible Conditions:', response, re.IGNORECASE)
+    logger.info(f"Processing AI response: {response_text[:100]}...")
     
-    if has_question or not has_structured_format:
-        logger.info("Detected conversational response")
-        # Return the response without structured format
-        return response.strip()
+    # Check if the response contains JSON
+    json_match = re.search(r'```json\s*(.*?)\s*```|({[\s\S]*"assessment"[\s\S]*})', 
+                          response_text, re.DOTALL)
+    
+    if json_match:
+        # This is likely a final assessment
+        try:
+            json_str = json_match.group(1) or json_match.group(2)
+            json_str = json_str.strip()
+            assessment_data = json.loads(json_str)
+            
+            # Add a flag to indicate this is an assessment
+            assessment_data["is_assessment"] = True
+            logger.info("Successfully parsed assessment JSON")
+            return assessment_data
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON: {e}")
+            # Fall back to treating as a question or using legacy format
+    
+    # Check if this is using the old format with "Possible Conditions:"
+    has_structured_format = re.search(r'Possible Conditions:', response_text, re.IGNORECASE)
+    
+    if has_structured_format:
+        # Process using the legacy format parser
+        return process_legacy_format(response_text)
+    
+    # If we're here, it's a follow-up question
+    return {
+        "is_assessment": False,
+        "question": response_text.strip()
+    }
 
+def process_legacy_format(response: str) -> Dict:
+    """Process responses in the old format with Possible Conditions, Confidence Level, etc."""
     # Extract sections using more lenient regex
     sections = {
         'conditions': None,
@@ -117,43 +155,49 @@ def clean_ai_response(response: Optional[str]) -> str:
 
     # Handle confidence values
     explicit_confidence = int(confidence_match.group(1)) if confidence_match else calculated_confidence
-    sections['confidence'] = str(max(
+    confidence_value = max(
         calculated_confidence,
         min(MAX_CONFIDENCE, max(MIN_CONFIDENCE, explicit_confidence))
-    ))
+    )
 
     # Handle care recommendation
     if care_match:
-        sections['care'] = care_match.group(1).lower()
+        care_value = care_match.group(1).lower()
     else:
         # Default to moderate unless we have clear indicators
         if "severe" in response.lower() or "emergency" in response.lower():
-            sections['care'] = 'severe'
+            care_value = 'severe'
         elif "mild" in response.lower() or "minor" in response.lower():
-            sections['care'] = 'mild'
+            care_value = 'mild'
         else:
-            sections['care'] = 'moderate'
+            care_value = 'moderate'
+    
+    # Create assessment in the new format
+    assessment_data = {
+        "is_assessment": True,
+        "assessment": {
+            "conditions": [
+                {"name": sections['conditions'], "confidence": confidence_value}
+            ],
+            "triage_level": care_value.upper(),
+            "care_recommendation": f"Based on the assessment, this appears to be a {care_value} condition.",
+            "disclaimer": "This assessment is for informational purposes only and does not replace professional medical advice."
+        }
+    }
+    
+    logger.info("Processed legacy format into structured assessment")
+    return assessment_data
 
-    # If essential sections are missing, use defaults
-    if not sections['conditions'] or not sections['confidence'] or not sections['care']:
-        logger.warning("Missing sections in response: %s", 
-                      [k for k, v in sections.items() if not v])
-        return create_default_response()
-
-    # Construct properly formatted response
-    formatted_response = (
-        f"Possible Conditions: {sections['conditions']}\n"
-        f"Confidence Level: {sections['confidence']}\n"
-        f"Care Recommendation: {sections['care']}"
-    )
-
-    logger.debug("Cleaned response: %s", formatted_response)
-    return formatted_response
-
-def create_default_response() -> str:
+def create_default_response() -> Dict:
     """Create a default response when the AI response is invalid or empty."""
-    return (
-        "Possible Conditions: Unable to analyze symptoms at this time\n"
-        f"Confidence Level: {DEFAULT_CONFIDENCE}\n"
-        "Care Recommendation: moderate"
-    )
+    return {
+        "is_assessment": True,
+        "assessment": {
+            "conditions": [
+                {"name": "Unable to analyze symptoms at this time", "confidence": DEFAULT_CONFIDENCE}
+            ],
+            "triage_level": "MODERATE",
+            "care_recommendation": "Consider consulting with a healthcare professional if symptoms persist.",
+            "disclaimer": "This assessment is for informational purposes only and does not replace professional medical advice."
+        }
+    }

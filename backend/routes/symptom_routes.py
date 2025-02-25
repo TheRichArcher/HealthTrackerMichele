@@ -1,54 +1,32 @@
-from flask import Blueprint, request, jsonify
-from backend.routes.extensions import db
-from backend.models import SymptomLog
-from datetime import datetime
-from dotenv import load_dotenv
+from flask import Blueprint, request, jsonify, current_app, g
+from backend.middleware import require_auth
+from backend.routes.extensions import db  # Corrected import path
+from backend.models import User, Symptom, Report
+from backend.routes.openai_config import SYSTEM_PROMPT, clean_ai_response
 import openai
+import os
+import json
 import logging
 import time
 import re
-import os
+from datetime import datetime
 from typing import Any
-from backend.routes.openai_config import (
-    SYSTEM_PROMPT,
-    clean_ai_response,
-    MIN_CONFIDENCE,
-    MAX_CONFIDENCE,
-    DEFAULT_CONFIDENCE,
-    ResponseSection,
-    calculate_confidence
-)
-
-# Load environment variables from .env in backend folder
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../.env"))
-
-# Get OpenAI API key
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    logging.warning("⚠️ OpenAI API key is missing! Make sure .env is loaded.")
-
-# Configure logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.DEBUG
-)
-logger = logging.getLogger(__name__)
 
 # Blueprint setup
-symptom_routes = Blueprint("symptom_routes", __name__)
+symptom_routes = Blueprint('symptom_routes', __name__)
 
 # Constants
 MAX_INPUT_LENGTH = 1000
 DEFAULT_TEMPERATURE = 0.7
-MAX_TOKENS = 750
-MODEL_NAME = "gpt-4"
+MAX_TOKENS = 800
+MODEL_NAME = "gpt-4-turbo-preview"
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 
 class TriageLevel:
-    MILD = "mild"
-    MODERATE = "moderate"
-    SEVERE = "severe"
+    MILD = "MILD"
+    MODERATE = "MODERATE"
+    SEVERE = "SEVERE"
 
 def sanitize_input(text: str) -> str:
     """Sanitize user input by removing excess whitespace and special characters."""
@@ -57,14 +35,6 @@ def sanitize_input(text: str) -> str:
     text = " ".join(text.split())
     text = re.sub(r'[^a-zA-Z0-9\s.,!?-]', '', text)
     return text[:MAX_INPUT_LENGTH]
-
-def create_error_response(message: str, status_code: int) -> tuple[Any, int]:
-    """Create standardized error response."""
-    return jsonify({
-        'possible_conditions': message,
-        'triage_level': TriageLevel.MODERATE,
-        'confidence': MIN_CONFIDENCE
-    }), status_code
 
 def determine_triage_level(ai_response: str, symptoms: str) -> str:
     """Determine triage level based on symptoms and AI response."""
@@ -81,7 +51,7 @@ def determine_triage_level(ai_response: str, symptoms: str) -> str:
     ]
     
     if any(term in response_lower or term in symptoms_lower for term in emergency_terms):
-        logger.warning("Emergency condition detected in symptoms")
+        current_app.logger.warning("Emergency condition detected in symptoms")
         return TriageLevel.SEVERE
 
     urgent_terms = [
@@ -107,104 +77,204 @@ def determine_triage_level(ai_response: str, symptoms: str) -> str:
 
     return TriageLevel.MODERATE
 
-@symptom_routes.route("/analyze", methods=["POST"])
-def analyze_symptoms() -> tuple[Any, int]:
-    """Handle AI analysis of symptoms."""
+@symptom_routes.route('/analyze', methods=['POST'])
+@require_auth
+def analyze_symptoms():
+    user_id = g.user_id
+    data = request.json
+    
+    if not data or 'symptom' not in data:
+        return jsonify({'error': 'No symptom provided'}), 400
+    
+    symptom_text = sanitize_input(data['symptom'])
+    conversation_history = data.get('conversation_history', [])
+    
+    # Log the incoming request
+    current_app.logger.info(f"Analyzing symptom: {symptom_text}")
+    current_app.logger.info(f"Conversation history length: {len(conversation_history)}")
+    
     try:
-        data = request.get_json()
-        symptoms = sanitize_input(data.get('symptoms', ''))
-        conversation_history = data.get('conversation_history', [])
-        
-        # Add this logging
-        logger.info(f"Received symptoms: '{symptoms}'")
-        logger.info(f"Conversation history: {conversation_history}")
-
-        if not symptoms:
-            return create_error_response("Please describe your symptoms.", 400)
-
-        if not api_key:
-            logger.error("OpenAI API key is missing")
-            return create_error_response("AI service is temporarily unavailable.", 503)
-
-        client = openai.OpenAI(api_key=api_key)  # Initialize OpenAI client
-
+        # Prepare the conversation for OpenAI
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        messages.extend(conversation_history)
-        messages.append({"role": "user", "content": symptoms})
-
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Sending request to OpenAI with messages: %s", messages)
-
+        
+        # Add conversation history
+        for entry in conversation_history:
+            role = "assistant" if entry.get("isBot", False) else "user"
+            content = entry.get("message", "")
+            current_app.logger.debug(f"Adding message to history - Role: {role}, Content: {content[:50]}...")
+            messages.append({"role": role, "content": content})
+        
+        # Add the current symptom if not already in conversation
+        if not conversation_history or conversation_history[-1].get("isBot", False):
+            messages.append({"role": "user", "content": symptom_text})
+        
+        current_app.logger.info(f"Sending {len(messages)} messages to OpenAI")
+        
+        # Initialize OpenAI client
+        client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        
+        # Try with retries for handling rate limits and temporary errors
         for attempt in range(MAX_RETRIES):
             try:
+                # Call OpenAI API
                 response = client.chat.completions.create(
                     model=MODEL_NAME,
                     messages=messages,
                     temperature=DEFAULT_TEMPERATURE,
                     max_tokens=MAX_TOKENS
                 )
-
-                response_text = response.choices[0].message.content.strip() if response.choices else ""
                 
-                # Add this logging
-                logger.info(f"Raw OpenAI response: {response_text}")
+                # Extract and process the response
+                ai_response = response.choices[0].message.content
+                current_app.logger.info(f"Raw OpenAI response: {ai_response}")
                 
-                if not response_text:
-                    logger.error(f"Empty response from OpenAI (attempt {attempt + 1})")
-                    if attempt == MAX_RETRIES - 1:
-                        return create_error_response("Invalid response from AI service.", 500)
-                    time.sleep(RETRY_DELAY)
-                    continue
-
-                ai_response = clean_ai_response(response_text)
-                confidence_score = calculate_confidence(ai_response)
-                triage_level = determine_triage_level(ai_response, symptoms)
+                # Process the response to determine if it's a question or assessment
+                processed_response = clean_ai_response(ai_response)
                 
-                response_data = {
-                    'possible_conditions': ai_response,
-                    'triage_level': triage_level,
-                    'confidence': confidence_score
-                }
-
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Final response data: %s", response_data)
-
-                return jsonify(response_data)
-
+                # If it's an assessment, enhance with triage level determination
+                if isinstance(processed_response, dict) and processed_response.get('is_assessment'):
+                    current_app.logger.info(f"Processed response type: assessment")
+                    
+                    # If triage level isn't already set, determine it based on symptoms and response
+                    if not processed_response.get('assessment', {}).get('triage_level'):
+                        triage_level = determine_triage_level(ai_response, symptom_text)
+                        if 'assessment' in processed_response:
+                            processed_response['assessment']['triage_level'] = triage_level
+                    
+                    current_app.logger.debug(f"Assessment details: {json.dumps(processed_response)[:200]}...")
+                else:
+                    current_app.logger.info(f"Processed response type: question")
+                    current_app.logger.debug(f"Question: {processed_response if isinstance(processed_response, str) else processed_response.get('question', '')}")
+                
+                # Save the interaction to the database
+                save_symptom_interaction(user_id, symptom_text, processed_response)
+                
+                return jsonify(processed_response)
+                
             except openai.RateLimitError as e:
-                logger.error(f"OpenAI rate limit exceeded (attempt {attempt + 1}): {e}")
+                current_app.logger.error(f"OpenAI rate limit exceeded (attempt {attempt + 1}): {e}")
                 if attempt == MAX_RETRIES - 1:
-                    return create_error_response("AI service is temporarily busy. Please try again later.", 429)
+                    return jsonify({'error': 'AI service is temporarily busy. Please try again later.'}), 429
                 time.sleep(RETRY_DELAY * (attempt + 2))  # Longer delay for rate limits
 
             except openai.APIConnectionError as e:
-                logger.error(f"OpenAI API connection error (attempt {attempt + 1}): {e}")
+                current_app.logger.error(f"OpenAI API connection error (attempt {attempt + 1}): {e}")
                 if attempt == MAX_RETRIES - 1:
-                    return create_error_response("Unable to connect to AI service. Please try again later.", 503)
+                    return jsonify({'error': 'Unable to connect to AI service. Please try again later.'}), 503
                 time.sleep(RETRY_DELAY * (attempt + 1))
 
             except openai.APIError as e:
-                logger.error(f"OpenAI API error (attempt {attempt + 1}): {e}")
+                current_app.logger.error(f"OpenAI API error (attempt {attempt + 1}): {e}")
                 if attempt == MAX_RETRIES - 1:
-                    return create_error_response("AI service error. Please try again later.", 500)
+                    return jsonify({'error': 'AI service error. Please try again later.'}), 500
                 time.sleep(RETRY_DELAY * (attempt + 1))
 
             except openai.AuthenticationError as e:
-                logger.error(f"OpenAI authentication error: {e}")
-                return create_error_response("AI service configuration error.", 500)
+                current_app.logger.error(f"OpenAI authentication error: {e}")
+                return jsonify({'error': 'AI service configuration error.'}), 500
 
             except openai.InvalidRequestError as e:
-                logger.error(f"OpenAI invalid request error: {e}")
-                return create_error_response("Invalid request to AI service.", 400)
-
+                current_app.logger.error(f"OpenAI invalid request error: {e}")
+                return jsonify({'error': 'Invalid request to AI service.'}), 400
+                
             except Exception as e:
-                logger.error(f"Unexpected error (attempt {attempt + 1}): {e}")
+                current_app.logger.error(f"Unexpected error (attempt {attempt + 1}): {e}", exc_info=True)
                 if attempt == MAX_RETRIES - 1:
-                    return create_error_response("Unable to process your request.", 500)
+                    return jsonify({'error': 'Unable to process your request.'}), 500
                 time.sleep(RETRY_DELAY)
-
-        return create_error_response("Maximum retries reached with AI service.", 500)
-
+        
+        return jsonify({'error': 'Maximum retries reached with AI service.'}), 500
+        
     except Exception as e:
-        logger.error("Error analyzing symptoms: %s", str(e))
-        return create_error_response("Unable to process your request.", 500)
+        current_app.logger.error(f"Error analyzing symptoms: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+def save_symptom_interaction(user_id, symptom_text, response_data):
+    """Save the symptom interaction to the database"""
+    try:
+        # Create a new symptom record
+        new_symptom = Symptom(
+            user_id=user_id,
+            description=symptom_text,
+            response=json.dumps(response_data) if isinstance(response_data, dict) else response_data,
+            created_at=datetime.utcnow()
+        )
+        db.session.add(new_symptom)
+        db.session.commit()
+        
+        # If this is an assessment with conditions, create a report
+        if isinstance(response_data, dict) and response_data.get('is_assessment') and 'assessment' in response_data:
+            assessment = response_data['assessment']
+            conditions = assessment.get('conditions', [])
+            
+            if conditions:
+                # Create a report for this assessment
+                new_report = Report(
+                    user_id=user_id,
+                    symptom_id=new_symptom.id,
+                    content=json.dumps(assessment),
+                    created_at=datetime.utcnow()
+                )
+                db.session.add(new_report)
+                db.session.commit()
+                current_app.logger.info(f"Created report for assessment with ID: {new_report.id}")
+                
+        return True
+    except Exception as e:
+        current_app.logger.error(f"Error saving symptom interaction: {str(e)}", exc_info=True)
+        db.session.rollback()
+        return False
+
+# Additional routes for symptom history, etc. can be added here
+@symptom_routes.route('/history', methods=['GET'])
+@require_auth
+def get_symptom_history():
+    user_id = g.user_id
+    
+    try:
+        # Get the user's symptom history
+        symptoms = Symptom.query.filter_by(user_id=user_id).order_by(Symptom.created_at.desc()).all()
+        
+        result = []
+        for symptom in symptoms:
+            try:
+                response_data = json.loads(symptom.response) if symptom.response else {}
+                
+                # Format the response based on whether it's an assessment or question
+                if isinstance(response_data, dict) and response_data.get('is_assessment'):
+                    assessment = response_data.get('assessment', {})
+                    conditions = assessment.get('conditions', [])
+                    condition_names = [c.get('name') for c in conditions if c.get('name')]
+                    
+                    result.append({
+                        'id': symptom.id,
+                        'description': symptom.description,
+                        'created_at': symptom.created_at.isoformat(),
+                        'is_assessment': True,
+                        'conditions': condition_names,
+                        'triage_level': assessment.get('triage_level')
+                    })
+                else:
+                    # It's a question or unstructured response
+                    question = response_data.get('question') if isinstance(response_data, dict) else str(response_data)
+                    result.append({
+                        'id': symptom.id,
+                        'description': symptom.description,
+                        'created_at': symptom.created_at.isoformat(),
+                        'is_assessment': False,
+                        'response': question
+                    })
+            except Exception as e:
+                current_app.logger.error(f"Error processing symptom {symptom.id}: {str(e)}")
+                # Include a basic entry even if processing failed
+                result.append({
+                    'id': symptom.id,
+                    'description': symptom.description,
+                    'created_at': symptom.created_at.isoformat(),
+                    'error': 'Failed to process response'
+                })
+        
+        return jsonify(result)
+    except Exception as e:
+        current_app.logger.error(f"Error retrieving symptom history: {str(e)}")
+        return jsonify({'error': str(e)}), 500
