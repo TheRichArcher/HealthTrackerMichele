@@ -1,8 +1,9 @@
 from flask import Blueprint, jsonify
 
+# Create Blueprint without hardcoded prefix
 library_routes = Blueprint('library', __name__)
 
-@library_routes.route('/', methods=['GET'])  # Changed from '/api/library' to '/'
+@library_routes.route('/', methods=['GET'])
 def get_library_resources():
     # Initial library resources based on project requirements
     library_resources = [

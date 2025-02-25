@@ -12,6 +12,14 @@ from backend.routes.extensions import db, bcrypt, cors
 # Load environment variables
 load_dotenv()
 
+# Validate required environment variables
+required_env_vars = ['JWT_SECRET_KEY', 'SECRET_KEY', 'DATABASE_URL']
+missing_vars = [var for var in required_env_vars if not os.getenv(var)]
+if missing_vars:
+    error_message = f"Missing required environment variables: {', '.join(missing_vars)}"
+    print(f"❌ ERROR: {error_message}")
+    raise RuntimeError(error_message)
+
 def create_app():
     # Initialize Flask application
     app = Flask(
@@ -44,9 +52,6 @@ def create_app():
 
     # Database Configuration
     DATABASE_URL = os.getenv('DATABASE_URL')
-    if not DATABASE_URL:
-        raise RuntimeError("❌ DATABASE_URL is missing! Set it in Render or the .env file.")
-
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
 
@@ -139,9 +144,6 @@ def create_app():
             'sub_status': 45,
             'msg': 'Token has been revoked'
         }), 401
-
-    # Health Check Endpoint - Removed to avoid duplication with utils_health_routes.py
-    # Now using the one from utils_health_bp registered at '/api/health'
 
     # Serve React Frontend
     @app.route('/', defaults={'path': ''})

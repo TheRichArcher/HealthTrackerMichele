@@ -7,7 +7,7 @@ from flask_jwt_extended import (
     get_jwt
 )
 from backend.routes.extensions import db, bcrypt
-from backend.models import User
+from backend.models import User, RevokedToken  # Added RevokedToken import
 from datetime import datetime, timedelta
 import logging
 
@@ -265,11 +265,16 @@ def validate_token():
 @user_routes.route("/logout/", methods=["POST"])
 @jwt_required()
 def logout():
-    """Handle user logout."""
+    """Handle user logout and revoke the token."""
     try:
         jti = get_jwt()["jti"]
-        # You could blacklist the token here if needed
+        # Add token to blacklist
+        revoked_token = RevokedToken(jti=jti)
+        db.session.add(revoked_token)
+        db.session.commit()
+        logger.info(f"Token revoked: {jti}")
         return jsonify({"message": "Successfully logged out"}), 200
     except Exception as e:
+        db.session.rollback()
         logger.error(f"Logout error: {e}")
         return jsonify({"error": "An error occurred during logout"}), 500
