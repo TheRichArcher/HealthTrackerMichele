@@ -87,12 +87,13 @@ def create_app():
     from backend.routes.onboarding_routes import onboarding_routes
 
     # Register blueprints with proper URL prefixes
+    # Note: Blueprint registration centralizes all URL prefixing for consistent route management
     blueprints = [
         (symptom_routes, '/api/symptoms'),
         (health_data_routes, '/api/health-data'),
         (report_routes, '/api/reports'),
         (user_routes, '/api'),
-        (utils_health_bp, ''),  # Removed /api prefix since routes already include it
+        (utils_health_bp, '/api'),  # Changed to '/api' to standardize route prefixing
         (library_routes, '/api/library'),
         (onboarding_routes, '/api/onboarding')
     ]
@@ -139,24 +140,8 @@ def create_app():
             'msg': 'Token has been revoked'
         }), 401
 
-    # Health Check Endpoint
-    @app.route('/api/health', methods=['GET'])
-    def health_check():
-        try:
-            # Test database connection
-            db.session.execute('SELECT 1')
-            return jsonify({
-                'status': 'healthy',
-                'message': 'Server is running smoothly',
-                'database': 'connected'
-            }), 200
-        except Exception as e:
-            logger.error(f"Health check failed: {str(e)}")
-            return jsonify({
-                'status': 'unhealthy',
-                'message': 'Server is experiencing issues',
-                'database': 'disconnected'
-            }), 500
+    # Health Check Endpoint - Removed to avoid duplication with utils_health_routes.py
+    # Now using the one from utils_health_bp registered at '/api/health'
 
     # Serve React Frontend
     @app.route('/', defaults={'path': ''})

@@ -25,8 +25,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Blueprint setup
-onboarding_routes = Blueprint('onboarding_routes', __name__, url_prefix='/api/onboarding')
+# Blueprint setup - removed url_prefix to let app.py handle it
+onboarding_routes = Blueprint('onboarding_routes', __name__)
 
 # Constants
 MAX_RETRIES = 3

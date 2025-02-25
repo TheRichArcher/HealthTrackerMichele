@@ -9,13 +9,13 @@ logger = logging.getLogger("utils_health_routes")
 # Create Flask Blueprint
 utils_health_bp = Blueprint("utils_health_routes", __name__)
 
-@utils_health_bp.route("/api/health", methods=["GET"])
+@utils_health_bp.route("/health", methods=["GET"])
 def health_check():
     """Health check endpoint to verify API status."""
     logger.info("Health check requested.")
     return jsonify({"status": "healthy", "message": "The API is running smoothly."})
 
-@utils_health_bp.route("/api/metadata", methods=["GET"])
+@utils_health_bp.route("/metadata", methods=["GET"])
 def get_metadata():
     """Returns metadata about the application."""
     metadata = {
@@ -28,7 +28,7 @@ def get_metadata():
     logger.info("Metadata request received.")
     return jsonify(metadata)
 
-@utils_health_bp.route("/api/log_request", methods=["POST"])
+@utils_health_bp.route("/log_request", methods=["POST"])
 def log_request():
     """Logs incoming request data for debugging."""
     try:
@@ -43,7 +43,7 @@ def log_request():
         logger.error(f"Error logging request data: {str(e)}")
         return jsonify({"error": "An error occurred while logging request data."}), 500
 
-@utils_health_bp.route("/api/db-health", methods=["GET"])
+@utils_health_bp.route("/db-health", methods=["GET"])
 def db_health_check():
     """Check the health of the database connection."""
     try:
