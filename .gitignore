@@ -70,4 +70,4 @@ yarn-error.log*
 
 # 🔹 Allow backend static dist directory
 !backend/static/dist/
-!backend/static/dist/**/*
+!backend/static/dist/**/*backend/.env.production
