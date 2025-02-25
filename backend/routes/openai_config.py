@@ -40,6 +40,7 @@ CRITICAL RULES:
 - Ask questions that flow logically from patient responses
 - Never provide definitive medical diagnosis
 - Clearly explain reasoning for recommendations
+- ALWAYS provide an analysis for common symptoms like headache, stomach ache, fever, etc.
 
 REQUIRED RESPONSE FORMAT:
 Possible Conditions: [Your analysis here]
@@ -81,39 +82,50 @@ def clean_ai_response(response: Optional[str]) -> str:
 
     logger.debug("Original AI response: %s", response)
 
-    # Extract sections using more precise regex
+    # Extract sections using more lenient regex
     sections = {
         'conditions': None,
         'confidence': None,
         'care': None
     }
 
-    # Initialize confidence values
-    calculated_confidence = DEFAULT_CONFIDENCE
-
-    # Look for each section with strict formatting
-    conditions_match = re.search(r'Possible Conditions:\s*(.+?)(?=\nConfidence Level:|$)', response, re.DOTALL)
+    # Look for conditions with more flexible pattern
+    conditions_match = re.search(r'(?:Possible Conditions:)?\s*(.+?)(?=(?:Confidence Level:|Care Recommendation:|$))', response, re.DOTALL)
     confidence_match = re.search(r'Confidence Level:\s*(\d+)', response)
     care_match = re.search(r'Care Recommendation:\s*(mild|moderate|severe)', response, re.IGNORECASE)
 
     # Validate and store each section
-    if conditions_match:
+    if conditions_match and conditions_match.group(1).strip():
         sections['conditions'] = conditions_match.group(1).strip()
         calculated_confidence = calculate_confidence(sections['conditions'])
     else:
-        sections['conditions'] = "Unable to determine conditions"
+        # Only use "Unable to determine" if we truly can't find any meaningful content
+        raw_text = response.strip()
+        if raw_text and not raw_text.lower().startswith('unable to'):
+            sections['conditions'] = raw_text
+            calculated_confidence = calculate_confidence(raw_text)
+        else:
+            sections['conditions'] = "Unable to determine conditions"
+            calculated_confidence = DEFAULT_CONFIDENCE
 
     # Handle confidence values
-    explicit_confidence = int(confidence_match.group(1)) if confidence_match else MIN_CONFIDENCE
+    explicit_confidence = int(confidence_match.group(1)) if confidence_match else calculated_confidence
     sections['confidence'] = str(max(
         calculated_confidence,
         min(MAX_CONFIDENCE, max(MIN_CONFIDENCE, explicit_confidence))
     ))
 
+    # Handle care recommendation
     if care_match:
         sections['care'] = care_match.group(1).lower()
     else:
-        sections['care'] = 'moderate'
+        # Default to moderate unless we have clear indicators
+        if "severe" in response.lower() or "emergency" in response.lower():
+            sections['care'] = 'severe'
+        elif "mild" in response.lower() or "minor" in response.lower():
+            sections['care'] = 'mild'
+        else:
+            sections['care'] = 'moderate'
 
     # If essential sections are missing, use defaults
     if not sections['conditions'] or not sections['confidence'] or not sections['care']:

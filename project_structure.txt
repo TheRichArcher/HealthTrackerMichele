@@ -1,0 +1,132 @@
+.
+├── -rf
+├── __pycache__
+│   └── app.cpython-313.pyc
+├── backend
+│   ├── __pycache__
+│   │   ├── __init__.cpython-313.pyc
+│   │   └── models.cpython-313.pyc
+│   ├── instance
+│   │   └── symptom_tracker.db
+│   ├── routes
+│   │   ├── __pycache__
+│   │   ├── __init__.py
+│   │   ├── extensions.py
+│   │   ├── health_data_routes.py
+│   │   ├── library_routes.py
+│   │   ├── onboarding_routes.py
+│   │   ├── openai_config.py
+│   │   ├── report_routes.py
+│   │   ├── symptom_routes.py
+│   │   ├── user_routes.py
+│   │   └── utils_health_routes.py
+│   ├── static
+│   │   └── dist
+│   ├── __init__.py
+│   ├── config.py
+│   ├── data_exporter.py
+│   ├── insert_test_data.py
+│   ├── middleware.py
+│   ├── models.py
+│   └── package-lock.json
+├── frontend
+│   ├── dist
+│   │   ├── assets
+│   │   ├── doctor-avatar.png
+│   │   └── index.html
+│   ├── node_modules
+│   │   ├── @ampproject
+│   │   ├── @babel
+│   │   ├── @esbuild
+│   │   ├── @esbuild 2
+│   │   ├── @jridgewell
+│   │   ├── @remix-run
+│   │   ├── @remix-run 2
+│   │   ├── @types
+│   │   ├── @vitejs
+│   │   ├── @vitejs 2
+│   │   ├── asynckit
+│   │   ├── axios
+│   │   ├── browserslist
+│   │   ├── call-bind-apply-helpers
+│   │   ├── caniuse-lite
+│   │   ├── combined-stream
+│   │   ├── convert-source-map
+│   │   ├── debug
+│   │   ├── delayed-stream
+│   │   ├── dunder-proto
+│   │   ├── electron-to-chromium
+│   │   ├── es-define-property
+│   │   ├── es-errors
+│   │   ├── es-object-atoms
+│   │   ├── es-set-tostringtag
+│   │   ├── esbuild
+│   │   ├── escalade
+│   │   ├── follow-redirects
+│   │   ├── form-data
+│   │   ├── function-bind
+│   │   ├── gensync
+│   │   ├── get-intrinsic
+│   │   ├── get-proto
+│   │   ├── globals
+│   │   ├── gopd
+│   │   ├── has-symbols
+│   │   ├── has-tostringtag
+│   │   ├── hasown
+│   │   ├── js-tokens
+│   │   ├── jsesc
+│   │   ├── json5
+│   │   ├── lodash
+│   │   ├── loose-envify
+│   │   ├── lru-cache
+│   │   ├── math-intrinsics
+│   │   ├── mime-db
+│   │   ├── mime-types
+│   │   ├── ms
+│   │   ├── nanoid
+│   │   ├── node-releases
+│   │   ├── object-assign
+│   │   ├── picocolors
+│   │   ├── postcss
+│   │   ├── prop-types
+│   │   ├── proxy-from-env
+│   │   ├── react
+│   │   ├── react-dom
+│   │   ├── react-is
+│   │   ├── react-refresh
+│   │   ├── react-router
+│   │   ├── react-router-dom
+│   │   ├── rollup
+│   │   ├── scheduler
+│   │   ├── semver
+│   │   ├── source-map-js
+│   │   ├── update-browserslist-db
+│   │   ├── vite
+│   │   └── yallist
+│   ├── public
+│   │   └── doctor-avatar.png
+│   ├── src
+│   │   ├── components
+│   │   ├── context
+│   │   ├── styles
+│   │   ├── utils
+│   │   ├── App.jsx
+│   │   └── main.jsx
+│   ├── README.md
+│   ├── generated-icon.png
+│   ├── index.html
+│   ├── package-lock.json
+│   ├── package.json
+│   ├── replit.nix
+│   └── vite.config.js
+├── instance
+│   └── symptom_tracker.db
+├── app.log
+├── app.py
+├── directory_tree.txt
+├── frontend_tree.txt
+├── project_structure.txt
+├── render.yaml
+└── requirements.txt
+
+89 directories, 41 files
