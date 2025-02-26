@@ -16,11 +16,64 @@ symptom_routes = Blueprint('symptom_routes', __name__)
 # Constants
 MAX_RETRIES = 3
 RETRY_DELAY = 2
+MAX_DETAILED_EXCHANGES = 5  # Number of recent exchanges to keep in full detail
 
 class UserTier:
     FREE = "free"  # Nurse Mode
     PAID = "paid"  # PA Mode
     ONE_TIME = "one_time"  # Doctor's Report
+
+def prepare_messages_with_context(conversation_history, current_symptom):
+    """Prepare messages for OpenAI API with context preservation."""
+    messages = [
+        {
+            "role": "system",
+            "content": """You are HealthTracker AI, a medical screening assistant. Follow these rules:
+
+1. Ask at most ONE follow-up question about symptoms if needed.
+2. After getting enough information (or immediately for clear cases), provide an assessment with:
+   - Primary condition and confidence level
+   - Care recommendation (mild, moderate, or severe)
+   - Brief explanation
+
+For emergencies like chest pain or difficulty breathing, immediately recommend urgent care.
+Keep responses concise and helpful. Include a brief disclaimer that this is not professional medical advice."""
+        }
+    ]
+    
+    # If we have a long conversation history, create a summary of earlier exchanges
+    if len(conversation_history) > MAX_DETAILED_EXCHANGES * 2:  # Each exchange has 2 messages
+        early_history = conversation_history[:-(MAX_DETAILED_EXCHANGES * 2)]
+        recent_history = conversation_history[-(MAX_DETAILED_EXCHANGES * 2):]
+        
+        # Extract user symptoms from early history
+        user_symptoms = []
+        for entry in early_history:
+            if not entry.get("isBot", False):
+                user_symptoms.append(entry.get("message", ""))
+        
+        # Create a summary message
+        if user_symptoms:
+            summary = "Previous symptoms reported: " + "; ".join(user_symptoms)
+            messages.append({"role": "system", "content": summary})
+        
+        # Add recent history in full detail
+        for entry in recent_history:
+            role = "assistant" if entry.get("isBot", False) else "user"
+            content = entry.get("message", "")
+            messages.append({"role": role, "content": content})
+    else:
+        # If conversation is short, include all messages
+        for entry in conversation_history:
+            role = "assistant" if entry.get("isBot", False) else "user"
+            content = entry.get("message", "")
+            messages.append({"role": role, "content": content})
+    
+    # Add the current symptom if not already in conversation
+    if not conversation_history or conversation_history[-1].get("isBot", False):
+        messages.append({"role": "user", "content": current_symptom})
+    
+    return messages
 
 @symptom_routes.route('/analyze', methods=['POST'])
 def analyze_symptoms():
@@ -92,78 +145,18 @@ def analyze_symptoms():
         # Initialize OpenAI client
         client = openai.OpenAI(api_key=api_key)
 
-        messages = [
-            {
-                "role": "system",
-                "content": """You are HealthTracker AI, an advanced medical screening assistant with three modes:
-
-1. NURSE MODE (Free Tier): Provides basic assessment for mild conditions only.
-2. PA MODE (Paid Tier): Provides comprehensive assessment for all conditions.
-3. DOCTOR'S REPORT (One-Time Purchase): Provides detailed medical summary.
-
-STRICT QUESTION FLOW:
-1. **First, check ALL previous messages AND current message for timing information.**
-   - If timing was mentioned ANYWHERE (e.g., "this morning", "2 days ago", "since yesterday"), **skip to step 2.**
-   - If no timing found in ANY message, ask: "How long have you been experiencing these symptoms?"
-   - Wait for response.
-
-2. **Check for severity information.**
-   - If they mentioned severity or intensity, skip to step 3.
-   - If not mentioned, ask: "On a scale of 1-10, how severe are your symptoms?"
-   - Wait for response.
-
-3. **Ask ONE targeted follow-up based on symptoms:**
-   - **For pain:** "Does the pain respond to anti-inflammatory medication?"
-   - **For fever:** "Have you noticed any patterns in when the fever appears?"
-   - **For shortness of breath:** "Do you experience any wheezing or chest tightness?"
-   - **For dizziness:** "Have you noticed if certain positions or movements trigger it?"
-   - Wait for response.
-
-4. **Only after three responses, provide an assessment**:
-   - **Primary Condition (Confidence Level)**:
-     * 90-95%: Clear, definitive symptoms with minimal alternatives.
-     * 75-85%: Strong indication but other possibilities exist.
-     * 60-74%: Multiple possible conditions.
-
-   - **Alternative Possibilities**:
-     1. Condition (XX% confidence) - Why this is less likely.
-     2. Condition (XX% confidence) - Why this is less likely.
-
-5. **Care Recommendation**:
-   - **"You can likely manage this at home."**: Stable symptoms, no major concerns.
-   - **"Consider seeing a doctor soon."**: Significant discomfort, affecting daily life.
-   - **"You should seek urgent care."**: Emergency signs present.
-
-🚨 **Emergency Protocol**:
-- If user mentions "chest pain," "difficulty breathing," or "confusion":
-  - Skip question sequence and **immediately** recommend emergency care.
-
-CRITICAL RULES:
-- Never ask more than ONE question per response.
-- Do NOT repeat questions if the user already answered them.
-- Diagnosis **only after** three structured questions.
-- Include a disclaimer that this does NOT replace medical advice."""
-            }
-        ]
-
-        # Add conversation history
-        for entry in conversation_history:
-            role = "assistant" if entry.get("isBot", False) else "user"
-            content = entry.get("message", "")
-            current_app.logger.debug(f"Adding message to history - Role: {role}, Content: {content[:50]}...")
-            messages.append({"role": role, "content": content})
-
-        # Add the current symptom if not already in conversation
-        if not conversation_history or conversation_history[-1].get("isBot", False):
-            messages.append({"role": "user", "content": symptoms})
+        # Prepare messages with context preservation
+        messages = prepare_messages_with_context(conversation_history, symptoms)
 
         current_app.logger.info(f"Sending {len(messages)} messages to OpenAI")
+        current_app.logger.debug(f"Full messages: {json.dumps(messages)}")
 
         # Try with exponential backoff for handling rate limits and temporary errors
         for attempt in range(MAX_RETRIES):
             try:
+                # Use gpt-3.5-turbo for cost savings during development/testing
                 response = client.chat.completions.create(
-                    model="gpt-4-turbo-preview",
+                    model="gpt-3.5-turbo",  # Changed from gpt-4-turbo-preview for cost savings
                     messages=messages,
                     temperature=0.7,
                     max_tokens=750
@@ -174,8 +167,13 @@ CRITICAL RULES:
 
                 # Determine if this is a question or an assessment
                 is_assessment = False
-                if "Primary Condition" in ai_response or "Care Recommendation" in ai_response:
+                if any(phrase in ai_response for phrase in ["Primary Condition", "Care Recommendation", "confidence", "assessment"]):
                     is_assessment = True
+                elif "?" in ai_response:
+                    is_assessment = False
+                else:
+                    # If no clear indicators, assume it's an assessment if it's longer than 100 chars
+                    is_assessment = len(ai_response) > 100
 
                 # Determine care recommendation
                 care_recommendation = "Consider seeing a doctor soon."
@@ -186,13 +184,15 @@ CRITICAL RULES:
 
                 # Determine confidence score
                 confidence = None  # Default to None before assessment
-                if "Primary Condition" in ai_response:
+                if is_assessment:
                     if "multiple possible conditions" in ai_response.lower():
                         confidence = 75
                     elif "strong indication" in ai_response.lower():
                         confidence = 85
                     elif "clear, definitive" in ai_response.lower():
                         confidence = 90
+                    else:
+                        confidence = 80  # Default confidence for assessments
 
                 # Apply tier-based limitations
                 requires_upgrade = False
@@ -252,7 +252,7 @@ Disclaimer: This assessment is for informational purposes only and does not repl
                     for dr_attempt in range(MAX_RETRIES):
                         try:
                             doctor_report_response = client.chat.completions.create(
-                                model="gpt-4-turbo-preview",
+                                model="gpt-3.5-turbo",  # Changed from gpt-4-turbo-preview
                                 messages=doctor_report_messages,
                                 temperature=0.5,
                                 max_tokens=1000
@@ -288,7 +288,8 @@ Disclaimer: This assessment is for informational purposes only and does not repl
                         'possible_conditions': ai_response,
                         'care_recommendation': care_recommendation,
                         'confidence': confidence,
-                        'is_assessment': is_assessment
+                        'is_assessment': is_assessment,
+                        'question': "?" in ai_response  # Add a flag to indicate if this is a question
                     }
                 
                 if requires_upgrade:
@@ -492,35 +493,27 @@ def generate_doctor_report():
         # Initialize OpenAI client
         client = openai.OpenAI(api_key=api_key)
         
-        messages = [
-            {
-                "role": "system",
-                "content": """Generate a comprehensive medical summary in a format suitable for healthcare providers. 
-                Include: 
-                1. Patient's reported symptoms with timeline
-                2. Potential diagnoses with confidence levels
-                3. Recommended tests or examinations
-                4. Suggested treatment approaches
-                5. Red flags that would warrant immediate attention
-                Format this as a professional medical document."""
-            }
-        ]
+        # Prepare messages with context preservation for doctor's report
+        messages = prepare_messages_with_context(conversation_history, symptoms)
         
-        # Add conversation history
-        for entry in conversation_history:
-            role = "assistant" if entry.get("isBot", False) else "user"
-            content = entry.get("message", "")
-            messages.append({"role": role, "content": content})
-        
-        # Add the current symptom if not already in conversation
-        if not conversation_history or conversation_history[-1].get("isBot", False):
-            messages.append({"role": "user", "content": symptoms})
+        # Replace the system message with doctor's report specific instructions
+        messages[0] = {
+            "role": "system",
+            "content": """Generate a comprehensive medical summary in a format suitable for healthcare providers. 
+            Include: 
+            1. Patient's reported symptoms with timeline
+            2. Potential diagnoses with confidence levels
+            3. Recommended tests or examinations
+            4. Suggested treatment approaches
+            5. Red flags that would warrant immediate attention
+            Format this as a professional medical document."""
+        }
         
         # Try with exponential backoff for handling rate limits and temporary errors
         for attempt in range(MAX_RETRIES):
             try:
                 response = client.chat.completions.create(
-                    model="gpt-4-turbo-preview",
+                    model="gpt-3.5-turbo",  # Changed from gpt-4-turbo-preview
                     messages=messages,
                     temperature=0.5,
                     max_tokens=1000
