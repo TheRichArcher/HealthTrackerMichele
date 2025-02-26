@@ -10,6 +10,7 @@ const CONFIG = {
     THINKING_DELAY: 1000,
     API_TIMEOUT: 10000,
     API_URL: '/api/symptoms/analyze', // Changed to relative URL for better portability
+    RESET_URL: '/api/symptoms/reset', // New URL for resetting conversation
     MAX_MESSAGE_LENGTH: 1000,
     MIN_MESSAGE_LENGTH: 3,
     SCROLL_DEBOUNCE_DELAY: 100,
@@ -140,6 +141,7 @@ const Chat = () => {
     const [typing, setTyping] = useState(false);
     const [error, setError] = useState(null);
     const [inputError, setInputError] = useState(null);
+    const [resetting, setResetting] = useState(false);
 
     const messagesEndRef = useRef(null);
     const abortControllerRef = useRef(null);
@@ -221,6 +223,37 @@ const Chat = () => {
         }
     }, [messages]);
 
+    const handleResetConversation = async () => {
+        if (loading || resetting) return;
+        
+        setResetting(true);
+        try {
+            // Call the reset endpoint
+            await axios.post(CONFIG.RESET_URL);
+            
+            // Reset local state
+            setMessages([WELCOME_MESSAGE]);
+            setMessageCount(0);
+            setError(null);
+            setInputError(null);
+            localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
+            
+            if (CONFIG.DEBUG_MODE) {
+                console.log("Conversation reset successfully");
+            }
+        } catch (error) {
+            if (CONFIG.DEBUG_MODE) {
+                console.error("Error resetting conversation:", error);
+            }
+            // Even if the API call fails, reset the local state
+            setMessages([WELCOME_MESSAGE]);
+            setMessageCount(0);
+            localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
+        } finally {
+            setResetting(false);
+        }
+    };
+
     const handleSendMessage = async (retryMessage = null) => {
         const messageToSend = retryMessage || userInput;
         const validationError = validateInput(messageToSend);
@@ -290,38 +323,50 @@ const Chat = () => {
             }
 
             setTimeout(() => {
-                // Handle the response based on whether it's a question or assessment
-                if (response.data.is_assessment) {
+                // Check if this is a question or assessment
+                const isQuestion = response.data.is_question === true;
+                const isAssessment = response.data.is_assessment === true;
+                
+                if (isAssessment) {
                     // It's a final assessment with conditions
-                    const conditions = response.data.assessment?.conditions || [];
-                    const triageLevel = response.data.assessment?.triage_level || 'UNKNOWN';
-                    const careRecommendation = response.data.assessment?.care_recommendation || '';
-                    const disclaimer = response.data.assessment?.disclaimer || '';
-                    
-                    // Format the message for display
                     let formattedMessage = '';
+                    let confidence = null;
+                    let triageLevel = null;
+                    let careRecommendation = null;
                     
-                    if (conditions.length > 0) {
+                    // Check if we have a structured JSON response
+                    if (response.data.assessment?.conditions) {
+                        const conditions = response.data.assessment.conditions;
+                        triageLevel = response.data.assessment.triage_level || 'UNKNOWN';
+                        careRecommendation = response.data.assessment.care_recommendation || response.data.care_recommendation;
+                        const disclaimer = response.data.assessment.disclaimer || "This assessment is for informational purposes only and does not replace professional medical advice.";
+                        
                         formattedMessage += 'Based on your symptoms, here are some possible conditions:\n\n';
                         conditions.forEach(condition => {
                             formattedMessage += `${condition.name} – ${condition.confidence}%\n`;
                         });
                         formattedMessage += `\n${careRecommendation}\n\n${disclaimer}`;
+                        
+                        confidence = conditions[0]?.confidence || response.data.confidence;
                     } else {
-                        formattedMessage = "I need more information to provide an assessment. Could you tell me more about your symptoms?";
+                        // Unstructured assessment
+                        formattedMessage = response.data.possible_conditions || "Based on your symptoms, I can provide an assessment.";
+                        confidence = response.data.confidence;
+                        triageLevel = response.data.triage_level;
+                        careRecommendation = response.data.care_recommendation;
                     }
                     
                     typeMessage(
                         formattedMessage,
                         true,
-                        conditions[0]?.confidence || null,
+                        confidence,
                         triageLevel,
                         careRecommendation
                     );
                 } else {
-                    // It's a follow-up question
-                    const question = response.data.question || "Could you tell me more about your symptoms?";
-                    typeMessage(question, false);
+                    // It's a follow-up question or other response
+                    const responseText = response.data.possible_conditions || response.data.question || "Could you tell me more about your symptoms?";
+                    typeMessage(responseText, false);
                 }
             }, CONFIG.THINKING_DELAY);
 
@@ -367,6 +412,16 @@ const Chat = () => {
                             <span className="chat-header-role">AI Medical Assistant</span>
                         </div>
                     </div>
+                    <div className="chat-header-right">
+                        <button 
+                            className="reset-button"
+                            onClick={handleResetConversation}
+                            disabled={loading || resetting}
+                            aria-label="Reset conversation"
+                        >
+                            {resetting ? 'Resetting...' : 'Reset Conversation'}
+                        </button>
+                    </div>
                     <div className="chat-header-disclaimer">
                         For informational purposes only. Not a substitute for professional medical advice.
                     </div>
@@ -405,7 +460,7 @@ const Chat = () => {
                             }}
                             onKeyDown={handleKeyDown}
                             placeholder="Describe your symptoms in detail..."
-                            disabled={loading || signupPrompt}
+                            disabled={loading || signupPrompt || resetting}
                             maxLength={CONFIG.MAX_MESSAGE_LENGTH}
                             aria-label="Symptom description input"
                             aria-invalid={!!inputError}
@@ -419,7 +474,7 @@ const Chat = () => {
                         <button
                             className={`send-button ${loading ? 'loading' : ''}`}
                             onClick={() => handleSendMessage()}
-                            disabled={loading || signupPrompt || !userInput.trim()}
+                            disabled={loading || signupPrompt || resetting || !userInput.trim()}
                             aria-label="Send message"
                         >
                             {loading ? (
