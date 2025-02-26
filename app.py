@@ -7,7 +7,7 @@ from flask_jwt_extended import (
     JWTManager, create_access_token, create_refresh_token,
     get_jwt_identity, jwt_required, get_jwt
 )
-from backend.routes.extensions import db, bcrypt, cors
+from backend.routes.extensions import db, bcrypt, cors, migrate
 
 # Load environment variables
 load_dotenv()
@@ -61,6 +61,7 @@ def create_app():
     db.init_app(app)
     bcrypt.init_app(app)
     cors.init_app(app, resources={r"/*": {"origins": os.getenv('CORS_ORIGINS', '*')}})
+    migrate.init_app(app, db)  # Initialize Flask-Migrate
     jwt = JWTManager(app)
 
     # Import models

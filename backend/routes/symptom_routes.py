@@ -1,157 +1,267 @@
-from flask import Blueprint, request, jsonify, current_app, g
-from backend.middleware import require_auth
+from flask import Blueprint, request, jsonify, current_app
 from backend.routes.extensions import db
 from backend.models import User, Symptom, Report
-from backend.routes.openai_config import SYSTEM_PROMPT, clean_ai_response
+from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 import openai
 import os
 import json
 import logging
 import time
-import re
 from datetime import datetime
-from typing import Any
-from flask_jwt_extended import get_jwt_identity
 
 # Blueprint setup
 symptom_routes = Blueprint('symptom_routes', __name__)
 
 # Constants
-MAX_INPUT_LENGTH = 1000
-DEFAULT_TEMPERATURE = 0.7
-MAX_TOKENS = 800
-MODEL_NAME = "gpt-4-turbo-preview"
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 
-class TriageLevel:
-    MILD = "MILD"
-    MODERATE = "MODERATE"
-    SEVERE = "SEVERE"
+class UserTier:
+    FREE = "free"  # Nurse Mode
+    PAID = "paid"  # PA Mode
+    ONE_TIME = "one_time"  # Doctor's Report
 
-def sanitize_input(text: str) -> str:
-    """Sanitize user input by removing excess whitespace and special characters."""
-    if not isinstance(text, str):
-        return ""
-    text = " ".join(text.split())
-    text = re.sub(r'[^a-zA-Z0-9\s.,!?-]', '', text)
-    return text[:MAX_INPUT_LENGTH]
-
-def determine_triage_level(ai_response: str, symptoms: str) -> str:
-    """Determine triage level based on symptoms and AI response."""
-    response_lower = ai_response.lower()
-    symptoms_lower = symptoms.lower()
-
-    emergency_terms = [
-        "chest pain", "difficulty breathing", "shortness of breath",
-        "severe allergic reaction", "anaphylaxis", "unconscious",
-        "stroke", "heart attack", "severe bleeding", "head injury",
-        "severe confusion", "severe headache", "sudden vision loss",
-        "coughing up blood", "severe abdominal pain", "suicide",
-        "overdose", "seizure", "severe burn"
-    ]
-    
-    if any(term in response_lower or term in symptoms_lower for term in emergency_terms):
-        current_app.logger.warning("Emergency condition detected in symptoms")
-        return TriageLevel.SEVERE
-
-    urgent_terms = [
-        "moderate to severe", "worsening", "persistent",
-        "getting worse", "concerning", "unusual pain"
-    ]
-
-    if any(term in response_lower for term in urgent_terms):
-        return TriageLevel.MODERATE
-
-    mild_conditions = [
-        ('allergy', ['cat', 'dust', 'pollen', 'sneez']),
-        ('cold', ['runny nose', 'sore throat', 'cough']),
-        ('minor', ['headache', 'muscle ache']),
-        ('common', ['tired', 'fatigue']),
-        ('mild', ['discomfort', 'irritation'])
-    ]
-
-    for condition, symptoms_list in mild_conditions:
-        if (condition in symptoms_lower or any(s in symptoms_lower for s in symptoms_list)) and \
-           not any(emergency in response_lower for emergency in emergency_terms):
-            return TriageLevel.MILD
-
-    return TriageLevel.MODERATE
-
-# Fix: Call require_auth() to get the actual decorator
 @symptom_routes.route('/analyze', methods=['POST'])
-@require_auth()  # Note the parentheses - this calls the function to get the decorator
 def analyze_symptoms():
-    user_id = get_jwt_identity()  # Use get_jwt_identity() instead of g.user_id
-    data = request.json
+    """Public endpoint for symptom analysis with tiered access."""
+    # Check for JWT token to determine if user is authenticated and their tier
+    auth_header = request.headers.get('Authorization')
+    is_authenticated = False
+    user_id = None
+    user_tier = UserTier.FREE  # Default to free tier (Nurse Mode)
     
-    if not data or 'symptom' not in data:
-        return jsonify({'error': 'No symptom provided'}), 400
-    
-    symptom_text = sanitize_input(data['symptom'])
-    conversation_history = data.get('conversation_history', [])
-    
-    # Log the incoming request
-    current_app.logger.info(f"Analyzing symptom: {symptom_text}")
-    current_app.logger.info(f"Conversation history length: {len(conversation_history)}")
+    if auth_header and auth_header.startswith('Bearer '):
+        try:
+            # Optional JWT verification - if token exists and is valid, we'll save the history
+            verify_jwt_in_request(optional=True)
+            user_id = get_jwt_identity()
+            is_authenticated = user_id is not None
+            
+            # In a real implementation, you would fetch the user's subscription tier from the database
+            if is_authenticated:
+                user = User.query.get(user_id)
+                user_tier = getattr(user, 'subscription_tier', UserTier.PAID)  # Use default if attribute doesn't exist
+        except Exception as e:
+            current_app.logger.warning(f"Invalid token provided: {str(e)}")
+            # Continue as unauthenticated user
     
     try:
-        # Prepare the conversation for OpenAI
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        
+        data = request.get_json()
+        symptoms = data.get('symptom', '')
+        conversation_history = data.get('conversation_history', [])
+        one_time_report = data.get('one_time_report', False)  # Flag for one-time Doctor's Report purchase
+
+        if not symptoms:
+            return jsonify({
+                'possible_conditions': "Please describe your symptoms.",
+                'care_recommendation': "Consider seeing a doctor soon.",
+                'confidence': None
+            }), 400
+
+        # Log the incoming request
+        current_app.logger.info(f"Analyzing symptom: {symptoms[:50]}...")
+        current_app.logger.info(f"Conversation history length: {len(conversation_history)}")
+        current_app.logger.info(f"User authenticated: {is_authenticated}, Tier: {user_tier}")
+
+        client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        if not client.api_key:
+            current_app.logger.error("OpenAI API key not found")
+            raise ValueError("OpenAI API key not configured")
+
+        messages = [
+            {
+                "role": "system",
+                "content": """You are HealthTracker AI, an advanced medical screening assistant with three modes:
+
+1. NURSE MODE (Free Tier): Provides basic assessment for mild conditions only.
+2. PA MODE (Paid Tier): Provides comprehensive assessment for all conditions.
+3. DOCTOR'S REPORT (One-Time Purchase): Provides detailed medical summary.
+
+STRICT QUESTION FLOW:
+1. **First, check ALL previous messages AND current message for timing information.**
+   - If timing was mentioned ANYWHERE (e.g., "this morning", "2 days ago", "since yesterday"), **skip to step 2.**
+   - If no timing found in ANY message, ask: "How long have you been experiencing these symptoms?"
+   - Wait for response.
+
+2. **Check for severity information.**
+   - If they mentioned severity or intensity, skip to step 3.
+   - If not mentioned, ask: "On a scale of 1-10, how severe are your symptoms?"
+   - Wait for response.
+
+3. **Ask ONE targeted follow-up based on symptoms:**
+   - **For pain:** "Does the pain respond to anti-inflammatory medication?"
+   - **For fever:** "Have you noticed any patterns in when the fever appears?"
+   - **For shortness of breath:** "Do you experience any wheezing or chest tightness?"
+   - **For dizziness:** "Have you noticed if certain positions or movements trigger it?"
+   - Wait for response.
+
+4. **Only after three responses, provide an assessment**:
+   - **Primary Condition (Confidence Level)**:
+     * 90-95%: Clear, definitive symptoms with minimal alternatives.
+     * 75-85%: Strong indication but other possibilities exist.
+     * 60-74%: Multiple possible conditions.
+
+   - **Alternative Possibilities**:
+     1. Condition (XX% confidence) - Why this is less likely.
+     2. Condition (XX% confidence) - Why this is less likely.
+
+5. **Care Recommendation**:
+   - **"You can likely manage this at home."**: Stable symptoms, no major concerns.
+   - **"Consider seeing a doctor soon."**: Significant discomfort, affecting daily life.
+   - **"You should seek urgent care."**: Emergency signs present.
+
+🚨 **Emergency Protocol**:
+- If user mentions "chest pain," "difficulty breathing," or "confusion":
+  - Skip question sequence and **immediately** recommend emergency care.
+
+CRITICAL RULES:
+- Never ask more than ONE question per response.
+- Do NOT repeat questions if the user already answered them.
+- Diagnosis **only after** three structured questions.
+- Include a disclaimer that this does NOT replace medical advice."""
+            }
+        ]
+
         # Add conversation history
         for entry in conversation_history:
             role = "assistant" if entry.get("isBot", False) else "user"
             content = entry.get("message", "")
             current_app.logger.debug(f"Adding message to history - Role: {role}, Content: {content[:50]}...")
             messages.append({"role": role, "content": content})
-        
+
         # Add the current symptom if not already in conversation
         if not conversation_history or conversation_history[-1].get("isBot", False):
-            messages.append({"role": "user", "content": symptom_text})
-        
+            messages.append({"role": "user", "content": symptoms})
+
         current_app.logger.info(f"Sending {len(messages)} messages to OpenAI")
-        
-        # Initialize OpenAI client
-        client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        
+
         # Try with retries for handling rate limits and temporary errors
         for attempt in range(MAX_RETRIES):
             try:
-                # Call OpenAI API
                 response = client.chat.completions.create(
-                    model=MODEL_NAME,
+                    model="gpt-4-turbo-preview",
                     messages=messages,
-                    temperature=DEFAULT_TEMPERATURE,
-                    max_tokens=MAX_TOKENS
+                    temperature=0.7,
+                    max_tokens=750
                 )
                 
-                # Extract and process the response
                 ai_response = response.choices[0].message.content
-                current_app.logger.info(f"Raw OpenAI response: {ai_response}")
+                current_app.logger.info(f"Raw OpenAI response: {ai_response[:200]}...")
+
+                # Determine if this is a question or an assessment
+                is_assessment = False
+                if "Primary Condition" in ai_response or "Care Recommendation" in ai_response:
+                    is_assessment = True
+
+                # Determine care recommendation
+                care_recommendation = "Consider seeing a doctor soon."
+                if any(word in ai_response.lower() for word in ['emergency', 'immediate', 'urgent', 'severe', '911']):
+                    care_recommendation = "You should seek urgent care."
+                elif all(word in ai_response.lower() for word in ['mild', 'minor', 'normal', 'common']):
+                    care_recommendation = "You can likely manage this at home."
+
+                # Determine confidence score
+                confidence = None  # Default to None before assessment
+                if "Primary Condition" in ai_response:
+                    if "multiple possible conditions" in ai_response.lower():
+                        confidence = 75
+                    elif "strong indication" in ai_response.lower():
+                        confidence = 85
+                    elif "clear, definitive" in ai_response.lower():
+                        confidence = 90
+
+                # Apply tier-based limitations
+                requires_upgrade = False
+                upgrade_options = []
                 
-                # Process the response to determine if it's a question or assessment
-                processed_response = clean_ai_response(ai_response)
+                # For free users (Nurse Mode) with non-mild conditions, limit information
+                if is_assessment and user_tier == UserTier.FREE and care_recommendation != "You can likely manage this at home.":
+                    # Extract a "mini-win" insight to show value before upgrade prompt
+                    mini_win = extract_mini_win(ai_response)
+                    
+                    # For moderate or severe conditions, limit information for free tier
+                    ai_response = f"""{mini_win}
+
+Based on your symptoms, I'm seeing a pattern that suggests this may require more detailed analysis.
+
+Care Recommendation: {care_recommendation}
+
+To unlock deeper insights into your symptoms, you have two options:
+
+1. Upgrade to PA Mode ($9.99/month) for:
+   - Comprehensive assessment of all conditions
+   - Ongoing symptom tracking
+   - Personalized health insights
+   - Unlimited consultations
+
+2. Purchase a one-time Doctor's Report ($4.99) for:
+   - Detailed analysis of this specific case
+   - Formatted summary you can share with healthcare providers
+   - Specific recommendations for next steps
+
+Disclaimer: This assessment is for informational purposes only and does not replace professional medical advice."""
+                    
+                    # Set requires_upgrade flag and options
+                    requires_upgrade = True
+                    upgrade_options = [
+                        {"type": "subscription", "name": "PA Mode", "price": 9.99, "period": "month"},
+                        {"type": "one_time", "name": "Doctor's Report", "price": 4.99}
+                    ]
                 
-                # If it's an assessment, enhance with triage level determination
-                if isinstance(processed_response, dict) and processed_response.get('is_assessment'):
-                    current_app.logger.info(f"Processed response type: assessment")
+                # For one-time report purchases, generate a comprehensive doctor's report
+                elif one_time_report or user_tier == UserTier.ONE_TIME:
+                    # Generate a more formal, detailed doctor's report
+                    doctor_report_messages = messages.copy()
+                    doctor_report_messages.append({
+                        "role": "system",
+                        "content": """Generate a comprehensive medical summary in a format suitable for healthcare providers. 
+                        Include: 
+                        1. Patient's reported symptoms with timeline
+                        2. Potential diagnoses with confidence levels
+                        3. Recommended tests or examinations
+                        4. Suggested treatment approaches
+                        5. Red flags that would warrant immediate attention
+                        Format this as a professional medical document."""
+                    })
                     
-                    # If triage level isn't already set, determine it based on symptoms and response
-                    if not processed_response.get('assessment', {}).get('triage_level'):
-                        triage_level = determine_triage_level(ai_response, symptom_text)
-                        if 'assessment' in processed_response:
-                            processed_response['assessment']['triage_level'] = triage_level
+                    doctor_report_response = client.chat.completions.create(
+                        model="gpt-4-turbo-preview",
+                        messages=doctor_report_messages,
+                        temperature=0.5,
+                        max_tokens=1000
+                    )
                     
-                    current_app.logger.debug(f"Assessment details: {json.dumps(processed_response)[:200]}...")
+                    doctor_report = doctor_report_response.choices[0].message.content
+                    
+                    # Include the doctor's report in the response
+                    ai_response = {
+                        "standard_response": ai_response,
+                        "doctors_report": doctor_report
+                    }
+
+                # Save the interaction to the database only for authenticated users
+                if is_authenticated and user_id:
+                    save_symptom_interaction(user_id, symptoms, ai_response, care_recommendation, confidence, is_assessment)
+
+                # Prepare the response
+                if isinstance(ai_response, dict):
+                    result = ai_response  # For doctor's report format
+                    result['care_recommendation'] = care_recommendation
+                    result['confidence'] = confidence
+                    result['is_assessment'] = is_assessment
                 else:
-                    current_app.logger.info(f"Processed response type: question")
-                    current_app.logger.debug(f"Question: {processed_response if isinstance(processed_response, str) else processed_response.get('question', '')}")
+                    result = {
+                        'possible_conditions': ai_response,
+                        'care_recommendation': care_recommendation,
+                        'confidence': confidence,
+                        'is_assessment': is_assessment
+                    }
                 
-                # Save the interaction to the database
-                save_symptom_interaction(user_id, symptom_text, processed_response)
+                if requires_upgrade:
+                    result['requires_upgrade'] = True
+                    result['upgrade_options'] = upgrade_options
                 
-                return jsonify(processed_response)
+                return jsonify(result)
                 
             except openai.RateLimitError as e:
                 current_app.logger.error(f"OpenAI rate limit exceeded (attempt {attempt + 1}): {e}")
@@ -184,42 +294,65 @@ def analyze_symptoms():
                 if attempt == MAX_RETRIES - 1:
                     return jsonify({'error': 'Unable to process your request.'}), 500
                 time.sleep(RETRY_DELAY)
-        
-        return jsonify({'error': 'Maximum retries reached with AI service.'}), 500
-        
-    except Exception as e:
-        current_app.logger.error(f"Error analyzing symptoms: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
 
-def save_symptom_interaction(user_id, symptom_text, response_data):
+    except Exception as e:
+        current_app.logger.error(f'Error analyzing symptoms: {e}')
+        return jsonify({
+            'possible_conditions': "I apologize, but I'm having trouble processing your request right now. Please try again or seek medical attention if you're concerned about your symptoms.",
+            'care_recommendation': "Consider seeing a doctor soon.",
+            'confidence': None
+        }), 500
+
+def extract_mini_win(ai_response):
+    """Extract a small, valuable insight from the full response to show value before upgrade prompt."""
+    # Look for the first sentence that mentions a condition or symptom pattern
+    sentences = ai_response.split('.')
+    
+    for sentence in sentences[:3]:  # Check first few sentences
+        if any(term in sentence.lower() for term in ['condition', 'symptom', 'suggest', 'indicate', 'pattern', 'likely']):
+            return sentence.strip() + "."
+    
+    # Fallback if no good sentence found
+    return "Based on your symptoms, I've identified some initial patterns that could be significant."
+
+def save_symptom_interaction(user_id, symptom_text, ai_response, care_recommendation, confidence, is_assessment):
     """Save the symptom interaction to the database"""
     try:
+        # Convert complex response types to JSON string if needed
+        if isinstance(ai_response, dict):
+            response_text = json.dumps(ai_response)
+        else:
+            response_text = ai_response
+            
         # Create a new symptom record
         new_symptom = Symptom(
             user_id=user_id,
             description=symptom_text,
-            response=json.dumps(response_data) if isinstance(response_data, dict) else response_data,
+            response=response_text,
             created_at=datetime.utcnow()
         )
         db.session.add(new_symptom)
         db.session.commit()
         
-        # If this is an assessment with conditions, create a report
-        if isinstance(response_data, dict) and response_data.get('is_assessment') and 'assessment' in response_data:
-            assessment = response_data['assessment']
-            conditions = assessment.get('conditions', [])
+        # If this is an assessment, create a report
+        if is_assessment:
+            # Create a report for this assessment
+            report_content = {
+                "assessment": ai_response if not isinstance(ai_response, dict) else ai_response.get('standard_response', ''),
+                "care_recommendation": care_recommendation,
+                "confidence": confidence,
+                "doctors_report": ai_response.get('doctors_report', '') if isinstance(ai_response, dict) else None
+            }
             
-            if conditions:
-                # Create a report for this assessment
-                new_report = Report(
-                    user_id=user_id,
-                    symptom_id=new_symptom.id,
-                    content=json.dumps(assessment),
-                    created_at=datetime.utcnow()
-                )
-                db.session.add(new_report)
-                db.session.commit()
-                current_app.logger.info(f"Created report for assessment with ID: {new_report.id}")
+            new_report = Report(
+                user_id=user_id,
+                symptom_id=new_symptom.id,
+                content=json.dumps(report_content),
+                created_at=datetime.utcnow()
+            )
+            db.session.add(new_report)
+            db.session.commit()
+            current_app.logger.info(f"Created report for assessment with ID: {new_report.id}")
                 
         return True
     except Exception as e:
@@ -227,11 +360,16 @@ def save_symptom_interaction(user_id, symptom_text, response_data):
         db.session.rollback()
         return False
 
-# Fix: Call require_auth() to get the actual decorator
 @symptom_routes.route('/history', methods=['GET'])
-@require_auth()  # Note the parentheses - this calls the function to get the decorator
 def get_symptom_history():
-    user_id = get_jwt_identity()  # Use get_jwt_identity() instead of g.user_id
+    """Get symptom history for authenticated users (PA Mode feature)."""
+    # Check for JWT token
+    try:
+        verify_jwt_in_request()
+        user_id = get_jwt_identity()
+    except Exception as e:
+        current_app.logger.warning(f"Authentication required for symptom history: {str(e)}")
+        return jsonify({"error": "Authentication required"}), 401
     
     try:
         # Get the user's symptom history
@@ -240,32 +378,32 @@ def get_symptom_history():
         result = []
         for symptom in symptoms:
             try:
-                response_data = json.loads(symptom.response) if symptom.response else {}
+                # Try to parse as JSON first
+                try:
+                    response_data = json.loads(symptom.response)
+                    is_json = True
+                except:
+                    response_data = symptom.response
+                    is_json = False
                 
-                # Format the response based on whether it's an assessment or question
-                if isinstance(response_data, dict) and response_data.get('is_assessment'):
-                    assessment = response_data.get('assessment', {})
-                    conditions = assessment.get('conditions', [])
-                    condition_names = [c.get('name') for c in conditions if c.get('name')]
-                    
-                    result.append({
-                        'id': symptom.id,
-                        'description': symptom.description,
-                        'created_at': symptom.created_at.isoformat(),
-                        'is_assessment': True,
-                        'conditions': condition_names,
-                        'triage_level': assessment.get('triage_level')
-                    })
-                else:
-                    # It's a question or unstructured response
-                    question = response_data.get('question') if isinstance(response_data, dict) else str(response_data)
-                    result.append({
-                        'id': symptom.id,
-                        'description': symptom.description,
-                        'created_at': symptom.created_at.isoformat(),
-                        'is_assessment': False,
-                        'response': question
-                    })
+                # Get associated report if it exists
+                report = Report.query.filter_by(symptom_id=symptom.id).first()
+                
+                entry = {
+                    'id': symptom.id,
+                    'description': symptom.description,
+                    'created_at': symptom.created_at.isoformat(),
+                    'response': response_data
+                }
+                
+                if report:
+                    try:
+                        report_content = json.loads(report.content)
+                        entry['report'] = report_content
+                    except:
+                        entry['report'] = {'content': report.content}
+                
+                result.append(entry)
             except Exception as e:
                 current_app.logger.error(f"Error processing symptom {symptom.id}: {str(e)}")
                 # Include a basic entry even if processing failed
@@ -280,3 +418,117 @@ def get_symptom_history():
     except Exception as e:
         current_app.logger.error(f"Error retrieving symptom history: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+@symptom_routes.route('/doctor-report', methods=['POST'])
+def generate_doctor_report():
+    """Generate a one-time doctor's report for a specific symptom conversation."""
+    data = request.get_json()
+    symptoms = data.get('symptom', '')
+    conversation_history = data.get('conversation_history', [])
+    
+    # Check for JWT token to determine if user is authenticated
+    auth_header = request.headers.get('Authorization')
+    is_authenticated = False
+    user_id = None
+    
+    if auth_header and auth_header.startswith('Bearer '):
+        try:
+            verify_jwt_in_request(optional=True)
+            user_id = get_jwt_identity()
+            is_authenticated = user_id is not None
+        except Exception as e:
+            current_app.logger.warning(f"Invalid token provided: {str(e)}")
+    
+    try:
+        # This would be where you'd implement payment processing
+        # For now, we'll just generate the report
+        
+        client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        
+        messages = [
+            {
+                "role": "system",
+                "content": """Generate a comprehensive medical summary in a format suitable for healthcare providers. 
+                Include: 
+                1. Patient's reported symptoms with timeline
+                2. Potential diagnoses with confidence levels
+                3. Recommended tests or examinations
+                4. Suggested treatment approaches
+                5. Red flags that would warrant immediate attention
+                Format this as a professional medical document."""
+            }
+        ]
+        
+        # Add conversation history
+        for entry in conversation_history:
+            role = "assistant" if entry.get("isBot", False) else "user"
+            content = entry.get("message", "")
+            messages.append({"role": role, "content": content})
+        
+        # Add the current symptom if not already in conversation
+        if not conversation_history or conversation_history[-1].get("isBot", False):
+            messages.append({"role": "user", "content": symptoms})
+        
+        response = client.chat.completions.create(
+            model="gpt-4-turbo-preview",
+            messages=messages,
+            temperature=0.5,
+            max_tokens=1000
+        )
+        
+        doctor_report = response.choices[0].message.content
+        
+        # Determine care recommendation for the report
+        care_recommendation = "Consider seeing a doctor soon."
+        if any(word in doctor_report.lower() for word in ['emergency', 'immediate', 'urgent', 'severe', '911']):
+            care_recommendation = "You should seek urgent care."
+        elif all(word in doctor_report.lower() for word in ['mild', 'minor', 'normal', 'common']):
+            care_recommendation = "You can likely manage this at home."
+        
+        # Save to database if authenticated
+        if is_authenticated and user_id:
+            # Create a report record
+            report_content = {
+                "doctors_report": doctor_report,
+                "care_recommendation": care_recommendation,
+                "generated_at": datetime.utcnow().isoformat(),
+                "one_time_purchase": True
+            }
+            
+            # Find or create a symptom record
+            symptom = Symptom.query.filter_by(
+                user_id=user_id, 
+                description=symptoms
+            ).order_by(Symptom.created_at.desc()).first()
+            
+            if not symptom:
+                symptom = Symptom(
+                    user_id=user_id,
+                    description=symptoms,
+                    response="One-time doctor's report generated",
+                    created_at=datetime.utcnow()
+                )
+                db.session.add(symptom)
+                db.session.commit()
+            
+            new_report = Report(
+                user_id=user_id,
+                symptom_id=symptom.id,
+                content=json.dumps(report_content),
+                created_at=datetime.utcnow()
+            )
+            db.session.add(new_report)
+            db.session.commit()
+        
+        return jsonify({
+            "doctors_report": doctor_report,
+            "care_recommendation": care_recommendation,
+            "success": True
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Error generating doctor's report: {str(e)}")
+        return jsonify({
+            "error": "Failed to generate doctor's report",
+            "success": False
+        }), 500
