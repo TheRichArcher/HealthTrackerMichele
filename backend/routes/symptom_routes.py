@@ -8,6 +8,7 @@ import json
 import logging
 import time
 from datetime import datetime
+from sqlalchemy.exc import SQLAlchemyError
 
 # Blueprint setup
 symptom_routes = Blueprint('symptom_routes', __name__)
@@ -40,7 +41,23 @@ def analyze_symptoms():
             # In a real implementation, you would fetch the user's subscription tier from the database
             if is_authenticated:
                 user = User.query.get(user_id)
-                user_tier = getattr(user, 'subscription_tier', UserTier.PAID)  # Use default if attribute doesn't exist
+                # Safely get subscription tier without directly accessing the attribute
+                try:
+                    # Use a direct SQL query to avoid ORM issues with the column type
+                    result = db.session.execute(
+                        "SELECT subscription_tier FROM users WHERE id = :user_id",
+                        {"user_id": user_id}
+                    ).fetchone()
+                    
+                    if result and result[0]:
+                        user_tier = result[0]  # Use the string value directly
+                    else:
+                        user_tier = UserTier.FREE
+                        
+                    current_app.logger.info(f"User {user_id} subscription tier: {user_tier}")
+                except Exception as e:
+                    current_app.logger.warning(f"Could not access subscription_tier: {str(e)}")
+                    user_tier = UserTier.FREE
         except Exception as e:
             current_app.logger.warning(f"Invalid token provided: {str(e)}")
             # Continue as unauthenticated user
@@ -63,10 +80,17 @@ def analyze_symptoms():
         current_app.logger.info(f"Conversation history length: {len(conversation_history)}")
         current_app.logger.info(f"User authenticated: {is_authenticated}, Tier: {user_tier}")
 
-        client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-        if not client.api_key:
-            current_app.logger.error("OpenAI API key not found")
-            raise ValueError("OpenAI API key not configured")
+        # Verify API key is available
+        api_key = os.getenv('OPENAI_API_KEY')
+        if not api_key:
+            current_app.logger.error("OpenAI API key not found in environment variables")
+            return jsonify({'error': 'AI service configuration error.'}), 500
+        
+        # Log partial API key for debugging (first 4 chars only for security)
+        current_app.logger.info(f"Using API key starting with: {api_key[:4]}...")
+        
+        # Initialize OpenAI client
+        client = openai.OpenAI(api_key=api_key)
 
         messages = [
             {
@@ -135,7 +159,7 @@ CRITICAL RULES:
 
         current_app.logger.info(f"Sending {len(messages)} messages to OpenAI")
 
-        # Try with retries for handling rate limits and temporary errors
+        # Try with exponential backoff for handling rate limits and temporary errors
         for attempt in range(MAX_RETRIES):
             try:
                 response = client.chat.completions.create(
@@ -224,14 +248,24 @@ Disclaimer: This assessment is for informational purposes only and does not repl
                         Format this as a professional medical document."""
                     })
                     
-                    doctor_report_response = client.chat.completions.create(
-                        model="gpt-4-turbo-preview",
-                        messages=doctor_report_messages,
-                        temperature=0.5,
-                        max_tokens=1000
-                    )
-                    
-                    doctor_report = doctor_report_response.choices[0].message.content
+                    # Use exponential backoff for doctor's report generation too
+                    for dr_attempt in range(MAX_RETRIES):
+                        try:
+                            doctor_report_response = client.chat.completions.create(
+                                model="gpt-4-turbo-preview",
+                                messages=doctor_report_messages,
+                                temperature=0.5,
+                                max_tokens=1000
+                            )
+                            
+                            doctor_report = doctor_report_response.choices[0].message.content
+                            break
+                        except (openai.RateLimitError, openai.APIConnectionError, openai.APIError) as e:
+                            if dr_attempt == MAX_RETRIES - 1:
+                                raise
+                            backoff_time = (2 ** dr_attempt) * RETRY_DELAY
+                            current_app.logger.info(f"Doctor report generation backing off for {backoff_time} seconds")
+                            time.sleep(backoff_time)
                     
                     # Include the doctor's report in the response
                     ai_response = {
@@ -267,23 +301,28 @@ Disclaimer: This assessment is for informational purposes only and does not repl
                 current_app.logger.error(f"OpenAI rate limit exceeded (attempt {attempt + 1}): {e}")
                 if attempt == MAX_RETRIES - 1:
                     return jsonify({'error': 'AI service is temporarily busy. Please try again later.'}), 429
-                time.sleep(RETRY_DELAY * (attempt + 2))  # Longer delay for rate limits
+                # Exponential backoff: 2^attempt * RETRY_DELAY seconds (2, 4, 8...)
+                backoff_time = (2 ** attempt) * RETRY_DELAY
+                current_app.logger.info(f"Backing off for {backoff_time} seconds")
+                time.sleep(backoff_time)
 
             except openai.APIConnectionError as e:
                 current_app.logger.error(f"OpenAI API connection error (attempt {attempt + 1}): {e}")
                 if attempt == MAX_RETRIES - 1:
                     return jsonify({'error': 'Unable to connect to AI service. Please try again later.'}), 503
-                time.sleep(RETRY_DELAY * (attempt + 1))
+                backoff_time = (2 ** attempt) * RETRY_DELAY
+                time.sleep(backoff_time)
 
             except openai.APIError as e:
                 current_app.logger.error(f"OpenAI API error (attempt {attempt + 1}): {e}")
                 if attempt == MAX_RETRIES - 1:
                     return jsonify({'error': 'AI service error. Please try again later.'}), 500
-                time.sleep(RETRY_DELAY * (attempt + 1))
+                backoff_time = (2 ** attempt) * RETRY_DELAY
+                time.sleep(backoff_time)
 
             except openai.AuthenticationError as e:
                 current_app.logger.error(f"OpenAI authentication error: {e}")
-                return jsonify({'error': 'AI service configuration error.'}), 500
+                return jsonify({'error': 'AI service authentication error. Please check your API key.'}), 500
 
             except openai.InvalidRequestError as e:
                 current_app.logger.error(f"OpenAI invalid request error: {e}")
@@ -293,10 +332,11 @@ Disclaimer: This assessment is for informational purposes only and does not repl
                 current_app.logger.error(f"Unexpected error (attempt {attempt + 1}): {e}", exc_info=True)
                 if attempt == MAX_RETRIES - 1:
                     return jsonify({'error': 'Unable to process your request.'}), 500
-                time.sleep(RETRY_DELAY)
+                backoff_time = (2 ** attempt) * RETRY_DELAY
+                time.sleep(backoff_time)
 
     except Exception as e:
-        current_app.logger.error(f'Error analyzing symptoms: {e}')
+        current_app.logger.error(f'Error analyzing symptoms: {e}', exc_info=True)
         return jsonify({
             'possible_conditions': "I apologize, but I'm having trouble processing your request right now. Please try again or seek medical attention if you're concerned about your symptoms.",
             'care_recommendation': "Consider seeing a doctor soon.",
@@ -416,7 +456,7 @@ def get_symptom_history():
         
         return jsonify(result)
     except Exception as e:
-        current_app.logger.error(f"Error retrieving symptom history: {str(e)}")
+        current_app.logger.error(f"Error retrieving symptom history: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 @symptom_routes.route('/doctor-report', methods=['POST'])
@@ -440,10 +480,17 @@ def generate_doctor_report():
             current_app.logger.warning(f"Invalid token provided: {str(e)}")
     
     try:
-        # This would be where you'd implement payment processing
-        # For now, we'll just generate the report
+        # Verify API key is available
+        api_key = os.getenv('OPENAI_API_KEY')
+        if not api_key:
+            current_app.logger.error("OpenAI API key not found in environment variables")
+            return jsonify({'error': 'AI service configuration error.'}), 500
         
-        client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        # Log partial API key for debugging (first 4 chars only for security)
+        current_app.logger.info(f"Using API key starting with: {api_key[:4]}...")
+        
+        # Initialize OpenAI client
+        client = openai.OpenAI(api_key=api_key)
         
         messages = [
             {
@@ -469,65 +516,106 @@ def generate_doctor_report():
         if not conversation_history or conversation_history[-1].get("isBot", False):
             messages.append({"role": "user", "content": symptoms})
         
-        response = client.chat.completions.create(
-            model="gpt-4-turbo-preview",
-            messages=messages,
-            temperature=0.5,
-            max_tokens=1000
-        )
-        
-        doctor_report = response.choices[0].message.content
-        
-        # Determine care recommendation for the report
-        care_recommendation = "Consider seeing a doctor soon."
-        if any(word in doctor_report.lower() for word in ['emergency', 'immediate', 'urgent', 'severe', '911']):
-            care_recommendation = "You should seek urgent care."
-        elif all(word in doctor_report.lower() for word in ['mild', 'minor', 'normal', 'common']):
-            care_recommendation = "You can likely manage this at home."
-        
-        # Save to database if authenticated
-        if is_authenticated and user_id:
-            # Create a report record
-            report_content = {
-                "doctors_report": doctor_report,
-                "care_recommendation": care_recommendation,
-                "generated_at": datetime.utcnow().isoformat(),
-                "one_time_purchase": True
-            }
-            
-            # Find or create a symptom record
-            symptom = Symptom.query.filter_by(
-                user_id=user_id, 
-                description=symptoms
-            ).order_by(Symptom.created_at.desc()).first()
-            
-            if not symptom:
-                symptom = Symptom(
-                    user_id=user_id,
-                    description=symptoms,
-                    response="One-time doctor's report generated",
-                    created_at=datetime.utcnow()
+        # Try with exponential backoff for handling rate limits and temporary errors
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-4-turbo-preview",
+                    messages=messages,
+                    temperature=0.5,
+                    max_tokens=1000
                 )
-                db.session.add(symptom)
-                db.session.commit()
-            
-            new_report = Report(
-                user_id=user_id,
-                symptom_id=symptom.id,
-                content=json.dumps(report_content),
-                created_at=datetime.utcnow()
-            )
-            db.session.add(new_report)
-            db.session.commit()
-        
-        return jsonify({
-            "doctors_report": doctor_report,
-            "care_recommendation": care_recommendation,
-            "success": True
-        })
-        
+                
+                doctor_report = response.choices[0].message.content
+                
+                # Determine care recommendation for the report
+                care_recommendation = "Consider seeing a doctor soon."
+                if any(word in doctor_report.lower() for word in ['emergency', 'immediate', 'urgent', 'severe', '911']):
+                    care_recommendation = "You should seek urgent care."
+                elif all(word in doctor_report.lower() for word in ['mild', 'minor', 'normal', 'common']):
+                    care_recommendation = "You can likely manage this at home."
+                
+                # Save to database if authenticated
+                if is_authenticated and user_id:
+                    # Create a report record
+                    report_content = {
+                        "doctors_report": doctor_report,
+                        "care_recommendation": care_recommendation,
+                        "generated_at": datetime.utcnow().isoformat(),
+                        "one_time_purchase": True
+                    }
+                    
+                    # Find or create a symptom record
+                    symptom = Symptom.query.filter_by(
+                        user_id=user_id, 
+                        description=symptoms
+                    ).order_by(Symptom.created_at.desc()).first()
+                    
+                    if not symptom:
+                        symptom = Symptom(
+                            user_id=user_id,
+                            description=symptoms,
+                            response="One-time doctor's report generated",
+                            created_at=datetime.utcnow()
+                        )
+                        db.session.add(symptom)
+                        db.session.commit()
+                    
+                    new_report = Report(
+                        user_id=user_id,
+                        symptom_id=symptom.id,
+                        content=json.dumps(report_content),
+                        created_at=datetime.utcnow()
+                    )
+                    db.session.add(new_report)
+                    db.session.commit()
+                
+                return jsonify({
+                    "doctors_report": doctor_report,
+                    "care_recommendation": care_recommendation,
+                    "success": True
+                })
+                
+            except openai.RateLimitError as e:
+                current_app.logger.error(f"OpenAI rate limit exceeded (attempt {attempt + 1}): {e}")
+                if attempt == MAX_RETRIES - 1:
+                    return jsonify({'error': 'AI service is temporarily busy. Please try again later.'}), 429
+                # Exponential backoff: 2^attempt * RETRY_DELAY seconds (2, 4, 8...)
+                backoff_time = (2 ** attempt) * RETRY_DELAY
+                current_app.logger.info(f"Backing off for {backoff_time} seconds")
+                time.sleep(backoff_time)
+
+            except openai.APIConnectionError as e:
+                current_app.logger.error(f"OpenAI API connection error (attempt {attempt + 1}): {e}")
+                if attempt == MAX_RETRIES - 1:
+                    return jsonify({'error': 'Unable to connect to AI service. Please try again later.'}), 503
+                backoff_time = (2 ** attempt) * RETRY_DELAY
+                time.sleep(backoff_time)
+
+            except openai.APIError as e:
+                current_app.logger.error(f"OpenAI API error (attempt {attempt + 1}): {e}")
+                if attempt == MAX_RETRIES - 1:
+                    return jsonify({'error': 'AI service error. Please try again later.'}), 500
+                backoff_time = (2 ** attempt) * RETRY_DELAY
+                time.sleep(backoff_time)
+
+            except openai.AuthenticationError as e:
+                current_app.logger.error(f"OpenAI authentication error: {e}")
+                return jsonify({'error': 'AI service authentication error. Please check your API key.'}), 500
+
+            except openai.InvalidRequestError as e:
+                current_app.logger.error(f"OpenAI invalid request error: {e}")
+                return jsonify({'error': 'Invalid request to AI service.'}), 400
+                
+            except Exception as e:
+                current_app.logger.error(f"Unexpected error (attempt {attempt + 1}): {e}", exc_info=True)
+                if attempt == MAX_RETRIES - 1:
+                    return jsonify({'error': 'Unable to process your request.'}), 500
+                backoff_time = (2 ** attempt) * RETRY_DELAY
+                time.sleep(backoff_time)
+                
     except Exception as e:
-        current_app.logger.error(f"Error generating doctor's report: {str(e)}")
+        current_app.logger.error(f"Error generating doctor's report: {str(e)}", exc_info=True)
         return jsonify({
             "error": "Failed to generate doctor's report",
             "success": False
