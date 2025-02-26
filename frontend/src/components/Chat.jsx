@@ -9,8 +9,8 @@ const CONFIG = {
     TYPING_SPEED: 30,
     THINKING_DELAY: 1000,
     API_TIMEOUT: 10000,
-    API_URL: '/api/symptoms/analyze', // Changed to relative URL for better portability
-    RESET_URL: '/api/symptoms/reset', // New URL for resetting conversation
+    API_URL: '/api/symptoms/analyze', // Use relative URL for same-origin deployment
+    RESET_URL: '/api/symptoms/reset',
     MAX_MESSAGE_LENGTH: 1000,
     MIN_MESSAGE_LENGTH: 3,
     SCROLL_DEBOUNCE_DELAY: 100,
@@ -20,7 +20,7 @@ const CONFIG = {
 
 const WELCOME_MESSAGE = {
     sender: 'bot',
-    text: "Hello! I'm your AI medical assistant. Please describe your current symptoms.",
+    text: "Hi, I'm Michele—your AI medical assistant. Think of me as that doctor you absolutely trust, here to listen, guide, and help you make sense of your symptoms. While I can't replace a real doctor, I can give you insights, ask the right questions, and help you feel more in control of your health. So, tell me—what's going on today?",
     confidence: null,
     careRecommendation: null,
     isAssessment: false
@@ -147,15 +147,19 @@ const Chat = () => {
     const abortControllerRef = useRef(null);
     const chatContainerRef = useRef(null);
 
+    // Save messages to localStorage when they change
     useEffect(() => {
         try {
-            localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify(messages));
+            // Only save if we have meaningful messages to save
+            if (messages.length > 0 && !typing) {
+                localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify(messages));
+            }
         } catch (error) {
             if (CONFIG.DEBUG_MODE) {
                 console.error('Error saving messages:', error);
             }
         }
-    }, [messages]);
+    }, [messages, typing]);
 
     const debouncedScrollToBottom = useCallback(
         debounce(() => {
@@ -236,6 +240,7 @@ const Chat = () => {
             setMessageCount(0);
             setError(null);
             setInputError(null);
+            setSignupPrompt(false);
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
             
             if (CONFIG.DEBUG_MODE) {
@@ -248,6 +253,7 @@ const Chat = () => {
             // Even if the API call fails, reset the local state
             setMessages([WELCOME_MESSAGE]);
             setMessageCount(0);
+            setSignupPrompt(false);
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
         } finally {
             setResetting(false);
@@ -263,18 +269,19 @@ const Chat = () => {
             return;
         }
 
-        if (signupPrompt || loading) return;
+        if (loading) return;
 
         const newMessageCount = messageCount + 1;
         setMessageCount(newMessageCount);
         setError(null);
         setInputError(null);
 
-        if (newMessageCount >= CONFIG.MAX_FREE_MESSAGES) {
+        // Handle free tier message limit
+        if (newMessageCount >= CONFIG.MAX_FREE_MESSAGES && !signupPrompt) {
             setSignupPrompt(true);
             setMessages(prev => [...prev, {
                 sender: 'bot',
-                text: "You've reached the free message limit. Sign up to continue!",
+                text: "You've reached the free message limit. Subscribe for unlimited access or purchase a one-time AI report for this conversation.",
                 confidence: null,
                 careRecommendation: null,
                 isAssessment: false
@@ -282,6 +289,7 @@ const Chat = () => {
             return;
         }
 
+        // Add user message to chat
         setMessages(prev => [...prev, {
             sender: 'user',
             text: messageToSend.trim(),
@@ -294,6 +302,7 @@ const Chat = () => {
         setLoading(true);
         setTyping(true);
 
+        // Cancel any pending requests
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
         }
@@ -365,7 +374,7 @@ const Chat = () => {
                     );
                 } else {
                     // It's a follow-up question or other response
-                    const responseText = response.data.possible_conditions || response.data.question || "Could you tell me more about your symptoms?";
+                    const responseText = response.data.question || response.data.possible_conditions || "Could you tell me more about your symptoms?";
                     typeMessage(responseText, false);
                 }
             }, CONFIG.THINKING_DELAY);
@@ -479,10 +488,26 @@ const Chat = () => {
                         >
                             {loading ? (
                                 <span className="loading-spinner" aria-hidden="true" />
-                            ) : 'Send'}
+                            ) : signupPrompt ? 'Upgrade' : 'Send'}
                         </button>
                     </div>
                 </div>
+
+                {signupPrompt && (
+                    <div className="upgrade-options">
+                        <div className="upgrade-header">Choose an option to continue:</div>
+                        <div className="upgrade-buttons">
+                            <button className="upgrade-button subscription">
+                                Subscribe to PA Mode
+                                <span className="price">$9.99/month</span>
+                            </button>
+                            <button className="upgrade-button one-time">
+                                One-time AI Doctor Report
+                                <span className="price">$4.99</span>
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
         </ChatErrorBoundary>
     );
