@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app, g
 from backend.middleware import require_auth
-from backend.routes.extensions import db  # Corrected import path
+from backend.routes.extensions import db
 from backend.models import User, Symptom, Report
 from backend.routes.openai_config import SYSTEM_PROMPT, clean_ai_response
 import openai
@@ -225,7 +225,6 @@ def save_symptom_interaction(user_id, symptom_text, response_data):
         db.session.rollback()
         return False
 
-# Additional routes for symptom history, etc. can be added here
 @symptom_routes.route('/history', methods=['GET'])
 @require_auth
 def get_symptom_history():
