@@ -9,6 +9,7 @@ import logging
 import time
 from datetime import datetime
 from sqlalchemy.exc import SQLAlchemyError
+from backend.routes.openai_config import SYSTEM_PROMPT, clean_ai_response
 
 # Blueprint setup
 symptom_routes = Blueprint('symptom_routes', __name__)
@@ -29,48 +30,16 @@ def reset_conversation():
     """Reset the conversation history"""
     return jsonify({"message": "Conversation reset successfully"}), 200
 
-def prepare_messages_with_context(conversation_history, current_symptom):
+def prepare_messages_with_context(conversation_history, current_symptom, context_notes=None):
     """Prepare messages for OpenAI API with context preservation."""
     messages = [
         {
             "role": "system",
-            "content": """You are Michele, an AI medical assistant trained to have conversations like a doctor's visit. Your goal is to understand the user's symptoms through a conversation before providing any potential diagnosis.
-
-CONVERSATION FLOW:
-1. Begin by asking about symptoms if the user hasn't provided them.
-2. ALWAYS ask 2-3 follow-up questions about the symptoms before providing any diagnosis. These questions should gather details about:
-   - Duration and severity of symptoms
-   - Associated symptoms
-   - Aggravating or alleviating factors
-   - Relevant medical history
-3. Only after gathering sufficient information, provide a structured response with potential conditions.
-
-RESPONSE FORMATS:
-- During information gathering: Ask clear, focused questions without providing any diagnosis. Format as a simple question without any JSON structure.
-- For final assessment only: Provide a structured JSON response with potential conditions.
-
-FINAL ASSESSMENT FORMAT:
-{
-  "assessment": {
-    "conditions": [
-      {"name": "Condition 1", "confidence": 70},
-      {"name": "Condition 2", "confidence": 20},
-      {"name": "Condition 3", "confidence": 10}
-    ],
-    "triage_level": "MILD|MODERATE|SEVERE",
-    "care_recommendation": "Brief recommendation based on triage level",
-    "disclaimer": "This assessment is for informational purposes only and does not replace professional medical advice."
-  }
-}
-
-IMPORTANT RULES:
-1. NEVER provide a diagnosis or assessment until you've asked at least 2-3 follow-up questions.
-2. ALWAYS use plain text for questions during information gathering.
-3. ONLY use the JSON format for your final assessment.
-4. If the user provides new symptoms after your assessment, restart the questioning process.
-5. For emergencies (difficulty breathing, severe chest pain, etc.), immediately recommend seeking emergency care.
-
-Remember: Your primary goal is to simulate a thoughtful medical conversation before offering any potential diagnosis."""
+            "content": SYSTEM_PROMPT
+        },
+        {
+            "role": "system", 
+            "content": "CRITICAL INSTRUCTION: Ask only ONE question at a time. Never combine multiple questions in a single message."
         }
     ]
     
@@ -121,6 +90,10 @@ Remember: Your primary goal is to simulate a thoughtful medical conversation bef
     if not conversation_history or conversation_history[-1].get("isBot", False):
         messages.append({"role": "user", "content": current_symptom})
     
+    # Add context notes if provided
+    if context_notes:
+        messages.append({"role": "system", "content": f"CONTEXT NOTE: {context_notes}"})
+    
     return messages, question_count
 
 @symptom_routes.route('/analyze', methods=['POST'])
@@ -167,6 +140,7 @@ def analyze_symptoms():
         data = request.get_json()
         symptoms = data.get('symptom', '')
         conversation_history = data.get('conversation_history', [])
+        context_notes = data.get('context_notes', '')
         one_time_report = data.get('one_time_report', False)  # Flag for one-time Doctor's Report purchase
         reset = data.get('reset', False)  # Flag to reset conversation
         
@@ -204,7 +178,7 @@ def analyze_symptoms():
         client = openai.OpenAI(api_key=api_key)
 
         # Prepare messages with context preservation
-        messages, question_count = prepare_messages_with_context(conversation_history, symptoms)
+        messages, question_count = prepare_messages_with_context(conversation_history, symptoms, context_notes)
 
         current_app.logger.info(f"Sending {len(messages)} messages to OpenAI")
         current_app.logger.debug(f"Full messages: {json.dumps(messages)}")
@@ -223,46 +197,23 @@ def analyze_symptoms():
                 ai_response = response.choices[0].message.content
                 current_app.logger.info(f"Raw OpenAI response: {ai_response[:200]}...")
 
+                # Process the response using the clean_ai_response function from openai_config
+                processed_response = clean_ai_response(ai_response)
+                
                 # Check if this is a JSON response (assessment)
-                is_assessment = False
-                is_json = False
-                parsed_json = None
-                
-                # Try to parse as JSON if it looks like JSON
-                if "{" in ai_response and "}" in ai_response:
-                    try:
-                        # Extract JSON part if it's embedded in text
-                        json_start = ai_response.find("{")
-                        json_end = ai_response.rfind("}") + 1
-                        json_str = ai_response[json_start:json_end]
-                        
-                        parsed_json = json.loads(json_str)
-                        is_json = True
-                        
-                        # If it has an assessment key, it's an assessment
-                        if "assessment" in parsed_json:
-                            is_assessment = True
-                    except json.JSONDecodeError:
-                        # Not valid JSON, probably just a question with curly braces
-                        is_json = False
-                
-                # If not JSON and has a question mark, it's a question
-                if not is_json and "?" in ai_response:
-                    is_assessment = False
-                # If we've asked enough questions and no question mark, it's probably an assessment
-                elif question_count >= QUESTION_COUNT_THRESHOLD and not "?" in ai_response:
-                    is_assessment = True
+                is_assessment = processed_response.get("is_assessment", False)
+                is_question = processed_response.get("is_question", False)
                 
                 # Determine care recommendation
                 care_recommendation = "Consider seeing a doctor soon."
-                if is_json and is_assessment:
-                    triage_level = parsed_json.get("assessment", {}).get("triage_level", "MODERATE")
+                if is_assessment and "assessment" in processed_response:
+                    triage_level = processed_response["assessment"].get("triage_level", "MODERATE")
                     if triage_level == "SEVERE":
                         care_recommendation = "You should seek urgent care."
                     elif triage_level == "MILD":
                         care_recommendation = "You can likely manage this at home."
                     else:
-                        care_recommendation = parsed_json.get("assessment", {}).get("care_recommendation", care_recommendation)
+                        care_recommendation = processed_response["assessment"].get("care_recommendation", care_recommendation)
                 elif any(word in ai_response.lower() for word in ['emergency', 'immediate', 'urgent', 'severe', '911']):
                     care_recommendation = "You should seek urgent care."
                 elif all(word in ai_response.lower() for word in ['mild', 'minor', 'normal', 'common']):
@@ -270,8 +221,8 @@ def analyze_symptoms():
 
                 # Determine confidence score
                 confidence = None
-                if is_json and is_assessment and "conditions" in parsed_json.get("assessment", {}):
-                    conditions = parsed_json["assessment"]["conditions"]
+                if is_assessment and "assessment" in processed_response and "conditions" in processed_response["assessment"]:
+                    conditions = processed_response["assessment"]["conditions"]
                     if conditions and len(conditions) > 0:
                         confidence = conditions[0].get("confidence", 80)
                 elif is_assessment:
@@ -373,19 +324,22 @@ Disclaimer: This assessment is for informational purposes only and does not repl
                     result['care_recommendation'] = care_recommendation
                     result['confidence'] = confidence
                     result['is_assessment'] = is_assessment
-                    result['is_question'] = False
+                    result['is_question'] = is_question
                 else:
-                    # Check if this is a question
-                    is_question = "?" in ai_response
-                    
-                    result = {
-                        'possible_conditions': ai_response,
-                        'care_recommendation': care_recommendation if is_assessment else None,
-                        'confidence': confidence if is_assessment else None,
-                        'is_assessment': is_assessment,
-                        'is_question': is_question,
-                        'triage_level': parsed_json.get("assessment", {}).get("triage_level", None) if is_json and is_assessment else None
-                    }
+                    # Use the processed response
+                    if is_assessment:
+                        result = processed_response
+                        result['care_recommendation'] = care_recommendation
+                        result['confidence'] = confidence
+                    else:
+                        result = {
+                            'possible_conditions': ai_response,
+                            'care_recommendation': care_recommendation if is_assessment else None,
+                            'confidence': confidence if is_assessment else None,
+                            'is_assessment': is_assessment,
+                            'is_question': is_question,
+                            'triage_level': processed_response.get("assessment", {}).get("triage_level", None) if is_assessment else None
+                        }
                 
                 if requires_upgrade:
                     result['requires_upgrade'] = True

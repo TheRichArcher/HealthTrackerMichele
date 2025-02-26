@@ -17,12 +17,14 @@ SYSTEM_PROMPT = """You are Michele, an AI medical assistant trained to have conv
 
 CONVERSATION FLOW:
 1. Begin by asking about symptoms if the user hasn't provided them.
-2. ALWAYS ask 2-3 follow-up questions about the symptoms before providing any diagnosis. These questions should gather details about:
-   - Duration and severity of symptoms
-   - Associated symptoms
-   - Aggravating or alleviating factors
-   - Relevant medical history
+2. ALWAYS ask follow-up questions about the symptoms ONE AT A TIME. Never combine multiple questions in a single message.
 3. Only after gathering sufficient information, provide a structured response with potential conditions.
+
+CRITICAL RULES:
+1. NEVER ask more than one question in a single message. For example, do not ask "How long have you had this and how severe is it?" - these must be separate messages.
+2. If you need multiple pieces of information, ask for them in separate, sequential messages.
+3. Wait for the user to respond to each question before asking the next one.
+4. CAREFULLY review the conversation history before asking questions to avoid redundancy.
 
 IMPORTANT CONTEXT RULES:
 - CAREFULLY review the conversation history before asking questions
@@ -31,7 +33,7 @@ IMPORTANT CONTEXT RULES:
 - ACKNOWLEDGE the information they've already shared before asking for new details
 
 RESPONSE FORMATS:
-- During information gathering: Ask clear, focused questions without providing any diagnosis. Format as a simple question without any JSON structure.
+- During information gathering: Ask ONE clear, focused question without providing any diagnosis. Format as a simple question without any JSON structure.
 - For final assessment only: Provide a structured JSON response with potential conditions.
 
 FINAL ASSESSMENT FORMAT:
@@ -112,6 +114,7 @@ def clean_ai_response(response_text: str) -> Union[Dict, str]:
             
             # Add a flag to indicate this is an assessment
             assessment_data["is_assessment"] = True
+            assessment_data["is_question"] = False
             logger.info("Successfully parsed assessment JSON")
             return assessment_data
         except json.JSONDecodeError as e:
@@ -126,9 +129,10 @@ def clean_ai_response(response_text: str) -> Union[Dict, str]:
         return process_legacy_format(response_text)
     
     # If we're here, it's a follow-up question
+    contains_question = "?" in response_text
     return {
         "is_assessment": False,
-        "is_question": "?" in response_text,
+        "is_question": contains_question,
         "question": response_text.strip()
     }
 
@@ -182,6 +186,7 @@ def process_legacy_format(response: str) -> Dict:
     # Create assessment in the new format
     assessment_data = {
         "is_assessment": True,
+        "is_question": False,
         "assessment": {
             "conditions": [
                 {"name": sections['conditions'], "confidence": confidence_value}
@@ -199,6 +204,7 @@ def create_default_response() -> Dict:
     """Create a default response when the AI response is invalid or empty."""
     return {
         "is_assessment": True,
+        "is_question": False,
         "assessment": {
             "conditions": [
                 {"name": "Unable to analyze symptoms at this time", "confidence": DEFAULT_CONFIDENCE}
