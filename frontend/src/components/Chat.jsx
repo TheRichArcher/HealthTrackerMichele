@@ -309,17 +309,28 @@ const Chat = () => {
         abortControllerRef.current = new AbortController();
 
         try {
+            // Prepare conversation history with proper formatting
+            const conversationHistory = messages
+                .filter(msg => msg.text.trim() !== "") // Filter out empty messages
+                .map(msg => ({
+                    message: msg.text,
+                    isBot: msg.sender === 'bot'
+                }));
+
+            // Add context notes to help the AI avoid redundant questions
+            const enhancedRequest = {
+                symptom: messageToSend,
+                conversation_history: conversationHistory,
+                context_notes: "Pay close attention to timing details the user has already mentioned, such as when symptoms started or how long they've been present. Avoid asking redundant questions about information already provided."
+            };
+
+            if (CONFIG.DEBUG_MODE) {
+                console.log("Sending request with conversation history:", enhancedRequest);
+            }
+
             const response = await axios.post(
                 CONFIG.API_URL,
-                {
-                    symptom: messageToSend,
-                    conversation_history: messages
-                        .filter(msg => msg.text.trim() !== "") // Filter out empty messages
-                        .map(msg => ({
-                            message: msg.text,
-                            isBot: msg.sender === 'bot'
-                        }))
-                },
+                enhancedRequest,
                 {
                     signal: abortControllerRef.current.signal,
                     timeout: CONFIG.API_TIMEOUT
@@ -376,6 +387,11 @@ const Chat = () => {
                     // It's a follow-up question or other response
                     const responseText = response.data.question || response.data.possible_conditions || "Could you tell me more about your symptoms?";
                     typeMessage(responseText, false);
+                }
+
+                // Handle upgrade prompts if present
+                if (response.data.requires_upgrade) {
+                    setSignupPrompt(true);
                 }
             }, CONFIG.THINKING_DELAY);
 

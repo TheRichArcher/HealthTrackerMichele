@@ -24,6 +24,12 @@ CONVERSATION FLOW:
    - Relevant medical history
 3. Only after gathering sufficient information, provide a structured response with potential conditions.
 
+IMPORTANT CONTEXT RULES:
+- CAREFULLY review the conversation history before asking questions
+- NEVER ask about information the user has already provided (e.g., if they said they "woke up with a symptom", don't ask how long they've had it)
+- AVOID redundant questions that repeat what the user has already told you
+- ACKNOWLEDGE the information they've already shared before asking for new details
+
 RESPONSE FORMATS:
 - During information gathering: Ask clear, focused questions without providing any diagnosis. Format as a simple question without any JSON structure.
 - For final assessment only: Provide a structured JSON response with potential conditions.
@@ -122,6 +128,7 @@ def clean_ai_response(response_text: str) -> Union[Dict, str]:
     # If we're here, it's a follow-up question
     return {
         "is_assessment": False,
+        "is_question": "?" in response_text,
         "question": response_text.strip()
     }
 
