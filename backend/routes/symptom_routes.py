@@ -11,6 +11,7 @@ import time
 import re
 from datetime import datetime
 from typing import Any
+from flask_jwt_extended import get_jwt_identity
 
 # Blueprint setup
 symptom_routes = Blueprint('symptom_routes', __name__)
@@ -77,10 +78,11 @@ def determine_triage_level(ai_response: str, symptoms: str) -> str:
 
     return TriageLevel.MODERATE
 
+# Fix: Call require_auth() to get the actual decorator
 @symptom_routes.route('/analyze', methods=['POST'])
-@require_auth
+@require_auth()  # Note the parentheses - this calls the function to get the decorator
 def analyze_symptoms():
-    user_id = g.user_id
+    user_id = get_jwt_identity()  # Use get_jwt_identity() instead of g.user_id
     data = request.json
     
     if not data or 'symptom' not in data:
@@ -225,10 +227,11 @@ def save_symptom_interaction(user_id, symptom_text, response_data):
         db.session.rollback()
         return False
 
+# Fix: Call require_auth() to get the actual decorator
 @symptom_routes.route('/history', methods=['GET'])
-@require_auth
+@require_auth()  # Note the parentheses - this calls the function to get the decorator
 def get_symptom_history():
-    user_id = g.user_id
+    user_id = get_jwt_identity()  # Use get_jwt_identity() instead of g.user_id
     
     try:
         # Get the user's symptom history
