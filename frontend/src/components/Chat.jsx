@@ -151,14 +151,41 @@ const Chat = () => {
     const messagesEndRef = useRef(null);
     const abortControllerRef = useRef(null);
     const chatContainerRef = useRef(null);
-    const inputRef = useRef(null); // Added ref for input focus
+    const inputRef = useRef(null);
+    const messagesContainerRef = useRef(null);
 
-    // Auto-focus the input field when component mounts
-    useEffect(() => {
+    // Force focus on input field - more aggressive approach
+    const forceFocus = useCallback(() => {
         if (inputRef.current) {
-            inputRef.current.focus();
+            // Try multiple times with increasing delays
+            setTimeout(() => inputRef.current?.focus(), 0);
+            setTimeout(() => inputRef.current?.focus(), 100);
+            setTimeout(() => inputRef.current?.focus(), 500);
         }
     }, []);
+
+    // Auto-focus when component mounts
+    useEffect(() => {
+        forceFocus();
+        // Also add a click handler to the container to focus input when clicked
+        const container = chatContainerRef.current;
+        if (container) {
+            const handleContainerClick = (e) => {
+                // Only focus if we're not clicking on another interactive element
+                if (
+                    e.target.tagName !== 'BUTTON' && 
+                    e.target.tagName !== 'A' && 
+                    e.target.tagName !== 'INPUT' && 
+                    e.target.tagName !== 'TEXTAREA'
+                ) {
+                    inputRef.current?.focus();
+                }
+            };
+            
+            container.addEventListener('click', handleContainerClick);
+            return () => container.removeEventListener('click', handleContainerClick);
+        }
+    }, [forceFocus]);
 
     // Save messages to localStorage when they change
     useEffect(() => {
@@ -174,20 +201,42 @@ const Chat = () => {
         }
     }, [messages, typing]);
 
-    // Improved scroll function for better reliability
+    // Improved scroll function with multiple approaches
     const scrollToBottom = useCallback(() => {
+        // Method 1: Using scrollIntoView
         if (messagesEndRef.current) {
             messagesEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
         }
+        
+        // Method 2: Direct scrollTop manipulation
+        if (messagesContainerRef.current) {
+            const container = messagesContainerRef.current;
+            container.scrollTop = container.scrollHeight;
+        }
     }, []);
 
+    // Scroll when messages change or typing state changes
     useEffect(() => {
-        // Small delay to ensure content is rendered before scrolling
-        const timer = setTimeout(() => {
-            scrollToBottom();
-        }, 100);
-        return () => clearTimeout(timer);
-    }, [messages, scrollToBottom]);
+        // Immediate scroll
+        scrollToBottom();
+        
+        // Delayed scrolls to handle content rendering
+        const timeouts = [
+            setTimeout(scrollToBottom, 100),
+            setTimeout(scrollToBottom, 500),
+            setTimeout(scrollToBottom, 1000)
+        ];
+        
+        return () => timeouts.forEach(clearTimeout);
+    }, [messages, typing, scrollToBottom]);
+
+    // Scroll during typing animation
+    useEffect(() => {
+        if (typing) {
+            const interval = setInterval(scrollToBottom, 500);
+            return () => clearInterval(interval);
+        }
+    }, [typing, scrollToBottom]);
 
     useEffect(() => {
         return () => {
@@ -208,7 +257,7 @@ const Chat = () => {
 
     const typeMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null) => {
         let index = 0;
-        setTyping(false);
+        setTyping(true);
         setMessages(prev => [...prev, {
             sender: 'bot',
             text: "",
@@ -224,13 +273,22 @@ const Chat = () => {
                 const lastMessageIndex = updatedMessages.length - 1;
                 if (lastMessageIndex >= 0 && index < message.length) {
                     updatedMessages[lastMessageIndex].text = message.slice(0, index + 1);
+                    // Scroll on each update
+                    setTimeout(scrollToBottom, 0);
                 }
                 return updatedMessages;
             });
             index++;
-            if (index >= message.length) clearInterval(interval);
+            if (index >= message.length) {
+                clearInterval(interval);
+                setTyping(false);
+                // Final scroll after typing completes
+                setTimeout(scrollToBottom, 100);
+                // Re-focus input after typing completes
+                forceFocus();
+            }
         }, CONFIG.TYPING_SPEED);
-    }, []);
+    }, [scrollToBottom, forceFocus]);
 
     const handleRetry = useCallback(async (messageIndex) => {
         const originalMessage = messages[messageIndex - 1];
@@ -258,11 +316,7 @@ const Chat = () => {
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
             
             // Focus the input after reset
-            setTimeout(() => {
-                if (inputRef.current) {
-                    inputRef.current.focus();
-                }
-            }, 0);
+            forceFocus();
             
             if (CONFIG.DEBUG_MODE) {
                 console.log("Conversation reset successfully");
@@ -321,14 +375,13 @@ const Chat = () => {
         
         if (!retryMessage) setUserInput('');
         setLoading(true);
-        setTyping(true);
         
-        // Focus the input after sending
-        setTimeout(() => {
-            if (inputRef.current) {
-                inputRef.current.focus();
-            }
-        }, 0);
+        // Force focus on input after sending
+        forceFocus();
+
+        // Scroll to bottom after adding user message
+        setTimeout(scrollToBottom, 0);
+        setTimeout(scrollToBottom, 100);
 
         // Cancel any pending requests
         if (abortControllerRef.current) {
@@ -478,7 +531,12 @@ const Chat = () => {
                     </div>
                 </div>
 
-                <div className="messages-container" role="log" aria-live="polite">
+                <div 
+                    className="messages-container" 
+                    role="log" 
+                    aria-live="polite"
+                    ref={messagesContainerRef}
+                >
                     {messages.map((msg, index) => (
                         <Message
                             key={index}
@@ -510,7 +568,7 @@ const Chat = () => {
                 <div className="chat-input-container">
                     <div className="chat-input-wrapper">
                         <textarea
-                            ref={inputRef} // Added ref for auto-focus
+                            ref={inputRef}
                             className="chat-input"
                             value={userInput}
                             onChange={(e) => {
@@ -524,6 +582,17 @@ const Chat = () => {
                             aria-label="Symptom description input"
                             aria-invalid={!!inputError}
                             aria-describedby={inputError ? "input-error" : undefined}
+                            autoFocus={true} // Add explicit autoFocus prop
+                            onFocus={(e) => {
+                                // Ensure cursor is at the end when focused
+                                const value = e.target.value;
+                                e.target.value = '';
+                                e.target.value = value;
+                            }}
+                            onClick={(e) => {
+                                // Prevent click from removing focus
+                                e.stopPropagation();
+                            }}
                         />
                         <button
                             className="send-button"
