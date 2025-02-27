@@ -40,33 +40,40 @@ def prepare_messages_with_context(conversation_history, current_symptom, context
         {
             "role": "system", 
             "content": "CRITICAL INSTRUCTION: Ask only ONE question at a time. Never combine multiple questions in a single message."
+        },
+        {
+            "role": "system",
+            "content": """CONTEXT AWARENESS REMINDER: 
+            1. If the user says they "woke up with" a symptom, DO NOT ask how long they've had it.
+            2. If the user mentions specific symptoms (like "crusty", "red", "itchy"), DO NOT ask if they have these exact symptoms.
+            3. If you make a mistake and the user corrects you, acknowledge it and apologize briefly."""
         }
     ]
     
     # Count how many questions the AI has asked
     question_count = sum(1 for entry in conversation_history if entry.get("isBot", False) and "?" in entry.get("message", ""))
     
+    # Extract all symptoms mentioned by the user so far
+    user_symptoms = []
+    for entry in conversation_history:
+        if not entry.get("isBot", False):
+            user_symptoms.append(entry.get("message", ""))
+    
+    if user_symptoms:
+        # Create a summary of all user-reported symptoms
+        symptom_summary = "User has reported: " + "; ".join(user_symptoms)
+        messages.append({"role": "system", "content": symptom_summary})
+    
     # If we have a long conversation history, create a summary of earlier exchanges
     if len(conversation_history) > MAX_DETAILED_EXCHANGES * 2:  # Each exchange has 2 messages
         early_history = conversation_history[:-(MAX_DETAILED_EXCHANGES * 2)]
         recent_history = conversation_history[-(MAX_DETAILED_EXCHANGES * 2):]
         
-        # Extract user symptoms from early history
-        user_symptoms = []
-        for entry in early_history:
-            if not entry.get("isBot", False):
-                user_symptoms.append(entry.get("message", ""))
-        
-        # Create a summary message
-        if user_symptoms:
-            summary = "Previous symptoms reported: " + "; ".join(user_symptoms)
-            messages.append({"role": "system", "content": summary})
-            
-            # Add information about question count
-            messages.append({
-                "role": "system", 
-                "content": f"You have asked {question_count} follow-up questions so far. Remember to ask at least {QUESTION_COUNT_THRESHOLD} questions before providing an assessment."
-            })
+        # Add information about question count
+        messages.append({
+            "role": "system", 
+            "content": f"You have asked {question_count} follow-up questions so far. Remember to ask at least {QUESTION_COUNT_THRESHOLD} questions before providing an assessment."
+        })
         
         # Add recent history in full detail
         for entry in recent_history:
