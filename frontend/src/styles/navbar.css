@@ -1,4 +1,4 @@
-/* Navbar.css - Complete redesign */
+/* Navbar.css - Complete file ready to paste */
 :root {
     --primary-blue: #2563eb;
     --primary-hover: #1d4ed8;
@@ -6,7 +6,7 @@
     --text-light: #f8fafc;
     --text-muted: #64748b;
     --bg-light: #ffffff;
-    --bg-dark: #1e293b;
+    --bg-dark: #1e2936;
     --bg-gray: #f1f5f9;
     --border-light: #e2e8f0;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
@@ -20,10 +20,7 @@
   
   /* Base navbar styles */
   .navbar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
+    position: relative; /* Changed from fixed to relative */
     background: var(--bg-light);
     box-shadow: var(--shadow-sm);
     z-index: 1000;
@@ -31,12 +28,12 @@
     display: flex;
     align-items: center;
     font-family: var(--font-sans);
+    max-width: 1000px; /* Match the chat container width */
+    margin: 0 auto; /* Center the navbar */
   }
   
   .navbar-container {
-    max-width: 1200px;
     width: 100%;
-    margin: 0 auto;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -128,25 +125,6 @@
     transform: translateY(0);
   }
   
-  /* Logout button */
-  .logout-button {
-    background: #ef4444;
-    color: var(--text-light);
-    border: none;
-    padding: 0.5rem 1rem;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    font-size: 1rem;
-    font-weight: 500;
-    transition: all 0.2s ease;
-  }
-  
-  .logout-button:hover {
-    background: #dc2626;
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-sm);
-  }
-  
   /* Mobile menu toggle */
   .menu-toggle {
     display: none;
@@ -162,75 +140,6 @@
     height: 24px;
   }
   
-  /* Modal styles */
-  .modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 1100;
-    backdrop-filter: blur(4px);
-  }
-  
-  .modal-content {
-    background: var(--bg-light);
-    padding: 2rem;
-    border-radius: var(--radius-md);
-    max-width: 400px;
-    width: 90%;
-    box-shadow: var(--shadow-md);
-  }
-  
-  .modal-title {
-    font-size: 1.25rem;
-    font-weight: 600;
-    margin-bottom: 1rem;
-    color: var(--text-dark);
-  }
-  
-  .modal-buttons {
-    display: flex;
-    justify-content: flex-end;
-    gap: 1rem;
-    margin-top: 1.5rem;
-  }
-  
-  /* Button variants */
-  .btn {
-    padding: 0.5rem 1.5rem;
-    border-radius: var(--radius-sm);
-    font-size: 1rem;
-    font-weight: 500;
-    cursor: pointer;
-    border: none;
-    transition: all 0.2s ease;
-  }
-  
-  .btn-danger {
-    background: #ef4444;
-    color: var(--text-light);
-  }
-  
-  .btn-danger:hover {
-    background: #dc2626;
-    transform: translateY(-1px);
-  }
-  
-  .btn-secondary {
-    background: var(--bg-gray);
-    color: var(--text-dark);
-  }
-  
-  .btn-secondary:hover {
-    background: #e2e8f0;
-    transform: translateY(-1px);
-  }
-  
   /* Mobile styles */
   @media (max-width: 768px) {
     .menu-toggle {
@@ -238,7 +147,7 @@
     }
   
     .navbar-menu {
-      position: fixed;
+      position: absolute;
       top: 64px;
       left: 0;
       right: 0;
@@ -265,22 +174,12 @@
     .nav-link.active {
       background-color: var(--bg-gray);
     }
-  
-    .modal-buttons {
-      flex-direction: column;
-    }
-  
-    .btn {
-      width: 100%;
-    }
   }
   
   /* Accessibility */
   .nav-link:focus-visible,
-  .btn:focus-visible,
-  .menu-toggle:focus-visible,
   .login-button:focus-visible,
-  .logout-button:focus-visible {
+  .menu-toggle:focus-visible {
     outline: 2px solid var(--primary-blue);
     outline-offset: 2px;
   }

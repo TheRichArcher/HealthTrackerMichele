@@ -66,44 +66,49 @@ const Message = memo(({ message, onRetry, index }) => {
         }
     }, []);
 
+    // Create avatar content based on sender
+    const avatarContent = sender === 'bot' ? (
+        <img src="/doctor-avatar.png" alt="AI Assistant" />
+    ) : (
+        <img src="/user-avatar.png" alt="User" />
+    );
+
     return (
-        <div className={`message ${sender}`}>
-            <div className="message-content">
-                {text.split('\n').map((line, i) => (
-                    <p key={i}>{line}</p>
-                ))}
+        <div className={`message-row ${sender === 'user' ? 'user' : ''}`}>
+            <div className="avatar-container">
+                {avatarContent}
             </div>
-            {/* Only show metrics if this is an assessment */}
-            {sender === 'bot' && isAssessment && (confidence || careRecommendation || triageLevel) && (
-                <div className="metrics-container">
-                    {confidence && (
-                        <div className="confidence">
-                            Confidence: {confidence}%
-                        </div>
-                    )}
-                    {(careRecommendation || triageLevel) && (
-                        <div className="care-recommendation">
-                            {careRecommendation || getCareRecommendation(triageLevel)}
-                        </div>
-                    )}
-                    {triageLevel && (
-                        <div className="triage-level">
-                            <span className={`triage-badge ${triageLevel?.toLowerCase()}`}>
-                                {triageLevel}
-                            </span>
-                        </div>
-                    )}
+            <div className={`message ${sender}`}>
+                <div className="message-content">
+                    {text.split('\n').map((line, i) => (
+                        <p key={i}>{line}</p>
+                    ))}
                 </div>
-            )}
-            {sender === 'bot' && text.includes("trouble processing") && (
-                <button 
-                    className="retry-button"
-                    onClick={() => onRetry(index)}
-                    aria-label="Retry message"
-                >
-                    Retry
-                </button>
-            )}
+                {/* Only show metrics if this is an assessment */}
+                {sender === 'bot' && isAssessment && (confidence || careRecommendation || triageLevel) && (
+                    <div className="assessment-info">
+                        {confidence && (
+                            <div className="assessment-item confidence">
+                                Confidence: {confidence}%
+                            </div>
+                        )}
+                        {(careRecommendation || triageLevel) && (
+                            <div className="assessment-item care-recommendation">
+                                {careRecommendation || getCareRecommendation(triageLevel)}
+                            </div>
+                        )}
+                    </div>
+                )}
+                {sender === 'bot' && text.includes("trouble processing") && (
+                    <button 
+                        className="retry-button"
+                        onClick={() => onRetry(index)}
+                        aria-label="Retry message"
+                    >
+                        Retry
+                    </button>
+                )}
+            </div>
         </div>
     );
 });
@@ -437,16 +442,14 @@ const Chat = () => {
                             <span className="chat-header-role">AI Medical Assistant</span>
                         </div>
                     </div>
-                    <div className="chat-header-right">
-                        <button 
-                            className="reset-button"
-                            onClick={handleResetConversation}
-                            disabled={loading || resetting}
-                            aria-label="Reset conversation"
-                        >
-                            {resetting ? 'Resetting...' : 'Reset Conversation'}
-                        </button>
-                    </div>
+                    <button 
+                        className="reset-button"
+                        onClick={handleResetConversation}
+                        disabled={loading || resetting}
+                        aria-label="Reset conversation"
+                    >
+                        {resetting ? 'Resetting...' : 'Reset Conversation'}
+                    </button>
                     <div className="chat-header-disclaimer">
                         For informational purposes only. Not a substitute for professional medical advice.
                     </div>
@@ -462,8 +465,15 @@ const Chat = () => {
                         />
                     ))}
                     {typing && (
-                        <div className="typing-indicator" aria-live="polite">
-                            Michele is typing...
+                        <div className="message-row">
+                            <div className="avatar-container">
+                                <img src="/doctor-avatar.png" alt="AI Assistant" />
+                            </div>
+                            <div className="typing-indicator">
+                                <span></span>
+                                <span></span>
+                                <span></span>
+                            </div>
                         </div>
                     )}
                     {error && (
@@ -475,9 +485,9 @@ const Chat = () => {
                 </div>
 
                 <div className="chat-input-container">
-                    <div className="chat-input-form">
+                    <div className="chat-input-wrapper">
                         <textarea
-                            className={`chat-input ${inputError ? 'error' : ''}`}
+                            className="chat-input"
                             value={userInput}
                             onChange={(e) => {
                                 setUserInput(e.target.value);
@@ -491,22 +501,20 @@ const Chat = () => {
                             aria-invalid={!!inputError}
                             aria-describedby={inputError ? "input-error" : undefined}
                         />
-                        {inputError && (
-                            <div id="input-error" className="input-error" role="alert">
-                                {inputError}
-                            </div>
-                        )}
                         <button
-                            className={`send-button ${loading ? 'loading' : ''}`}
+                            className="send-button"
                             onClick={() => handleSendMessage()}
                             disabled={loading || signupPrompt || resetting || !userInput.trim()}
                             aria-label="Send message"
                         >
-                            {loading ? (
-                                <span className="loading-spinner" aria-hidden="true" />
-                            ) : signupPrompt ? 'Upgrade' : 'Send'}
+                            Send
                         </button>
                     </div>
+                    {inputError && (
+                        <div id="input-error" className="input-error" role="alert">
+                            {inputError}
+                        </div>
+                    )}
                 </div>
 
                 {signupPrompt && (
