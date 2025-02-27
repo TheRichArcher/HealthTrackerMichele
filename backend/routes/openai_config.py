@@ -1,100 +1,116 @@
 import re
 import json
 import logging
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Union
 from flask import current_app
+from backend.config import Config  # Ensures API key handling aligns with config.py
 
 # Set up logging with detailed format
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Constants for confidence levels and response formatting
-MIN_CONFIDENCE = 50
-MAX_CONFIDENCE = 98
+MIN_CONFIDENCE = 10  # Allowing lower confidence for nuanced assessments
+MAX_CONFIDENCE = 95  # Preventing overconfidence
 DEFAULT_CONFIDENCE = 75
 
-SYSTEM_PROMPT = """You are Michele, an AI medical assistant trained to have conversations like a doctor's visit. Your goal is to understand the user's symptoms through a conversation before providing any potential diagnosis.
+SYSTEM_PROMPT = """You are Michele, an AI medical assistant trained to have conversations like a doctor's visit.
+Your goal is to understand the user's symptoms through a conversation before providing any potential diagnosis.
 
 CONVERSATION FLOW:
 1. Begin by asking about symptoms if the user hasn't provided them.
 2. ALWAYS ask follow-up questions about the symptoms ONE AT A TIME. Never combine multiple questions in a single message.
-3. Only after gathering sufficient information, provide a structured response with potential conditions.
+3. After gathering sufficient information (at least 2-3 follow-up questions), provide a structured diagnosis.
+
+STANDARD FOLLOW-UP SEQUENCE:
+1. **Duration** – "How long have you had this symptom?"
+2. **Severity** – "On a scale of 1-10, how bad is it?"
+3. **Triggers** – "Does anything make it better or worse?"
+4. **Additional Symptoms** – "Have you noticed anything else?"
 
 CRITICAL RULES:
-1. NEVER ask more than one question in a single message. For example, do not ask "How long have you had this and how severe is it?" - these must be separate messages.
+1. NEVER ask more than one question in a single message.
 2. If you need multiple pieces of information, ask for them in separate, sequential messages.
 3. Wait for the user to respond to each question before asking the next one.
 4. CAREFULLY review the conversation history before asking questions to avoid redundancy.
 
 CONTEXT AWARENESS RULES:
-1. PAY CLOSE ATTENTION to timing information the user has already provided (e.g., "woke up with", "started yesterday", "for a week").
+1. PAY CLOSE ATTENTION to timing information the user has already provided (e.g., "woke up with", "started yesterday").
 2. If the user mentions they "woke up with" a symptom, this means it started that morning - DO NOT ask how long they've had it.
-3. NEVER ask about symptoms the user has already described (e.g., if they mentioned "crusty eye", don't ask if there's crusting).
-4. If the user corrects you, ACKNOWLEDGE the correction, APOLOGIZE briefly, and move on with a more relevant question.
-5. TRACK all symptoms mentioned throughout the conversation, even if mentioned casually.
-
-RESPONSE FORMATS:
-- During information gathering: Ask ONE clear, focused question without providing any diagnosis. Format as a simple question without any JSON structure.
-- For final assessment only: Provide a structured JSON response with potential conditions.
+3. NEVER ask about symptoms the user has already described.
+4. TRACK all symptoms mentioned throughout the conversation, even if mentioned casually.
 
 FINAL ASSESSMENT FORMAT:
-{
-  "assessment": {
-    "conditions": [
-      {"name": "Condition 1", "confidence": 70},
-      {"name": "Condition 2", "confidence": 20},
-      {"name": "Condition 3", "confidence": 10}
-    ],
-    "triage_level": "MILD|MODERATE|SEVERE",
-    "care_recommendation": "Brief recommendation based on triage level",
-    "disclaimer": "This assessment is for informational purposes only and does not replace professional medical advice."
-  }
-}
+The AI must return JSON structured like this:
+- "conditions": A list of conditions with names, confidence levels, and explanations.
+- "care_recommendation": One of MILD, MODERATE, or SEVERE.
+- "reasoning": A brief explanation of the assessment.
 
-IMPORTANT RULES:
-1. NEVER provide a diagnosis or assessment until you've asked at least 2-3 follow-up questions.
-2. ALWAYS use plain text for questions during information gathering.
-3. ONLY use the JSON format for your final assessment.
-4. If the user provides new symptoms after your assessment, restart the questioning process.
-5. For emergencies (difficulty breathing, severe chest pain, etc.), immediately recommend seeking emergency care.
-
-Remember: Your primary goal is to simulate a thoughtful medical conversation before offering any potential diagnosis.
+NEVER provide an assessment before asking at least 2-3 follow-up questions.
 """
 
-class ResponseSection:
-    """Constants for response section labels"""
-    CONDITIONS = "Possible Conditions:"
-    CONFIDENCE = "Confidence Level:"
-    CARE = "Care Recommendation:"
 
-def calculate_confidence(response: str) -> int:
-    """Calculate confidence score based on response content and key phrases."""
-    response_lower = response.lower()
-    
-    if "clear, definitive" in response_lower:
-        return 98
-    elif "very likely" in response_lower:
-        return 95
-    elif "most likely" in response_lower:
-        return 85
-    elif "multiple possible conditions" in response_lower:
-        return 75
-    elif "suggests" in response_lower or "could be" in response_lower:
-        return 65
-    elif "uncertain" in response_lower or "unclear" in response_lower:
-        return 50
-    else:
-        return DEFAULT_CONFIDENCE
+def create_default_response() -> Dict:
+    """
+    Provides a default structured response when AI fails to process input.
+    """
+    return {
+        "is_assessment": True,
+        "is_question": False,
+        "assessment": {
+            "conditions": [
+                {"name": "Unable to analyze symptoms", "confidence": DEFAULT_CONFIDENCE, "description": "Insufficient data provided."}
+            ],
+            "care_recommendation": "MODERATE",
+            "reasoning": "Consider consulting a healthcare professional if symptoms persist.",
+            "disclaimer": "This assessment is for informational purposes only and does not replace professional medical advice."
+        }
+    }
+
+
+def calculate_confidence(conditions_list: List[Dict]) -> List[Dict]:
+    """
+    Dynamically adjusts confidence levels based on AI response structure and content.
+    """
+    total_conditions = len(conditions_list)
+    base_confidence = 90 if total_conditions == 1 else (80 if total_conditions == 2 else 65)
+
+    for condition in conditions_list:
+        name_lower = condition.get("name", "").lower()
+        description_lower = condition.get("description", "").lower()
+        combined_text = name_lower + " " + description_lower
+
+        # Adjust confidence based on language used
+        if "clear, definitive" in combined_text or "very likely" in combined_text:
+            condition["confidence"] = min(base_confidence + 10, MAX_CONFIDENCE)
+        elif "most likely" in combined_text:
+            condition["confidence"] = min(base_confidence + 5, MAX_CONFIDENCE)
+        elif "likely" in combined_text:
+            condition["confidence"] = base_confidence
+        elif "suggests" in combined_text:
+            condition["confidence"] = max(base_confidence - 10, MIN_CONFIDENCE + 10)
+        elif "could be" in combined_text:
+            condition["confidence"] = max(base_confidence - 15, MIN_CONFIDENCE + 10)
+        elif "possibly" in combined_text:
+            condition["confidence"] = max(base_confidence - 20, MIN_CONFIDENCE + 10)
+        elif "might be" in combined_text:
+            condition["confidence"] = max(base_confidence - 25, MIN_CONFIDENCE + 5)
+        elif "uncertain" in combined_text or "unclear" in combined_text:
+            condition["confidence"] = max(base_confidence - 30, MIN_CONFIDENCE + 5)
+        elif "unlikely" in combined_text:
+            condition["confidence"] = MIN_CONFIDENCE + 5
+        else:
+            condition["confidence"] = base_confidence
+
+        # Ensure confidence is within bounds
+        condition["confidence"] = min(MAX_CONFIDENCE, max(MIN_CONFIDENCE, condition["confidence"]))
+
+    return conditions_list
+
 
 def clean_ai_response(response_text: str) -> Union[Dict, str]:
     """
-    Process the AI response to determine if it's a question or a structured assessment.
-    
-    Args:
-        response_text (str): The raw response from the OpenAI API
-        
-    Returns:
-        dict: Either a question dict or a parsed assessment dict
+    Processes the AI response and determines if it's a question or assessment.
     """
     if not isinstance(response_text, str) or not response_text.strip():
         logger.warning("Invalid or empty response")
@@ -102,116 +118,21 @@ def clean_ai_response(response_text: str) -> Union[Dict, str]:
     
     logger.info(f"Processing AI response: {response_text[:100]}...")
     
-    # Check if the response contains JSON
-    json_match = re.search(r'```json\s*(.*?)\s*```|({[\s\S]*"assessment"[\s\S]*})', 
-                          response_text, re.DOTALL)
+    json_match = re.search(r'```json\s*(.*?)\s*```|({[\s\S]*"assessment"[\s\S]*})', response_text, re.DOTALL)
     
     if json_match:
-        # This is likely a final assessment
         try:
             json_str = json_match.group(1) or json_match.group(2)
             json_str = json_str.strip()
             assessment_data = json.loads(json_str)
-            
-            # Add a flag to indicate this is an assessment
             assessment_data["is_assessment"] = True
             assessment_data["is_question"] = False
-            logger.info("Successfully parsed assessment JSON")
+            
+            if "assessment" in assessment_data and "conditions" in assessment_data["assessment"]:
+                assessment_data["assessment"]["conditions"] = calculate_confidence(assessment_data["assessment"]["conditions"])
+            
             return assessment_data
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON: {e}")
-            # Fall back to treating as a question or using legacy format
     
-    # Check if this is using the old format with "Possible Conditions:"
-    has_structured_format = re.search(r'Possible Conditions:', response_text, re.IGNORECASE)
-    
-    if has_structured_format:
-        # Process using the legacy format parser
-        return process_legacy_format(response_text)
-    
-    # If we're here, it's a follow-up question
-    contains_question = "?" in response_text
-    return {
-        "is_assessment": False,
-        "is_question": contains_question,
-        "question": response_text.strip()
-    }
-
-def process_legacy_format(response: str) -> Dict:
-    """Process responses in the old format with Possible Conditions, Confidence Level, etc."""
-    # Extract sections using more lenient regex
-    sections = {
-        'conditions': None,
-        'confidence': None,
-        'care': None
-    }
-
-    # Look for conditions with more flexible pattern
-    conditions_match = re.search(r'(?:Possible Conditions:)?\s*(.+?)(?=(?:Confidence Level:|Care Recommendation:|$))', response, re.DOTALL)
-    confidence_match = re.search(r'Confidence Level:\s*(\d+)', response)
-    care_match = re.search(r'Care Recommendation:\s*(mild|moderate|severe)', response, re.IGNORECASE)
-
-    # Validate and store each section
-    if conditions_match and conditions_match.group(1).strip():
-        sections['conditions'] = conditions_match.group(1).strip()
-        calculated_confidence = calculate_confidence(sections['conditions'])
-    else:
-        # Only use "Unable to determine" if we truly can't find any meaningful content
-        raw_text = response.strip()
-        if raw_text and not raw_text.lower().startswith('unable to'):
-            sections['conditions'] = raw_text
-            calculated_confidence = calculate_confidence(raw_text)
-        else:
-            sections['conditions'] = "Unable to determine conditions"
-            calculated_confidence = DEFAULT_CONFIDENCE
-
-    # Handle confidence values
-    explicit_confidence = int(confidence_match.group(1)) if confidence_match else calculated_confidence
-    confidence_value = max(
-        calculated_confidence,
-        min(MAX_CONFIDENCE, max(MIN_CONFIDENCE, explicit_confidence))
-    )
-
-    # Handle care recommendation
-    if care_match:
-        care_value = care_match.group(1).lower()
-    else:
-        # Default to moderate unless we have clear indicators
-        if "severe" in response.lower() or "emergency" in response.lower():
-            care_value = 'severe'
-        elif "mild" in response.lower() or "minor" in response.lower():
-            care_value = 'mild'
-        else:
-            care_value = 'moderate'
-    
-    # Create assessment in the new format
-    assessment_data = {
-        "is_assessment": True,
-        "is_question": False,
-        "assessment": {
-            "conditions": [
-                {"name": sections['conditions'], "confidence": confidence_value}
-            ],
-            "triage_level": care_value.upper(),
-            "care_recommendation": f"Based on the assessment, this appears to be a {care_value} condition.",
-            "disclaimer": "This assessment is for informational purposes only and does not replace professional medical advice."
-        }
-    }
-    
-    logger.info("Processed legacy format into structured assessment")
-    return assessment_data
-
-def create_default_response() -> Dict:
-    """Create a default response when the AI response is invalid or empty."""
-    return {
-        "is_assessment": True,
-        "is_question": False,
-        "assessment": {
-            "conditions": [
-                {"name": "Unable to analyze symptoms at this time", "confidence": DEFAULT_CONFIDENCE}
-            ],
-            "triage_level": "MODERATE",
-            "care_recommendation": "Consider consulting with a healthcare professional if symptoms persist.",
-            "disclaimer": "This assessment is for informational purposes only and does not replace professional medical advice."
-        }
-    }
+    return {"is_assessment": False, "is_question": "?" in response_text, "question": response_text.strip()}
