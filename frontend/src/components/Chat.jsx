@@ -257,7 +257,9 @@ const Chat = () => {
 
     const typeMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null) => {
         let index = 0;
+        // Set typing to true at the beginning
         setTyping(true);
+        
         setMessages(prev => [...prev, {
             sender: 'bot',
             text: "",
@@ -281,6 +283,7 @@ const Chat = () => {
             index++;
             if (index >= message.length) {
                 clearInterval(interval);
+                // Only set typing to false when typing is complete
                 setTyping(false);
                 // Final scroll after typing completes
                 setTimeout(scrollToBottom, 100);
