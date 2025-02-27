@@ -12,7 +12,7 @@ const CONFIG = {
     API_URL: '/api/symptoms/analyze', // Use relative URL for same-origin deployment
     RESET_URL: '/api/symptoms/reset',
     MAX_MESSAGE_LENGTH: 1000,
-    MIN_MESSAGE_LENGTH: 3,
+    MIN_MESSAGE_LENGTH: 1, // Changed from 3 to 1 to allow short responses
     SCROLL_DEBOUNCE_DELAY: 100,
     LOCAL_STORAGE_KEY: 'healthtracker_chat_messages',
     DEBUG_MODE: process.env.NODE_ENV === 'development'
@@ -151,6 +151,14 @@ const Chat = () => {
     const messagesEndRef = useRef(null);
     const abortControllerRef = useRef(null);
     const chatContainerRef = useRef(null);
+    const inputRef = useRef(null); // Added ref for input focus
+
+    // Auto-focus the input field when component mounts
+    useEffect(() => {
+        if (inputRef.current) {
+            inputRef.current.focus();
+        }
+    }, []);
 
     // Save messages to localStorage when they change
     useEffect(() => {
@@ -166,17 +174,20 @@ const Chat = () => {
         }
     }, [messages, typing]);
 
-    const debouncedScrollToBottom = useCallback(
-        debounce(() => {
-            messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-        }, CONFIG.SCROLL_DEBOUNCE_DELAY),
-        []
-    );
+    // Improved scroll function for better reliability
+    const scrollToBottom = useCallback(() => {
+        if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+        }
+    }, []);
 
     useEffect(() => {
-        debouncedScrollToBottom();
-        return () => debouncedScrollToBottom.cancel();
-    }, [messages, debouncedScrollToBottom]);
+        // Small delay to ensure content is rendered before scrolling
+        const timer = setTimeout(() => {
+            scrollToBottom();
+        }, 100);
+        return () => clearTimeout(timer);
+    }, [messages, scrollToBottom]);
 
     useEffect(() => {
         return () => {
@@ -188,9 +199,7 @@ const Chat = () => {
 
     const validateInput = useCallback((input) => {
         if (!input.trim()) return "Please enter a message";
-        if (input.length < CONFIG.MIN_MESSAGE_LENGTH) {
-            return "Please provide more details about your symptoms";
-        }
+        // Removed minimum length check to allow short responses like "no" or "8"
         if (input.length > CONFIG.MAX_MESSAGE_LENGTH) {
             return "Message is too long";
         }
@@ -247,6 +256,13 @@ const Chat = () => {
             setInputError(null);
             setSignupPrompt(false);
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
+            
+            // Focus the input after reset
+            setTimeout(() => {
+                if (inputRef.current) {
+                    inputRef.current.focus();
+                }
+            }, 0);
             
             if (CONFIG.DEBUG_MODE) {
                 console.log("Conversation reset successfully");
@@ -306,6 +322,13 @@ const Chat = () => {
         if (!retryMessage) setUserInput('');
         setLoading(true);
         setTyping(true);
+        
+        // Focus the input after sending
+        setTimeout(() => {
+            if (inputRef.current) {
+                inputRef.current.focus();
+            }
+        }, 0);
 
         // Cancel any pending requests
         if (abortControllerRef.current) {
@@ -487,6 +510,7 @@ const Chat = () => {
                 <div className="chat-input-container">
                     <div className="chat-input-wrapper">
                         <textarea
+                            ref={inputRef} // Added ref for auto-focus
                             className="chat-input"
                             value={userInput}
                             onChange={(e) => {
