@@ -193,9 +193,9 @@ def analyze_symptoms():
         # Try with exponential backoff for handling rate limits and temporary errors
         for attempt in range(MAX_RETRIES):
             try:
-                # Use gpt-3.5-turbo for cost savings during development/testing
+                # Use GPT-4 for better structured output adherence
                 response = client.chat.completions.create(
-                    model="gpt-3.5-turbo",  # Changed from gpt-4-turbo-preview for cost savings
+                    model="gpt-4",  # Using GPT-4 for better structured output adherence
                     messages=messages,
                     temperature=0.7,
                     max_tokens=750
@@ -300,7 +300,7 @@ Disclaimer: This assessment is for informational purposes only and does not repl
                     for dr_attempt in range(MAX_RETRIES):
                         try:
                             doctor_report_response = client.chat.completions.create(
-                                model="gpt-3.5-turbo",  # Changed from gpt-4-turbo-preview
+                                model="gpt-4",  # Using GPT-4 for better structured output adherence
                                 messages=doctor_report_messages,
                                 temperature=0.5,
                                 max_tokens=1000
@@ -569,7 +569,7 @@ def generate_doctor_report():
         for attempt in range(MAX_RETRIES):
             try:
                 response = client.chat.completions.create(
-                    model="gpt-3.5-turbo",  # Changed from gpt-4-turbo-preview
+                    model="gpt-4",  # Using GPT-4 for better structured output adherence
                     messages=messages,
                     temperature=0.5,
                     max_tokens=1000
