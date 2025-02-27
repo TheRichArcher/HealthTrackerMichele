@@ -37,8 +37,9 @@ CRITICAL RULES:
 CONTEXT AWARENESS RULES:
 1. PAY CLOSE ATTENTION to timing information the user has already provided (e.g., "woke up with", "started yesterday").
 2. If the user mentions they "woke up with" a symptom, this means it started that morning - DO NOT ask how long they've had it.
-3. NEVER ask about symptoms the user has already described.
-4. TRACK all symptoms mentioned throughout the conversation, even if mentioned casually.
+3. If the user mentions "suddenly started" or "since this morning," DO NOT ask about duration. Instead, ask about severity or other details.
+4. NEVER ask about symptoms the user has already described.
+5. TRACK all symptoms mentioned throughout the conversation, even if mentioned casually.
 
 FINAL ASSESSMENT FORMAT:
 The AI must return JSON structured like this:
@@ -68,46 +69,6 @@ def create_default_response() -> Dict:
     }
 
 
-def calculate_confidence(conditions_list: List[Dict]) -> List[Dict]:
-    """
-    Dynamically adjusts confidence levels based on AI response structure and content.
-    """
-    total_conditions = len(conditions_list)
-    base_confidence = 90 if total_conditions == 1 else (80 if total_conditions == 2 else 65)
-
-    for condition in conditions_list:
-        name_lower = condition.get("name", "").lower()
-        description_lower = condition.get("description", "").lower()
-        combined_text = name_lower + " " + description_lower
-
-        # Adjust confidence based on language used
-        if "clear, definitive" in combined_text or "very likely" in combined_text:
-            condition["confidence"] = min(base_confidence + 10, MAX_CONFIDENCE)
-        elif "most likely" in combined_text:
-            condition["confidence"] = min(base_confidence + 5, MAX_CONFIDENCE)
-        elif "likely" in combined_text:
-            condition["confidence"] = base_confidence
-        elif "suggests" in combined_text:
-            condition["confidence"] = max(base_confidence - 10, MIN_CONFIDENCE + 10)
-        elif "could be" in combined_text:
-            condition["confidence"] = max(base_confidence - 15, MIN_CONFIDENCE + 10)
-        elif "possibly" in combined_text:
-            condition["confidence"] = max(base_confidence - 20, MIN_CONFIDENCE + 10)
-        elif "might be" in combined_text:
-            condition["confidence"] = max(base_confidence - 25, MIN_CONFIDENCE + 5)
-        elif "uncertain" in combined_text or "unclear" in combined_text:
-            condition["confidence"] = max(base_confidence - 30, MIN_CONFIDENCE + 5)
-        elif "unlikely" in combined_text:
-            condition["confidence"] = MIN_CONFIDENCE + 5
-        else:
-            condition["confidence"] = base_confidence
-
-        # Ensure confidence is within bounds
-        condition["confidence"] = min(MAX_CONFIDENCE, max(MIN_CONFIDENCE, condition["confidence"]))
-
-    return conditions_list
-
-
 def clean_ai_response(response_text: str) -> Union[Dict, str]:
     """
     Processes the AI response and determines if it's a question or assessment.
@@ -127,12 +88,12 @@ def clean_ai_response(response_text: str) -> Union[Dict, str]:
             assessment_data = json.loads(json_str)
             assessment_data["is_assessment"] = True
             assessment_data["is_question"] = False
-            
-            if "assessment" in assessment_data and "conditions" in assessment_data["assessment"]:
-                assessment_data["assessment"]["conditions"] = calculate_confidence(assessment_data["assessment"]["conditions"])
-            
             return assessment_data
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON: {e}")
+    
+    # Prevent asking about duration if the user already provided timing information
+    if any(phrase in response_text.lower() for phrase in ["woke up with", "suddenly started", "since this morning"]):
+        response_text = response_text.replace("How long have you had this symptom?", "What other symptoms have you noticed?")
     
     return {"is_assessment": False, "is_question": "?" in response_text, "question": response_text.strip()}
