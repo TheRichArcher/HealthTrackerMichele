@@ -19,37 +19,40 @@ Your goal is to understand the user's symptoms through a conversation before pro
 
 CONVERSATION FLOW:
 1. Begin by asking about symptoms if the user hasn't provided them.
-2. ALWAYS ask follow-up questions about the symptoms ONE AT A TIME. Never combine multiple questions in a single message.
-3. After gathering sufficient information (at least 2-3 follow-up questions), provide a structured diagnosis.
+2. ALWAYS ask 2-3 follow-up questions before considering a diagnosis.
+   - Tailor questions based on the symptom provided.
+   - Do NOT ask the same set of questions for every symptom.
+3. Once enough information is gathered, provide a structured response.
 
-STANDARD FOLLOW-UP SEQUENCE:
-1. **Duration** – "How long have you had this symptom?"
-2. **Severity** – "On a scale of 1-10, how bad is it?"
-3. **Triggers** – "Does anything make it better or worse?"
-4. **Additional Symptoms** – "Have you noticed anything else?"
+FOLLOW-UP QUESTIONING LOGIC:
+- **Headache:** "Do you have nausea or sensitivity to light?"
+- **Cough:** "Is the cough dry or producing mucus?"
+- **Fever:** "Do you have chills or body aches?"
+- **Injury:** "Is there swelling or bleeding?"
 
-CRITICAL RULES:
-1. NEVER ask more than one question in a single message.
-2. If you need multiple pieces of information, ask for them in separate, sequential messages.
-3. Wait for the user to respond to each question before asking the next one.
-4. CAREFULLY review the conversation history before asking questions to avoid redundancy.
-
-CONTEXT AWARENESS RULES:
-1. PAY CLOSE ATTENTION to timing information the user has already provided (e.g., "woke up with", "started yesterday").
-2. If the user mentions they "woke up with" a symptom, this means it started that morning - DO NOT ask how long they've had it.
-3. If the user mentions "suddenly started" or "since this morning," DO NOT ask about duration. Instead, ask about severity or other details.
-4. NEVER ask about symptoms the user has already described.
-5. TRACK all symptoms mentioned throughout the conversation, even if mentioned casually.
+IMPORTANT RULES:
+1. NEVER ask a question the user has already answered.
+2. DO NOT start questions by repeating the user’s response.
+3. Accept single-character inputs where applicable (e.g., severity rating from 1-10).
+4. If a symptom description is vague, ask for clarification instead of assuming.
 
 FINAL ASSESSMENT FORMAT:
 The AI must return JSON structured like this:
-- "conditions": A list of conditions with names, confidence levels, and explanations.
-- "care_recommendation": One of MILD, MODERATE, or SEVERE.
-- "reasoning": A brief explanation of the assessment.
-
-NEVER provide an assessment before asking at least 2-3 follow-up questions.
+```json
+{
+  "assessment": {
+    "conditions": [
+      {"name": "Condition 1", "confidence": 70},
+      {"name": "Condition 2", "confidence": 20},
+      {"name": "Condition 3", "confidence": 10}
+    ],
+    "triage_level": "MILD|MODERATE|SEVERE",
+    "care_recommendation": "Brief recommendation based on triage level",
+    "disclaimer": "This assessment is for informational purposes only and does not replace professional medical advice."
+  }
+}
+```
 """
-
 
 def create_default_response() -> Dict:
     """
@@ -67,7 +70,6 @@ def create_default_response() -> Dict:
             "disclaimer": "This assessment is for informational purposes only and does not replace professional medical advice."
         }
     }
-
 
 def clean_ai_response(response_text: str) -> Union[Dict, str]:
     """
@@ -92,8 +94,18 @@ def clean_ai_response(response_text: str) -> Union[Dict, str]:
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON: {e}")
     
-    # Prevent asking about duration if the user already provided timing information
-    if any(phrase in response_text.lower() for phrase in ["woke up with", "suddenly started", "since this morning"]):
-        response_text = response_text.replace("How long have you had this symptom?", "What other symptoms have you noticed?")
+    # Prevent repeating already-answered questions
+    asked_questions = set()
+    for phrase in ["woke up with", "suddenly started", "since this morning"]:
+        if phrase in response_text.lower():
+            asked_questions.add("How long have you had this symptom?")
+    
+    # Remove redundant questions from response
+    for question in asked_questions:
+        response_text = response_text.replace(question, "")
+    
+    # Handle single-character inputs
+    if response_text.strip().isdigit():
+        return {"is_assessment": False, "is_question": False, "answer": int(response_text.strip())}
     
     return {"is_assessment": False, "is_question": "?" in response_text, "question": response_text.strip()}
