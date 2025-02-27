@@ -290,8 +290,18 @@ const Chat = () => {
                 setTyping(false);
                 setIsTypingComplete(true);
                 
-                // Final scroll after typing completes
-                setTimeout(scrollToBottom, 100);
+                // Extra scrolling for assessments which tend to be longer
+                if (isAssessment) {
+                    // Multiple scroll attempts with increasing delays for longer assessment messages
+                    setTimeout(scrollToBottom, 100);
+                    setTimeout(scrollToBottom, 300);
+                    setTimeout(scrollToBottom, 500);
+                    setTimeout(scrollToBottom, 1000);
+                    setTimeout(scrollToBottom, 2000);
+                } else {
+                    // Standard scroll for regular messages
+                    setTimeout(scrollToBottom, 100);
+                }
                 
                 // Re-focus input after typing completes
                 forceFocus();
