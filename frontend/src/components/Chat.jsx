@@ -257,8 +257,8 @@ const Chat = () => {
 
     const typeMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null) => {
         let index = 0;
-        // Set typing to true at the beginning
-        setTyping(true);
+        
+        // Don't set typing state here - it's already set in handleSendMessage
         
         setMessages(prev => [...prev, {
             sender: 'bot',
@@ -378,6 +378,8 @@ const Chat = () => {
         
         if (!retryMessage) setUserInput('');
         setLoading(true);
+        // Set typing to true here when we start the API request
+        setTyping(true);
         
         // Force focus on input after sending
         forceFocus();
@@ -492,6 +494,7 @@ const Chat = () => {
             }
         } finally {
             setLoading(false);
+            // Don't set typing to false here - it will be set in typeMessage when typing is complete
         }
     };
 
