@@ -117,21 +117,34 @@ def clean_ai_response(response_text: str) -> Union[Dict, str]:
     
     if json_match:
         try:
-            json_str = json_match.group(1) or json_match.group(2) or json_match.group(3)
-            json_str = json_str.strip()
-            assessment_data = json.loads(json_str)
-            assessment_data["is_assessment"] = True
-            assessment_data["is_question"] = False
-            
-            # If emergency was detected, ensure triage level is set to SEVERE
-            if is_emergency and "assessment" in assessment_data:
-                assessment_data["assessment"]["triage_level"] = "SEVERE"
-                if "care_recommendation" not in assessment_data["assessment"] or not assessment_data["assessment"]["care_recommendation"]:
-                    assessment_data["assessment"]["care_recommendation"] = "Seek immediate medical attention."
-            
-            return assessment_data
-        except json.JSONDecodeError as e:
+            # Find which group matched (could be group 1, 2, or 3)
+            json_str = None
+            for i in range(1, 4):
+                try:
+                    if json_match.group(i):
+                        json_str = json_match.group(i).strip()
+                        break
+                except IndexError:
+                    continue
+                    
+            if not json_str:
+                logger.warning("No JSON content found in match groups")
+                # Fall back to treating as a regular response
+            else:
+                assessment_data = json.loads(json_str)
+                assessment_data["is_assessment"] = True
+                assessment_data["is_question"] = False
+                
+                # If emergency was detected, ensure triage level is set to SEVERE
+                if is_emergency and "assessment" in assessment_data:
+                    assessment_data["assessment"]["triage_level"] = "SEVERE"
+                    if "care_recommendation" not in assessment_data["assessment"] or not assessment_data["assessment"]["care_recommendation"]:
+                        assessment_data["assessment"]["care_recommendation"] = "Seek immediate medical attention."
+                
+                return assessment_data
+        except (json.JSONDecodeError, ValueError, AttributeError) as e:
             logger.error(f"Failed to parse JSON: {e}")
+            # Continue to process as a regular response
     
     # Handle emergency text responses
     if is_emergency:
@@ -143,25 +156,19 @@ def clean_ai_response(response_text: str) -> Union[Dict, str]:
             "care_recommendation": "Seek immediate medical attention."
         }
     
-    # Prevent repeating already-answered questions
-    asked_questions = set()
-    for phrase in ["woke up with", "suddenly started", "since this morning"]:
-        if phrase in response_text.lower():
-            asked_questions.add("How long have you had this symptom?")
-    
-    # Remove redundant questions from response
-    for question in asked_questions:
-        response_text = response_text.replace(question, "")
-    
-    # Handle single-character inputs
-    if response_text.strip().isdigit():
-        return {"is_assessment": False, "is_question": False, "answer": int(response_text.strip())}
-    
     # Determine if this is a question or final assessment
     contains_question = "?" in response_text
     
-    return {
-        "is_assessment": False, 
-        "is_question": contains_question, 
-        "possible_conditions": response_text.strip()
-    }
+    # For simple responses like "I have a rash", treat them as questions
+    if contains_question:
+        return {
+            "is_assessment": False, 
+            "is_question": True, 
+            "question": response_text.strip()
+        }
+    else:
+        return {
+            "is_assessment": False, 
+            "is_question": False, 
+            "possible_conditions": response_text.strip()
+        }
