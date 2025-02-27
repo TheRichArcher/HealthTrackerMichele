@@ -147,6 +147,8 @@ const Chat = () => {
     const [error, setError] = useState(null);
     const [inputError, setInputError] = useState(null);
     const [resetting, setResetting] = useState(false);
+    const [currentBotMessage, setCurrentBotMessage] = useState('');
+    const [isTypingComplete, setIsTypingComplete] = useState(true);
 
     const messagesEndRef = useRef(null);
     const abortControllerRef = useRef(null);
@@ -191,7 +193,7 @@ const Chat = () => {
     useEffect(() => {
         try {
             // Only save if we have meaningful messages to save
-            if (messages.length > 0 && !typing) {
+            if (messages.length > 0 && isTypingComplete) {
                 localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify(messages));
             }
         } catch (error) {
@@ -199,7 +201,7 @@ const Chat = () => {
                 console.error('Error saving messages:', error);
             }
         }
-    }, [messages, typing]);
+    }, [messages, isTypingComplete]);
 
     // Improved scroll function with multiple approaches
     const scrollToBottom = useCallback(() => {
@@ -257,36 +259,40 @@ const Chat = () => {
 
     const typeMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null) => {
         let index = 0;
+        setIsTypingComplete(false);
         
-        // Don't set typing state here - it's already set in handleSendMessage
+        // Instead of adding a new message with empty text, we'll update the current bot message
+        setCurrentBotMessage('');
         
-        setMessages(prev => [...prev, {
-            sender: 'bot',
-            text: "",
-            isAssessment,
-            confidence,
-            triageLevel,
-            careRecommendation
-        }]);
-
         const interval = setInterval(() => {
-            setMessages(prev => {
-                const updatedMessages = [...prev];
-                const lastMessageIndex = updatedMessages.length - 1;
-                if (lastMessageIndex >= 0 && index < message.length) {
-                    updatedMessages[lastMessageIndex].text = message.slice(0, index + 1);
-                    // Scroll on each update
-                    setTimeout(scrollToBottom, 0);
-                }
-                return updatedMessages;
-            });
-            index++;
-            if (index >= message.length) {
+            if (index < message.length) {
+                setCurrentBotMessage(prev => message.slice(0, index + 1));
+                // Scroll on each update
+                setTimeout(scrollToBottom, 0);
+                index++;
+            } else {
                 clearInterval(interval);
-                // Only set typing to false when typing is complete
+                
+                // When typing is complete, add the full message to the messages array
+                setMessages(prev => [...prev, {
+                    sender: 'bot',
+                    text: message,
+                    isAssessment,
+                    confidence,
+                    triageLevel,
+                    careRecommendation
+                }]);
+                
+                // Clear the current bot message
+                setCurrentBotMessage('');
+                
+                // Set typing to false and typing complete to true
                 setTyping(false);
+                setIsTypingComplete(true);
+                
                 // Final scroll after typing completes
                 setTimeout(scrollToBottom, 100);
+                
                 // Re-focus input after typing completes
                 forceFocus();
             }
@@ -316,6 +322,8 @@ const Chat = () => {
             setError(null);
             setInputError(null);
             setSignupPrompt(false);
+            setCurrentBotMessage('');
+            setIsTypingComplete(true);
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
             
             // Focus the input after reset
@@ -332,6 +340,8 @@ const Chat = () => {
             setMessages([WELCOME_MESSAGE]);
             setMessageCount(0);
             setSignupPrompt(false);
+            setCurrentBotMessage('');
+            setIsTypingComplete(true);
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
         } finally {
             setResetting(false);
@@ -551,18 +561,31 @@ const Chat = () => {
                             index={index}
                         />
                     ))}
+                    
+                    {/* Show typing indicator with current bot message */}
                     {typing && (
                         <div className="message-row">
                             <div className="avatar-container">
                                 <img src="/doctor-avatar.png" alt="AI Assistant" />
                             </div>
-                            <div className="typing-indicator">
-                                <span></span>
-                                <span></span>
-                                <span></span>
-                            </div>
+                            {currentBotMessage ? (
+                                <div className="message bot">
+                                    <div className="message-content">
+                                        {currentBotMessage.split('\n').map((line, i) => (
+                                            <p key={i}>{line}</p>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="typing-indicator">
+                                    <span></span>
+                                    <span></span>
+                                    <span></span>
+                                </div>
+                            )}
                         </div>
                     )}
+                    
                     {error && (
                         <div className="error-message" role="alert">
                             {error}
