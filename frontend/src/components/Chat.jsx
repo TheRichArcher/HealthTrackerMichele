@@ -4,6 +4,9 @@ import PropTypes from 'prop-types';
 import { debounce } from 'lodash';
 import '../styles/Chat.css';
 
+// Import the ChatOnboarding component
+import ChatOnboarding from './ChatOnboarding';
+
 const CONFIG = {
     MAX_FREE_MESSAGES: 15,
     TYPING_SPEED: 30,
@@ -18,9 +21,10 @@ const CONFIG = {
     DEBUG_MODE: process.env.NODE_ENV === 'development'
 };
 
+// Enhanced welcome message with example prompts
 const WELCOME_MESSAGE = {
     sender: 'bot',
-    text: "Hi, I'm Michele—your AI medical assistant. Think of me as that doctor you absolutely trust, here to listen, guide, and help you make sense of your symptoms. While I can't replace a real doctor, I can give you insights, ask the right questions, and help you feel more in control of your health. So, tell me—what's going on today?",
+    text: "Hi, I'm Michele—your AI medical assistant. Think of me as that doctor you absolutely trust, here to listen, guide, and help you make sense of your symptoms. While I can't replace a real doctor, I can give you insights, ask the right questions, and help you feel more in control of your health.\n\nYou can start by describing your symptoms like:\n• \"I've had a headache for two days\"\n• \"My throat is sore and I have a fever\"\n• \"I have a rash on my arm that's itchy\"",
     confidence: null,
     careRecommendation: null,
     isAssessment: false
@@ -88,12 +92,18 @@ const Message = memo(({ message, onRetry, index }) => {
                 {sender === 'bot' && isAssessment && (confidence || careRecommendation || triageLevel) && (
                     <div className="assessment-info">
                         {confidence && (
-                            <div className="assessment-item confidence">
+                            <div 
+                                className="assessment-item confidence"
+                                title="Confidence indicates how likely this condition matches your symptoms based on available information"
+                            >
                                 Confidence: {confidence}%
                             </div>
                         )}
                         {(careRecommendation || triageLevel) && (
-                            <div className="assessment-item care-recommendation">
+                            <div 
+                                className="assessment-item care-recommendation"
+                                title="This recommendation is based on the severity of your symptoms and potential conditions"
+                            >
                                 {careRecommendation || getCareRecommendation(triageLevel)}
                             </div>
                         )}
@@ -149,6 +159,11 @@ const Chat = () => {
     const [resetting, setResetting] = useState(false);
     const [currentBotMessage, setCurrentBotMessage] = useState('');
     const [isTypingComplete, setIsTypingComplete] = useState(true);
+    
+    // Add state for showing the onboarding component
+    const [showChatOnboarding, setShowChatOnboarding] = useState(() => {
+        return !localStorage.getItem('healthtracker_chat_onboarding_complete');
+    });
 
     const messagesEndRef = useRef(null);
     const abortControllerRef = useRef(null);
@@ -663,6 +678,11 @@ const Chat = () => {
                             </button>
                         </div>
                     </div>
+                )}
+                
+                {/* Add the ChatOnboarding component */}
+                {showChatOnboarding && (
+                    <ChatOnboarding onComplete={() => setShowChatOnboarding(false)} />
                 )}
             </div>
         </ChatErrorBoundary>
