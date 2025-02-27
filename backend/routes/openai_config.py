@@ -14,6 +14,7 @@ MIN_CONFIDENCE = 10  # Allowing lower confidence for nuanced assessments
 MAX_CONFIDENCE = 95  # Preventing overconfidence
 DEFAULT_CONFIDENCE = 75
 
+# Using a different approach to represent the JSON example
 SYSTEM_PROMPT = """You are Michele, an AI medical assistant trained to have conversations like a doctor's visit.
 Your goal is to understand the user's symptoms through a conversation before providing any potential diagnosis.
 
@@ -31,15 +32,32 @@ FOLLOW-UP QUESTIONING LOGIC:
 - **Fever:** "Do you have chills or body aches?" "Have you traveled recently?"
 - **Injury:** "Is there swelling or bruising?" "Can you move the affected area?"
 
+EMERGENCY HANDLING:
+If the user describes symptoms that could indicate a medical emergency (such as chest pain, difficulty breathing, sudden severe headache, stroke symptoms, etc.):
+1. Ask no more than 2 follow-up questions to confirm severity
+2. If confirmed serious, IMMEDIATELY advise them to seek emergency care
+3. Use phrases like "This could be serious and requires immediate medical attention"
+4. Be direct and clear about the urgency
+5. For chest pain especially, if it's severe, radiating, or accompanied by shortness of breath, IMMEDIATELY recommend emergency care
+
+CONFIDENCE SCORING GUIDELINES:
+- 95-99%: Clear, textbook presentation with multiple confirming symptoms
+- 85-94%: Strong evidence but missing some confirmatory details
+- 70-84%: Good evidence but multiple possible conditions
+- 50-69%: Moderate evidence with significant uncertainty
+- Below 50%: Limited evidence, highly uncertain
+
+For common, well-established conditions with clear symptom patterns (like cat allergies with typical symptoms), confidence should be higher (95%+).
+
 IMPORTANT RULES:
 1. NEVER ask a question the user has already answered.
-2. DO NOT start questions by repeating the user’s response.
+2. DO NOT start questions by repeating the user's response.
 3. Accept single-character inputs where applicable (e.g., severity rating from 1-10).
 4. If a symptom description is vague, ask for clarification instead of assuming.
 
 FINAL ASSESSMENT FORMAT:
 The AI must return JSON structured like this:
-```json
+<json>
 {
   "assessment": {
     "conditions": [
@@ -52,7 +70,7 @@ The AI must return JSON structured like this:
     "disclaimer": "This assessment is for informational purposes only and does not replace professional medical advice."
   }
 }
-```
+</json>
 """
 
 def create_default_response() -> Dict:
@@ -82,18 +100,48 @@ def clean_ai_response(response_text: str) -> Union[Dict, str]:
     
     logger.info(f"Processing AI response: {response_text[:100]}...")
     
-    json_match = re.search(r'```json\s*(.*?)\s*```|({[\s\S]*"assessment"[\s\S]*})', response_text, re.DOTALL)
+    # Check for emergency recommendations
+    emergency_phrases = [
+        "seek emergency care", 
+        "call 911", 
+        "go to the emergency room", 
+        "requires immediate medical attention",
+        "medical emergency",
+        "seek immediate medical attention"
+    ]
+    
+    is_emergency = any(phrase in response_text.lower() for phrase in emergency_phrases)
+    
+    # Process JSON responses - updated to handle both triple backtick and custom <json> tags
+    json_match = re.search(r'```json\s*(.*?)\s*```|<json>\s*(.*?)\s*</json>|({[\s\S]*"assessment"[\s\S]*})', response_text, re.DOTALL)
     
     if json_match:
         try:
-            json_str = json_match.group(1) or json_match.group(2)
+            json_str = json_match.group(1) or json_match.group(2) or json_match.group(3)
             json_str = json_str.strip()
             assessment_data = json.loads(json_str)
             assessment_data["is_assessment"] = True
             assessment_data["is_question"] = False
+            
+            # If emergency was detected, ensure triage level is set to SEVERE
+            if is_emergency and "assessment" in assessment_data:
+                assessment_data["assessment"]["triage_level"] = "SEVERE"
+                if "care_recommendation" not in assessment_data["assessment"] or not assessment_data["assessment"]["care_recommendation"]:
+                    assessment_data["assessment"]["care_recommendation"] = "Seek immediate medical attention."
+            
             return assessment_data
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON: {e}")
+    
+    # Handle emergency text responses
+    if is_emergency:
+        return {
+            "is_assessment": True,
+            "is_question": False,
+            "possible_conditions": response_text.strip(),
+            "triage_level": "SEVERE",
+            "care_recommendation": "Seek immediate medical attention."
+        }
     
     # Prevent repeating already-answered questions
     asked_questions = set()
@@ -109,4 +157,11 @@ def clean_ai_response(response_text: str) -> Union[Dict, str]:
     if response_text.strip().isdigit():
         return {"is_assessment": False, "is_question": False, "answer": int(response_text.strip())}
     
-    return {"is_assessment": False, "is_question": "?" in response_text, "question": response_text.strip()}
+    # Determine if this is a question or final assessment
+    contains_question = "?" in response_text
+    
+    return {
+        "is_assessment": False, 
+        "is_question": contains_question, 
+        "possible_conditions": response_text.strip()
+    }
