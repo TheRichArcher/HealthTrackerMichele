@@ -160,6 +160,12 @@ const Chat = () => {
     const [currentBotMessage, setCurrentBotMessage] = useState('');
     const [isTypingComplete, setIsTypingComplete] = useState(true);
     
+    // Add state for upgrade options
+    const [upgradeDismissed, setUpgradeDismissed] = useState(false);
+    const [showSecondaryPrompt, setShowSecondaryPrompt] = useState(false);
+    const [loadingSubscription, setLoadingSubscription] = useState(false);
+    const [loadingOneTime, setLoadingOneTime] = useState(false);
+    
     // Add state for showing the onboarding component
     const [showChatOnboarding, setShowChatOnboarding] = useState(() => {
         return !localStorage.getItem('healthtracker_chat_onboarding_complete');
@@ -255,6 +261,18 @@ const Chat = () => {
         }
     }, [typing, scrollToBottom]);
 
+    // Auto-scroll when upgrade options appear
+    useEffect(() => {
+        if (signupPrompt) {
+            // Scroll to the upgrade options with a slight delay to ensure they're rendered
+            setTimeout(() => {
+                scrollToBottom();
+                // Additional scroll after a longer delay to ensure visibility
+                setTimeout(scrollToBottom, 500);
+            }, 100);
+        }
+    }, [signupPrompt, scrollToBottom]);
+
     useEffect(() => {
         return () => {
             if (abortControllerRef.current) {
@@ -349,6 +367,10 @@ const Chat = () => {
             setSignupPrompt(false);
             setCurrentBotMessage('');
             setIsTypingComplete(true);
+            setUpgradeDismissed(false);
+            setShowSecondaryPrompt(false);
+            setLoadingSubscription(false);
+            setLoadingOneTime(false);
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
             
             // Focus the input after reset
@@ -367,6 +389,10 @@ const Chat = () => {
             setSignupPrompt(false);
             setCurrentBotMessage('');
             setIsTypingComplete(true);
+            setUpgradeDismissed(false);
+            setShowSecondaryPrompt(false);
+            setLoadingSubscription(false);
+            setLoadingOneTime(false);
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
         } finally {
             setResetting(false);
@@ -410,6 +436,37 @@ const Chat = () => {
             careRecommendation: null,
             isAssessment: false
         }]);
+        
+        // Check if we need to show the secondary prompt after user dismisses the upgrade prompt
+        if (upgradeDismissed && !showSecondaryPrompt) {
+            setShowSecondaryPrompt(true);
+            
+            // Find the latest user message for personalization
+            const userMessages = messages.filter(msg => msg.sender === 'user');
+            const latestUserMessage = userMessages.length > 0 ? 
+                userMessages[userMessages.length - 1].text : 
+                "your symptoms";
+            
+            // Extract a short snippet from the user's message (first 30 chars)
+            const symptomSnippet = latestUserMessage.length > 30 ? 
+                latestUserMessage.substring(0, 30) + "..." : 
+                latestUserMessage;
+            
+            // Add a slight delay before showing the secondary prompt
+            setTimeout(() => {
+                // Add a personalized reminder as a bot message with a stronger CTA
+                setMessages(prev => [...prev, {
+                    sender: 'bot',
+                    text: `🔎 You mentioned "${symptomSnippet}". Want a deeper understanding? Unlock PA Mode for continuous tracking or get a one-time AI Doctor Report for a detailed summary!`,
+                    confidence: null,
+                    careRecommendation: null,
+                    isAssessment: false
+                }]);
+                
+                // Scroll to make the message visible
+                setTimeout(scrollToBottom, 100);
+            }, 1000);
+        }
         
         if (!retryMessage) setUserInput('');
         setLoading(true);
@@ -513,6 +570,19 @@ const Chat = () => {
                 // Handle upgrade prompts if present
                 if (response.data.requires_upgrade) {
                     setSignupPrompt(true);
+                    
+                    // Add a bot message explaining the upgrade options after a slight delay
+                    setTimeout(() => {
+                        typeMessage(
+                            "Based on your symptoms, I've identified a condition that may require further evaluation. To get more detailed insights and recommendations, please choose one of the upgrade options below.",
+                            false
+                        );
+                        
+                        // Scroll to make sure upgrade options are visible
+                        setTimeout(scrollToBottom, 100);
+                        setTimeout(scrollToBottom, 500);
+                        setTimeout(scrollToBottom, 1000);
+                    }, CONFIG.THINKING_DELAY + 500);
                 }
             }, CONFIG.THINKING_DELAY);
 
@@ -631,12 +701,12 @@ const Chat = () => {
                             }}
                             onKeyDown={handleKeyDown}
                             placeholder="Describe your symptoms in detail..."
-                            disabled={loading || signupPrompt || resetting}
+                            disabled={loading || (signupPrompt && !upgradeDismissed) || resetting}
                             maxLength={CONFIG.MAX_MESSAGE_LENGTH}
                             aria-label="Symptom description input"
                             aria-invalid={!!inputError}
                             aria-describedby={inputError ? "input-error" : undefined}
-                            autoFocus={true} // Add explicit autoFocus prop
+                            autoFocus={true}
                             onFocus={(e) => {
                                 // Ensure cursor is at the end when focused
                                 const value = e.target.value;
@@ -651,7 +721,7 @@ const Chat = () => {
                         <button
                             className="send-button"
                             onClick={() => handleSendMessage()}
-                            disabled={loading || signupPrompt || resetting || !userInput.trim()}
+                            disabled={loading || (signupPrompt && !upgradeDismissed) || resetting || !userInput.trim()}
                             aria-label="Send message"
                         >
                             Send
@@ -666,15 +736,55 @@ const Chat = () => {
 
                 {signupPrompt && (
                     <div className="upgrade-options">
-                        <div className="upgrade-header">Choose an option to continue:</div>
+                        <button 
+                            className="close-upgrade" 
+                            onClick={() => {
+                                setSignupPrompt(false);
+                                setUpgradeDismissed(true);
+                                // Re-enable the input field
+                                forceFocus();
+                            }}
+                            aria-label="Dismiss upgrade prompt"
+                        >
+                            ✖
+                        </button>
+                        <div className="upgrade-message">
+                            <h3>Based on your symptoms, I've identified a condition that may require further evaluation.</h3>
+                            <p>💡 To get more insights, you can choose one of these options:</p>
+                            <ul>
+                                <li>🔹 PA Mode ($9.99/month): Unlock full symptom tracking, detailed assessments, and AI-driven health monitoring.</li>
+                                <li>🔹 One-time AI Doctor Report ($4.99): Get a comprehensive summary of your case, formatted for medical professionals.</li>
+                            </ul>
+                            <p>Would you like to continue with one of these options?</p>
+                        </div>
                         <div className="upgrade-buttons">
-                            <button className="upgrade-button subscription">
-                                Subscribe to PA Mode
-                                <span className="price">$9.99/month</span>
+                            <button 
+                                className={`upgrade-button subscription ${loadingSubscription ? 'loading' : ''}`}
+                                onClick={() => {
+                                    if (loadingSubscription || loadingOneTime) return; // Prevent duplicate clicks
+                                    setLoadingSubscription(true);
+                                    // Short timeout to show loading state before navigation
+                                    setTimeout(() => {
+                                        window.location.href = '/subscribe';
+                                    }, 300);
+                                }}
+                                disabled={loadingSubscription || loadingOneTime}
+                            >
+                                {loadingSubscription ? 'Processing...' : '🩺 Unlock Full Health Insights (PA Mode - $9.99/month)'}
                             </button>
-                            <button className="upgrade-button one-time">
-                                One-time AI Doctor Report
-                                <span className="price">$4.99</span>
+                            <button 
+                                className={`upgrade-button one-time ${loadingOneTime ? 'loading' : ''}`}
+                                onClick={() => {
+                                    if (loadingSubscription || loadingOneTime) return; // Prevent duplicate clicks
+                                    setLoadingOneTime(true);
+                                    // Short timeout to show loading state before navigation
+                                    setTimeout(() => {
+                                        window.location.href = '/one-time-report';
+                                    }, 300);
+                                }}
+                                disabled={loadingSubscription || loadingOneTime}
+                            >
+                                {loadingOneTime ? 'Processing...' : '📄 Generate AI Doctor\'s Report ($4.99 - One Time)'}
                             </button>
                         </div>
                     </div>
