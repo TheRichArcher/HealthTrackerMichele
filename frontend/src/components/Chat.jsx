@@ -165,6 +165,7 @@ const Chat = () => {
     const [showSecondaryPrompt, setShowSecondaryPrompt] = useState(false);
     const [loadingSubscription, setLoadingSubscription] = useState(false);
     const [loadingOneTime, setLoadingOneTime] = useState(false);
+    const [pendingUpgrade, setPendingUpgrade] = useState(false);
     
     // Add state for showing the onboarding component
     const [showChatOnboarding, setShowChatOnboarding] = useState(() => {
@@ -273,6 +274,29 @@ const Chat = () => {
         }
     }, [signupPrompt, scrollToBottom]);
 
+    // Effect to show upgrade prompt after assessment is complete
+    useEffect(() => {
+        if (pendingUpgrade && !typing && isTypingComplete) {
+            // Assessment is complete, now show the upgrade prompt
+            setTimeout(() => {
+                setSignupPrompt(true);
+                setPendingUpgrade(false);
+                
+                // Add a bot message explaining the upgrade options
+                setTimeout(() => {
+                    typeMessage(
+                        "To get more detailed insights and recommendations about your condition, please choose one of the upgrade options below.",
+                        false
+                    );
+                    
+                    // Scroll to make sure upgrade options are visible
+                    setTimeout(scrollToBottom, 100);
+                    setTimeout(scrollToBottom, 500);
+                }, 1000);
+            }, 500);
+        }
+    }, [pendingUpgrade, typing, isTypingComplete, scrollToBottom]);
+
     useEffect(() => {
         return () => {
             if (abortControllerRef.current) {
@@ -371,6 +395,7 @@ const Chat = () => {
             setShowSecondaryPrompt(false);
             setLoadingSubscription(false);
             setLoadingOneTime(false);
+            setPendingUpgrade(false);
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
             
             // Focus the input after reset
@@ -393,6 +418,7 @@ const Chat = () => {
             setShowSecondaryPrompt(false);
             setLoadingSubscription(false);
             setLoadingOneTime(false);
+            setPendingUpgrade(false);
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
         } finally {
             setResetting(false);
@@ -524,6 +550,12 @@ const Chat = () => {
                 // Check if this is a question or assessment
                 const isQuestion = response.data.is_question === true;
                 const isAssessment = response.data.is_assessment === true;
+                const requiresUpgrade = response.data.requires_upgrade === true;
+                
+                // If this requires an upgrade, set a flag to show it after the assessment is displayed
+                if (requiresUpgrade) {
+                    setPendingUpgrade(true);
+                }
                 
                 if (isAssessment) {
                     // It's a final assessment with conditions
@@ -565,24 +597,6 @@ const Chat = () => {
                     // It's a follow-up question or other response
                     const responseText = response.data.question || response.data.possible_conditions || "Could you tell me more about your symptoms?";
                     typeMessage(responseText, false);
-                }
-
-                // Handle upgrade prompts if present
-                if (response.data.requires_upgrade) {
-                    setSignupPrompt(true);
-                    
-                    // Add a bot message explaining the upgrade options after a slight delay
-                    setTimeout(() => {
-                        typeMessage(
-                            "Based on your symptoms, I've identified a condition that may require further evaluation. To get more detailed insights and recommendations, please choose one of the upgrade options below.",
-                            false
-                        );
-                        
-                        // Scroll to make sure upgrade options are visible
-                        setTimeout(scrollToBottom, 100);
-                        setTimeout(scrollToBottom, 500);
-                        setTimeout(scrollToBottom, 1000);
-                    }, CONFIG.THINKING_DELAY + 500);
                 }
             }, CONFIG.THINKING_DELAY);
 

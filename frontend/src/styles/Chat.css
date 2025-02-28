@@ -406,14 +406,14 @@
   transform: translateY(-1px);
 }
 
-/* Enhanced upgrade options styling */
+/* Enhanced upgrade options styling - Compact Version */
 .upgrade-options {
   background-color: #f0f7ff;
-  border: 2px solid #3a86ff;
-  border-radius: 12px;
-  padding: 16px;
-  margin: 16px 0;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border: 1px solid #3a86ff; /* Thinner border */
+  border-radius: 10px; /* Slightly smaller radius */
+  padding: 12px; /* Reduced from 16px */
+  margin: 12px 0; /* Reduced from 16px */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); /* Lighter shadow */
   animation: fadeIn 0.5s ease-in-out;
   position: relative;
   z-index: 10;
@@ -425,44 +425,47 @@
 }
 
 .upgrade-message {
-  margin-bottom: 16px;
+  margin-bottom: 12px; /* Reduced from 16px */
 }
 
 .upgrade-message h3 {
   color: #2b6cb0;
   margin-top: 0;
-  font-size: 1.2rem;
+  margin-bottom: 8px; /* Reduced spacing */
+  font-size: 1.1rem; /* Smaller heading */
+  font-weight: 600; /* Less bold */
 }
 
 .upgrade-message p {
-  margin: 8px 0;
+  margin: 6px 0; /* Reduced from 8px */
   color: #4a5568;
+  font-size: 0.95rem; /* Slightly smaller text */
 }
 
 .upgrade-message ul {
-  margin: 12px 0;
-  padding-left: 20px;
+  margin: 8px 0; /* Reduced from 12px */
+  padding-left: 16px; /* Reduced from 20px */
 }
 
 .upgrade-message li {
-  margin-bottom: 8px;
+  margin-bottom: 6px; /* Reduced from 8px */
   color: #4a5568;
+  font-size: 0.95rem; /* Slightly smaller text */
 }
 
 .upgrade-buttons {
   display: flex;
-  gap: 16px;
+  gap: 12px; /* Reduced from 16px */
   flex-wrap: wrap;
 }
 
 .upgrade-button {
   flex: 1;
   min-width: 200px;
-  padding: 12px 16px;
-  border: none;
-  border-radius: 8px;
+  padding: 10px 14px; /* Slightly reduced from 12px 16px */
+  border-radius: 6px; /* Smaller radius */
   font-weight: 600;
-  font-size: 1rem;
+  font-size: 0.95rem; /* Slightly smaller text */
   cursor: pointer;
   transition: all 0.2s ease;
   display: flex;
@@ -478,13 +481,16 @@
 }
 
 .upgrade-button.subscription:hover {
-  background-color: var(--subscription-hover); /* Darker blue for better contrast */
-  transform: translateY(-2px); /* Subtle lift effect */
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3); /* Enhanced shadow */
+  background-color: var(--subscription-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
 }
 
 .upgrade-button.subscription:active {
-  background-color: #1e3a8a; /* Even darker blue when pressed */
+  background-color: #1e3a8a;
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  opacity: 0.9;
 }
 
 .upgrade-button.one-time {
@@ -493,19 +499,16 @@
 }
 
 .upgrade-button.one-time:hover {
-  background-color: var(--one-time-hover); /* Darker green for better contrast */
-  transform: translateY(-2px); /* Subtle lift effect */
-  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3); /* Enhanced shadow */
+  background-color: var(--one-time-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3);
 }
 
 .upgrade-button.one-time:active {
-  background-color: #065f46; /* Even darker green when pressed */
-}
-
-.upgrade-button:active {
-  transform: translateY(0); /* Prevent lift effect when pressed */
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2); /* Slightly subdued shadow */
-  opacity: 0.9; /* Subtle feedback effect */
+  background-color: #065f46;
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  opacity: 0.9;
 }
 
 .upgrade-button.loading {
@@ -518,12 +521,12 @@
 .upgrade-button.loading::after {
   content: "";
   position: absolute;
-  width: 20px;
-  height: 20px;
+  width: 16px; /* Smaller spinner */
+  height: 16px; /* Smaller spinner */
   top: 50%;
   left: 50%;
-  margin: -10px 0 0 -10px;
-  border: 3px solid rgba(255, 255, 255, 0.3);
+  margin: -8px 0 0 -8px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
   border-radius: 50%;
   border-top-color: #fff;
   animation: spin 1s ease-in-out infinite;
@@ -533,22 +536,16 @@
   to { transform: rotate(360deg); }
 }
 
-.upgrade-button .price {
-  font-size: 0.9rem;
-  opacity: 0.9;
-  margin-top: 4px;
-}
-
 .close-upgrade {
   position: absolute;
-  top: 8px;
-  right: 12px;
+  top: 6px; /* Moved closer to edge */
+  right: 6px; /* Moved closer to edge */
   background: none;
   border: none;
-  font-size: 1.2rem;
+  font-size: 1.1rem; /* Slightly smaller */
   cursor: pointer;
   color: #4a5568;
-  padding: 4px 8px;
+  padding: 4px 6px; /* Smaller padding */
   border-radius: 4px;
   transition: background-color 0.2s;
   position: relative;
@@ -564,18 +561,18 @@
 }
 
 .close-upgrade:hover::after {
-  content: "Dismiss upgrade prompt";
+  content: "Dismiss";
   position: absolute;
   right: 100%;
   top: 50%;
   transform: translateY(-50%);
   background: #333;
   color: #fff;
-  padding: 4px 8px;
+  padding: 3px 6px;
   border-radius: 4px;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   white-space: nowrap;
-  margin-right: 8px;
+  margin-right: 6px;
   z-index: 20;
   box-shadow: 0 2px 5px rgba(0,0,0,0.2);
 }
@@ -615,7 +612,12 @@
   }
   
   .upgrade-buttons {
-      flex-direction: column;
+      flex-direction: column; /* Stack buttons on mobile */
+  }
+  
+  .upgrade-button {
+      min-width: 100%; /* Full width on mobile */
+      margin-bottom: 8px;
   }
   
   .close-upgrade:hover::after {
@@ -625,7 +627,7 @@
       bottom: 100%;
       transform: translateX(-50%);
       margin-right: 0;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
   }
 }
 
