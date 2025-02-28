@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app, session
 from backend.routes.extensions import db
-from backend.models import User, Symptom, Report, UserTierEnum
+from backend.models import User, Symptom, Report
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 import openai
 import os
@@ -22,7 +22,7 @@ QUESTION_COUNT_THRESHOLD = 3  # Minimum number of questions before assessment
 
 class UserTier:
     FREE = "free"  # Nurse Mode
-    PAID = "pro"   # PA Mode - Updated to match UserTierEnum
+    PAID = "paid"  # PA Mode
     ONE_TIME = "one_time"  # Doctor's Report
 
 @symptom_routes.route('/reset', methods=['POST'])
@@ -110,7 +110,6 @@ def analyze_symptoms():
     auth_header = request.headers.get('Authorization')
     is_authenticated = False
     user_id = None
-    current_user = None
     user_tier = UserTier.FREE  # Default to free tier (Nurse Mode)
     
     if auth_header and auth_header.startswith('Bearer '):
@@ -122,11 +121,24 @@ def analyze_symptoms():
             
             # In a real implementation, you would fetch the user's subscription tier from the database
             if is_authenticated:
-                current_user = User.query.get(user_id)
-                if current_user:
-                    # Get subscription tier from the user object
-                    user_tier = current_user.subscription_tier.value if hasattr(current_user, 'subscription_tier') else UserTier.FREE
+                user = User.query.get(user_id)
+                # Safely get subscription tier without directly accessing the attribute
+                try:
+                    # Use a direct SQL query to avoid ORM issues with the column type
+                    result = db.session.execute(
+                        "SELECT subscription_tier FROM users WHERE id = :user_id",
+                        {"user_id": user_id}
+                    ).fetchone()
+                    
+                    if result and result[0]:
+                        user_tier = result[0]  # Use the string value directly
+                    else:
+                        user_tier = UserTier.FREE
+                        
                     current_app.logger.info(f"User {user_id} subscription tier: {user_tier}")
+                except Exception as e:
+                    current_app.logger.warning(f"Could not access subscription_tier: {str(e)}")
+                    user_tier = UserTier.FREE
         except Exception as e:
             current_app.logger.warning(f"Invalid token provided: {str(e)}")
             # Continue as unauthenticated user
@@ -193,15 +205,11 @@ def analyze_symptoms():
                 current_app.logger.info(f"Raw OpenAI response: {ai_response[:200]}...")
 
                 # Process the response using the clean_ai_response function from openai_config
-                # Pass the current_user to enforce subscription tier restrictions
-                processed_response = clean_ai_response(ai_response, current_user)
+                processed_response = clean_ai_response(ai_response)
                 
                 # Check if this is a JSON response (assessment)
                 is_assessment = processed_response.get("is_assessment", False)
                 is_question = processed_response.get("is_question", False)
-                
-                # Check if this requires an upgrade (from clean_ai_response)
-                requires_upgrade = processed_response.get("requires_upgrade", False)
                 
                 # Determine care recommendation
                 care_recommendation = "Consider seeing a doctor soon."
@@ -234,8 +242,46 @@ def analyze_symptoms():
                     else:
                         confidence = 80  # Default confidence for assessments
 
+                # Apply tier-based limitations
+                requires_upgrade = False
+                upgrade_options = []
+                
+                # For free users (Nurse Mode) with non-mild conditions, limit information
+                if is_assessment and user_tier == UserTier.FREE and care_recommendation != "You can likely manage this at home.":
+                    # Extract a "mini-win" insight to show value before upgrade prompt
+                    mini_win = extract_mini_win(ai_response)
+                    
+                    # For moderate or severe conditions, limit information for free tier
+                    ai_response = f"""{mini_win}
+
+Based on your symptoms, I'm seeing a pattern that suggests this may require more detailed analysis.
+
+Care Recommendation: {care_recommendation}
+
+To unlock deeper insights into your symptoms, you have two options:
+
+1. Upgrade to PA Mode ($9.99/month) for:
+   - Comprehensive assessment of all conditions
+   - Ongoing symptom tracking
+   - Personalized health insights
+   - Unlimited consultations
+
+2. Purchase a one-time Doctor's Report ($4.99) for:
+   - Detailed analysis of this specific case
+   - Formatted summary you can share with healthcare providers
+   - Specific recommendations for next steps
+
+Disclaimer: This assessment is for informational purposes only and does not replace professional medical advice."""
+                    
+                    # Set requires_upgrade flag and options
+                    requires_upgrade = True
+                    upgrade_options = [
+                        {"type": "subscription", "name": "PA Mode", "price": 9.99, "period": "month"},
+                        {"type": "one_time", "name": "Doctor's Report", "price": 4.99}
+                    ]
+                
                 # For one-time report purchases, generate a comprehensive doctor's report
-                if one_time_report or (current_user and current_user.subscription_tier == UserTierEnum.ONE_TIME):
+                elif one_time_report or user_tier == UserTier.ONE_TIME:
                     # Generate a more formal, detailed doctor's report
                     doctor_report_messages = messages.copy()
                     doctor_report_messages.append({
@@ -302,13 +348,9 @@ def analyze_symptoms():
                             'triage_level': processed_response.get("assessment", {}).get("triage_level", None) if is_assessment else None
                         }
                 
-                # Add the requires_upgrade flag from the processed response
                 if requires_upgrade:
                     result['requires_upgrade'] = True
-                    result['upgrade_options'] = [
-                        {"type": "subscription", "name": "PA Mode", "price": 9.99, "period": "month"},
-                        {"type": "one_time", "name": "Doctor's Report", "price": 4.99}
-                    ]
+                    result['upgrade_options'] = upgrade_options
                 
                 return jsonify(result)
                 
@@ -358,7 +400,6 @@ def analyze_symptoms():
             'confidence': None
         }), 500
 
-# The rest of the file remains unchanged
 def extract_mini_win(ai_response):
     """Extract a small, valuable insight from the full response to show value before upgrade prompt."""
     # Look for the first sentence that mentions a condition or symptom pattern

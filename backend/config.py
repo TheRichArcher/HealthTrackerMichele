@@ -18,3 +18,16 @@ class Config:
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
     DEBUG = strtobool(os.getenv("DEBUG", "0"))  # ✅ More reliable boolean handling
     CORS_HEADERS = "Content-Type"
+    
+    # ✅ Stripe configuration
+    STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+    STRIPE_PUBLIC_KEY = os.getenv("STRIPE_PUBLIC_KEY")
+    STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+
+    # ✅ Stripe product IDs
+    STRIPE_PRO_PLAN_PRICE_ID = os.getenv("STRIPE_PRO_PLAN_PRICE_ID")  # $9.99/month
+    STRIPE_ONE_TIME_PRICE_ID = os.getenv("STRIPE_ONE_TIME_PRICE_ID")  # $4.99 one-time
+
+    # ✅ Subscription pricing (in cents)
+    SUBSCRIPTION_PRICE_MONTHLY = 999  # $9.99
+    ONE_TIME_REPORT_PRICE = 499  # $4.99

@@ -1,9 +1,10 @@
 import re
 import json
 import logging
-from typing import Dict, List, Union
+from typing import Dict, Union
 from flask import current_app
 from backend.config import Config  # Ensures API key handling aligns with config.py
+from backend.models import UserTierEnum  # Required for checking user tier
 
 # Set up logging with detailed format
 logging.basicConfig(level=logging.DEBUG)
@@ -90,17 +91,18 @@ def create_default_response() -> Dict:
         }
     }
 
-def clean_ai_response(response_text: str) -> Union[Dict, str]:
+def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
     """
     Processes the AI response and determines if it's a question or assessment.
+    Now includes subscription tier enforcement.
     """
     if not isinstance(response_text, str) or not response_text.strip():
         logger.warning("Invalid or empty response")
         return create_default_response()
     
     logger.info(f"Processing AI response: {response_text[:100]}...")
-    
-    # Check for emergency recommendations
+
+    # ✅ Check for emergency recommendations
     emergency_phrases = [
         "seek emergency care", 
         "call 911", 
@@ -111,64 +113,63 @@ def clean_ai_response(response_text: str) -> Union[Dict, str]:
     ]
     
     is_emergency = any(phrase in response_text.lower() for phrase in emergency_phrases)
-    
-    # Process JSON responses - updated to handle both triple backtick and custom <json> tags
+
+    # ✅ Extract JSON-formatted response if present
     json_match = re.search(r'```json\s*(.*?)\s*```|<json>\s*(.*?)\s*</json>|({[\s\S]*"assessment"[\s\S]*})', response_text, re.DOTALL)
     
     if json_match:
         try:
-            # Find which group matched (could be group 1, 2, or 3)
-            json_str = None
-            for i in range(1, 4):
-                try:
-                    if json_match.group(i):
-                        json_str = json_match.group(i).strip()
-                        break
-                except IndexError:
-                    continue
-                    
+            # Find and parse JSON response
+            json_str = next((json_match.group(i).strip() for i in range(1, 4) if json_match.group(i)), None)
             if not json_str:
                 logger.warning("No JSON content found in match groups")
-                # Fall back to treating as a regular response
             else:
                 assessment_data = json.loads(json_str)
                 assessment_data["is_assessment"] = True
                 assessment_data["is_question"] = False
                 
-                # If emergency was detected, ensure triage level is set to SEVERE
+                # ✅ If emergency detected, ensure triage level is set to SEVERE
                 if is_emergency and "assessment" in assessment_data:
                     assessment_data["assessment"]["triage_level"] = "SEVERE"
-                    if "care_recommendation" not in assessment_data["assessment"] or not assessment_data["assessment"]["care_recommendation"]:
-                        assessment_data["assessment"]["care_recommendation"] = "Seek immediate medical attention."
+                    assessment_data["assessment"]["care_recommendation"] = "Seek immediate medical attention."
                 
+                # ✅ Enforce paywall if necessary
+                requires_upgrade = False
+                triage_level = assessment_data["assessment"].get("triage_level", "").upper()
+                care_recommendation = assessment_data["assessment"].get("care_recommendation", "").lower()
+
+                if (triage_level in ['MODERATE', 'SEVERE'] or 
+                    'doctor' in care_recommendation or 
+                    'medical attention' in care_recommendation or
+                    'urgent care' in care_recommendation or
+                    'emergency' in care_recommendation):
+                    
+                    # ✅ Check user's subscription tier
+                    if user and user.subscription_tier == UserTierEnum.FREE:
+                        requires_upgrade = True
+                        # For free users, hide details except first condition
+                        if "conditions" in assessment_data["assessment"]:
+                            first_condition = assessment_data["assessment"]["conditions"][0]
+                            assessment_data["assessment"]["conditions"] = [first_condition]
+                
+                assessment_data["requires_upgrade"] = requires_upgrade
                 return assessment_data
-        except (json.JSONDecodeError, ValueError, AttributeError) as e:
-            logger.error(f"Failed to parse JSON: {e}")
-            # Continue to process as a regular response
+                
+        except json.JSONDecodeError:
+            logger.error("Failed to parse JSON response")
     
-    # Handle emergency text responses
-    if is_emergency:
-        return {
-            "is_assessment": True,
-            "is_question": False,
-            "possible_conditions": response_text.strip(),
-            "triage_level": "SEVERE",
-            "care_recommendation": "Seek immediate medical attention."
-        }
-    
-    # Determine if this is a question or final assessment
-    contains_question = "?" in response_text
-    
-    # For simple responses like "I have a rash", treat them as questions
-    if contains_question:
-        return {
-            "is_assessment": False, 
-            "is_question": True, 
-            "question": response_text.strip()
-        }
-    else:
-        return {
-            "is_assessment": False, 
-            "is_question": False, 
-            "possible_conditions": response_text.strip()
-        }
+    # ✅ If JSON extraction failed, determine question vs assessment
+    is_question = "?" in response_text
+    requires_upgrade = any(keyword in response_text.lower() for keyword in ['doctor', 'medical attention', 'urgent care', 'emergency'])
+
+    # ✅ Enforce subscription upgrade if necessary
+    if user and requires_upgrade and user.subscription_tier == UserTierEnum.FREE:
+        requires_upgrade = True
+
+    return {
+        "is_question": is_question,
+        "is_assessment": not is_question,
+        "possible_conditions": response_text,
+        "triage_level": "MODERATE" if requires_upgrade else "MILD",
+        "requires_upgrade": requires_upgrade
+    }
