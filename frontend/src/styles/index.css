@@ -15,35 +15,20 @@ body {
     padding: 20px;
 }
 
-/* Navbar */
+/* 🛑 Reset navbar styles to prevent conflicts with navbar.css */
 .navbar {
-    background-color: #4CAF50;
-    padding: 10px 20px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    color: white;
+    all: unset !important; /* Reset all properties */
+    display: flex !important; /* Restore essential layout property */
+    width: 100% !important; /* Ensure full width */
 }
 
+/* Reset other navbar elements that might conflict */
 .nav-links {
-    list-style: none;
-    padding: 0;
-    display: flex;
-    gap: 15px;
+    all: unset !important;
 }
 
-.nav-links li {
-    display: inline;
-}
-
-.nav-links a {
-    text-decoration: none;
-    color: white;
-    font-weight: bold;
-}
-
-.nav-links a:hover {
-    text-decoration: underline;
+.nav-links li, .nav-links a {
+    all: unset !important;
 }
 
 /* Error Messages */
