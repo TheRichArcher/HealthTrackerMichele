@@ -25,7 +25,7 @@
   background: white !important;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06) !important;
   z-index: 1000 !important;
-  height: 70px !important; /* Slightly taller */
+  height: 70px !important;
   display: flex !important;
   align-items: center !important;
   font-family: var(--font-sans) !important;
@@ -36,12 +36,12 @@
 
 .navbar-container {
   width: 100% !important;
-  max-width: 1200px !important; /* Slightly wider */
+  max-width: 1200px !important;
   margin: 0 auto !important;
   display: flex !important;
   justify-content: space-between !important;
   align-items: center !important;
-  padding: 0 2rem !important; /* More horizontal padding */
+  padding: 0 2rem !important;
   height: 100% !important;
 }
 
@@ -54,11 +54,11 @@
 
 .logo {
   font-size: 1.5rem !important;
-  font-weight: 600 !important; /* Slightly less bold */
-  color: #1e293b !important; /* Darker text */
+  font-weight: 600 !important;
+  color: #1e293b !important;
   text-decoration: none !important;
   transition: color 0.2s ease !important;
-  letter-spacing: -0.02em !important; /* Tighter letter spacing */
+  letter-spacing: -0.02em !important;
   display: flex !important;
   align-items: center !important;
 }
@@ -67,53 +67,46 @@
   color: var(--primary-blue) !important;
 }
 
-.logo img {
-  height: 32px !important;
-  margin-right: 10px !important;
-}
-
 /* Navigation menu */
 .navbar-menu {
   display: flex !important;
   align-items: center !important;
-  gap: 1.5rem !important; /* More spacing between items */
+  gap: 1.5rem !important;
 }
 
-/* Navigation links */
-.nav-link {
-  color: #475569 !important; /* Slate gray */
+/* Navigation buttons - UPDATED to match component */
+.nav-button {
+  color: #475569 !important;
   text-decoration: none !important;
   padding: 0.5rem 0.75rem !important;
   border-radius: var(--radius-sm) !important;
   transition: all 0.2s ease !important;
-  font-size: 0.95rem !important; /* Slightly smaller */
+  font-size: 0.95rem !important;
   font-weight: 500 !important;
   position: relative !important;
+  background: none !important;
+  border: none !important;
+  cursor: pointer !important;
 }
 
-.nav-link:hover {
+.nav-button:hover {
   color: var(--primary-blue) !important;
-  background-color: rgba(37, 99, 235, 0.05) !important; /* Very subtle blue background */
+  background-color: rgba(37, 99, 235, 0.05) !important;
 }
 
-.nav-link.active {
+.nav-button.active {
   color: var(--primary-blue) !important;
   font-weight: 600 !important;
 }
 
-.nav-link.active::after {
-  content: '' !important;
-  position: absolute !important;
-  bottom: -4px !important;
-  left: 0 !important;
-  width: 100% !important;
-  height: 2px !important;
-  background-color: var(--primary-blue) !important;
-  border-radius: var(--radius-full) !important;
+/* Chat button specific styling */
+.chat-button {
+  color: var(--primary-blue) !important;
+  font-weight: 600 !important;
 }
 
-/* Login/Sign In button */
-.login-button {
+/* Sign In button - UPDATED to match component */
+.sign-in-button {
   background: var(--primary-blue) !important;
   color: white !important;
   padding: 0.5rem 1.25rem !important;
@@ -122,24 +115,32 @@
   font-weight: 500 !important;
   text-decoration: none !important;
   transition: all 0.2s ease !important;
-  border: none !important;
-  cursor: pointer !important;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
 }
 
-.login-button:hover {
+.sign-in-button:hover {
   background: var(--primary-hover) !important;
   transform: translateY(-1px) !important;
   box-shadow: 0 4px 8px rgba(37, 99, 235, 0.15) !important;
 }
 
-.login-button:active {
+.sign-in-button:active {
   transform: translateY(0) !important;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
 }
 
-/* Mobile menu toggle */
-.menu-toggle {
+/* Logout button */
+.logout-button {
+  color: #ef4444 !important; /* Red color */
+}
+
+.logout-button:hover {
+  color: #dc2626 !important;
+  background-color: rgba(239, 68, 68, 0.05) !important;
+}
+
+/* Mobile menu toggle - UPDATED to match component */
+.navbar-burger {
   display: none !important;
   background: none !important;
   border: none !important;
@@ -149,13 +150,18 @@
   border-radius: var(--radius-sm) !important;
 }
 
-.menu-toggle:hover {
+.navbar-burger:hover {
   background-color: var(--bg-gray) !important;
 }
 
-.menu-toggle svg {
+/* Hamburger icon */
+.navbar-burger span {
+  display: block !important;
   width: 24px !important;
-  height: 24px !important;
+  height: 2px !important;
+  margin: 5px 0 !important;
+  background-color: var(--text-dark) !important;
+  border-radius: 1px !important;
 }
 
 /* Mobile styles */
@@ -164,7 +170,7 @@
       padding: 0 1.25rem !important;
   }
   
-  .menu-toggle {
+  .navbar-burger {
       display: block !important;
   }
 
@@ -187,21 +193,15 @@
       display: flex !important;
   }
 
-  .nav-link {
+  .nav-button {
       padding: 0.75rem 1rem !important;
       border-radius: var(--radius-sm) !important;
       margin: 0.25rem 0 !important;
-  }
-
-  .nav-link.active::after {
-      display: none !important;
-  }
-
-  .nav-link.active {
-      background-color: rgba(37, 99, 235, 0.05) !important;
+      width: 100% !important;
+      text-align: left !important;
   }
   
-  .login-button {
+  .sign-in-button {
       margin: 0.5rem 0 !important;
       text-align: center !important;
       width: 100% !important;
@@ -209,60 +209,73 @@
 }
 
 /* Accessibility */
-.nav-link:focus-visible,
-.login-button:focus-visible,
-.menu-toggle:focus-visible {
+.nav-button:focus-visible,
+.sign-in-button:focus-visible,
+.navbar-burger:focus-visible {
   outline: 2px solid var(--primary-blue) !important;
   outline-offset: 2px !important;
 }
 
-/* User avatar in navbar (if applicable) */
-.user-avatar {
-  width: 32px !important;
-  height: 32px !important;
-  border-radius: var(--radius-full) !important;
-  object-fit: cover !important;
-  border: 2px solid var(--border-light) !important;
+/* Modal styles for logout confirmation */
+.modal-overlay {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  background-color: rgba(0, 0, 0, 0.5) !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  z-index: 1100 !important;
 }
 
-/* Dropdown menu (if applicable) */
-.dropdown-menu {
-  position: absolute !important;
-  top: 100% !important;
-  right: 0 !important;
+.modal-content {
   background: white !important;
+  padding: 2rem !important;
   border-radius: var(--radius-md) !important;
   box-shadow: var(--shadow-md) !important;
-  min-width: 200px !important;
-  padding: 0.5rem 0 !important;
-  display: none !important;
-  z-index: 1001 !important;
-  border: 1px solid var(--border-light) !important;
+  max-width: 400px !important;
+  width: 90% !important;
 }
 
-.dropdown-menu.active {
-  display: block !important;
-  animation: fadeIn 0.2s ease-out !important;
-}
-
-.dropdown-item {
-  padding: 0.75rem 1rem !important;
+.modal-content h3 {
+  margin-top: 0 !important;
   color: var(--text-dark) !important;
-  text-decoration: none !important;
+}
+
+.modal-buttons {
   display: flex !important;
-  align-items: center !important;
-  gap: 0.5rem !important;
-  transition: background-color 0.2s !important;
+  justify-content: flex-end !important;
+  gap: 1rem !important;
+  margin-top: 1.5rem !important;
 }
 
-.dropdown-item:hover {
-  background-color: var(--bg-gray) !important;
+.btn {
+  padding: 0.5rem 1rem !important;
+  border-radius: var(--radius-sm) !important;
+  font-size: 0.95rem !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  border: none !important;
 }
 
-.dropdown-divider {
-  height: 1px !important;
-  background-color: var(--border-light) !important;
-  margin: 0.5rem 0 !important;
+.btn-danger {
+  background-color: #ef4444 !important;
+  color: white !important;
+}
+
+.btn-danger:hover {
+  background-color: #dc2626 !important;
+}
+
+.btn-secondary {
+  background-color: #e5e7eb !important;
+  color: var(--text-dark) !important;
+}
+
+.btn-secondary:hover {
+  background-color: #d1d5db !important;
 }
 
 @keyframes fadeIn {
