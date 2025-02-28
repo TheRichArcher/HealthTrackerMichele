@@ -25,6 +25,41 @@ class UserTier:
     PAID = "pro"   # PA Mode - Updated to match UserTierEnum
     ONE_TIME = "one_time"  # Doctor's Report
 
+@symptom_routes.route('/debug', methods=['GET'])
+def debug_route():
+    """Debug endpoint to check if our subscription enforcement logic is working"""
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info("Debug endpoint called")
+    
+    # Create a mock user with FREE tier
+    class MockUser:
+        def __init__(self):
+            self.subscription_tier = UserTierEnum.FREE
+    
+    mock_user = MockUser()
+    logger.info(f"Created mock user with tier: {mock_user.subscription_tier}")
+    
+    # Test medical recommendation detection
+    test_response = "Please seek a consultation with a healthcare professional. Based on your symptoms, here are some possible conditions: Bacterial Conjunctivitis – 85%, Viral Conjunctivitis – 15%. Please seek a consultation with a healthcare professional. It's important to get a proper diagnosis as treatment can differ. Avoid touching your eyes and make sure to wash your hands frequently to prevent spread."
+    
+    logger.info(f"Testing with response: {test_response}")
+    
+    # Call clean_ai_response with the mock user
+    processed = clean_ai_response(test_response, mock_user)
+    logger.info(f"Processed response: {processed}")
+    
+    # Check if requires_upgrade is set
+    requires_upgrade = processed.get('requires_upgrade', False)
+    logger.info(f"Requires upgrade: {requires_upgrade}")
+    
+    return jsonify({
+        'test_response': test_response,
+        'processed': processed,
+        'requires_upgrade': requires_upgrade,
+        'user_tier': mock_user.subscription_tier.value if hasattr(mock_user.subscription_tier, 'value') else str(mock_user.subscription_tier)
+    }), 200
+
 @symptom_routes.route('/reset', methods=['POST'])
 def reset_conversation():
     """Reset the conversation history"""
@@ -131,6 +166,17 @@ def analyze_symptoms():
             current_app.logger.warning(f"Invalid token provided: {str(e)}")
             # Continue as unauthenticated user
     
+    # For unauthenticated users or if user not found, create a mock user with FREE tier
+    if not current_user:
+        current_app.logger.info("Creating mock FREE tier user for unauthenticated request")
+        # Create a mock user object with FREE tier
+        class MockUser:
+            def __init__(self):
+                self.subscription_tier = UserTierEnum.FREE
+        
+        current_user = MockUser()
+        current_app.logger.info(f"Mock user created with tier: {current_user.subscription_tier}")
+    
     try:
         data = request.get_json()
         symptoms = data.get('symptom', '')
@@ -202,6 +248,7 @@ def analyze_symptoms():
                 
                 # Check if this requires an upgrade (from clean_ai_response)
                 requires_upgrade = processed_response.get("requires_upgrade", False)
+                current_app.logger.info(f"Requires upgrade: {requires_upgrade}")
                 
                 # Determine care recommendation
                 care_recommendation = "Consider seeing a doctor soon."
@@ -358,7 +405,6 @@ def analyze_symptoms():
             'confidence': None
         }), 500
 
-# The rest of the file remains unchanged
 def extract_mini_win(ai_response):
     """Extract a small, valuable insight from the full response to show value before upgrade prompt."""
     # Look for the first sentence that mentions a condition or symptom pattern

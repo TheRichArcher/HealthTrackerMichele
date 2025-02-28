@@ -1,8 +1,21 @@
 import os
+import logging
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Setup basic logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler()  # Log to console
+    ]
+)
+
+logger = logging.getLogger(__name__)
+logger.info("Config module loaded with logging enabled")
 
 def strtobool(val: str) -> bool:
     """Convert a string to a boolean value."""
