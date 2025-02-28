@@ -137,6 +137,37 @@ Message.propTypes = {
     index: PropTypes.number.isRequired
 };
 
+// New Assessment Summary component to keep assessment visible
+const AssessmentSummary = memo(({ assessment }) => {
+    if (!assessment) return null;
+    
+    return (
+        <div className="assessment-summary">
+            <h4>Assessment Summary</h4>
+            <div className="assessment-condition">
+                <strong>Condition:</strong> {assessment.condition}
+                {assessment.confidence && (
+                    <span> - {assessment.confidence}% confidence</span>
+                )}
+            </div>
+            {assessment.recommendation && (
+                <div className="assessment-recommendation">
+                    <strong>Recommendation:</strong> {assessment.recommendation}
+                </div>
+            )}
+        </div>
+    );
+});
+
+AssessmentSummary.displayName = 'AssessmentSummary';
+AssessmentSummary.propTypes = {
+    assessment: PropTypes.shape({
+        condition: PropTypes.string,
+        confidence: PropTypes.number,
+        recommendation: PropTypes.string
+    })
+};
+
 const Chat = () => {
     const [messages, setMessages] = useState(() => {
         try {
@@ -166,6 +197,9 @@ const Chat = () => {
     const [loadingSubscription, setLoadingSubscription] = useState(false);
     const [loadingOneTime, setLoadingOneTime] = useState(false);
     const [pendingUpgrade, setPendingUpgrade] = useState(false);
+    
+    // Add state for the latest assessment to keep it visible
+    const [latestAssessment, setLatestAssessment] = useState(null);
     
     // Add state for showing the onboarding component
     const [showChatOnboarding, setShowChatOnboarding] = useState(() => {
@@ -396,6 +430,7 @@ const Chat = () => {
             setLoadingSubscription(false);
             setLoadingOneTime(false);
             setPendingUpgrade(false);
+            setLatestAssessment(null); // Reset the latest assessment
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
             
             // Focus the input after reset
@@ -419,6 +454,7 @@ const Chat = () => {
             setLoadingSubscription(false);
             setLoadingOneTime(false);
             setPendingUpgrade(false);
+            setLatestAssessment(null); // Reset the latest assessment
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
         } finally {
             setResetting(false);
@@ -580,12 +616,28 @@ const Chat = () => {
                         formattedMessage += `\n${careRecommendation}\n\n${disclaimer}`;
                         
                         confidence = conditions[0]?.confidence || response.data.confidence;
+                        
+                        // Update the latest assessment for the sticky summary
+                        if (conditions.length > 0) {
+                            setLatestAssessment({
+                                condition: conditions[0].name,
+                                confidence: conditions[0].confidence,
+                                recommendation: careRecommendation
+                            });
+                        }
                     } else {
                         // Unstructured assessment
                         formattedMessage = response.data.possible_conditions || "Based on your symptoms, I can provide an assessment.";
                         confidence = response.data.confidence;
                         triageLevel = response.data.triage_level;
                         careRecommendation = response.data.care_recommendation;
+                        
+                        // Update the latest assessment for the sticky summary
+                        setLatestAssessment({
+                            condition: "Assessment",
+                            confidence: confidence,
+                            recommendation: careRecommendation
+                        });
                     }
                     
                     typeMessage(
@@ -706,6 +758,9 @@ const Chat = () => {
                     )}
                     <div ref={messagesEndRef} />
                 </div>
+
+                {/* Add the sticky assessment summary here */}
+                {latestAssessment && <AssessmentSummary assessment={latestAssessment} />}
 
                 <div className="chat-input-container">
                     <div className="chat-input-wrapper">

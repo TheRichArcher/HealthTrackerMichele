@@ -1,185 +1,272 @@
 /* Navbar.css - Complete file ready to paste */
 :root {
-    --primary-blue: #2563eb;
-    --primary-hover: #1d4ed8;
-    --text-dark: #1e293b;
-    --text-light: #f8fafc;
-    --text-muted: #64748b;
-    --bg-light: #ffffff;
-    --bg-dark: #1e2936;
-    --bg-gray: #f1f5f9;
-    --border-light: #e2e8f0;
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    --radius-sm: 0.375rem;
-    --radius-md: 0.5rem;
-    --radius-lg: 0.75rem;
-    --radius-full: 9999px;
-    --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  }
-  
-  /* Base navbar styles */
-  .navbar {
-    position: relative; /* Changed from fixed to relative */
-    background: var(--bg-light);
-    box-shadow: var(--shadow-sm);
-    z-index: 1000;
-    height: 64px;
-    display: flex;
-    align-items: center;
-    font-family: var(--font-sans);
-    max-width: 1000px; /* Match the chat container width */
-    margin: 0 auto; /* Center the navbar */
-  }
-  
+  --primary-blue: #2563eb;
+  --primary-hover: #1d4ed8;
+  --text-dark: #1e293b;
+  --text-light: #f8fafc;
+  --text-muted: #64748b;
+  --bg-light: #ffffff;
+  --bg-dark: #1e2936;
+  --bg-gray: #f1f5f9;
+  --border-light: #e2e8f0;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-full: 9999px;
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* Base navbar styles */
+.navbar {
+  position: sticky; /* Changed to sticky for better UX */
+  top: 0;
+  background: var(--bg-light);
+  box-shadow: var(--shadow-sm);
+  z-index: 1000;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  font-family: var(--font-sans);
+  width: 100%; /* Full width background */
+  margin: 0; /* Remove auto margin */
+  border-bottom: 1px solid var(--border-light);
+}
+
+.navbar-container {
+  width: 100%;
+  max-width: 1000px; /* Match the chat container width */
+  margin: 0 auto; /* Center the content */
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 1.5rem;
+  height: 100%;
+}
+
+/* Brand section with logo */
+.navbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.logo {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--primary-blue);
+  text-decoration: none;
+  transition: color 0.2s ease;
+  letter-spacing: -0.025em;
+  display: flex;
+  align-items: center;
+}
+
+.logo:hover {
+  color: var(--primary-hover);
+}
+
+.logo img {
+  height: 32px;
+  margin-right: 8px;
+}
+
+/* Navigation menu */
+.navbar-menu {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem; /* Increased spacing between items */
+}
+
+/* Navigation links */
+.nav-link {
+  color: var(--text-dark);
+  text-decoration: none;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+  font-size: 1rem;
+  font-weight: 500;
+  position: relative;
+}
+
+.nav-link:hover {
+  color: var(--primary-blue);
+  background-color: var(--bg-gray);
+}
+
+.nav-link.active {
+  color: var(--primary-blue);
+  font-weight: 600;
+}
+
+.nav-link.active::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background-color: var(--primary-blue);
+  border-radius: var(--radius-full);
+}
+
+/* Login/Sign In button */
+.login-button {
+  background: var(--primary-blue);
+  color: var(--text-light);
+  padding: 0.5rem 1.25rem; /* Wider padding */
+  border-radius: var(--radius-md); /* Slightly more rounded */
+  font-size: 1rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  border: none;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm); /* Add subtle shadow by default */
+}
+
+.login-button:hover {
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(37, 99, 235, 0.2); /* Enhanced shadow on hover */
+}
+
+.login-button:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+  background: #1e40af; /* Darker blue when clicked */
+}
+
+/* Mobile menu toggle */
+.menu-toggle {
+  display: none;
+  background: none;
+  border: none;
+  padding: 0.5rem;
+  cursor: pointer;
+  color: var(--text-dark);
+  border-radius: var(--radius-sm);
+}
+
+.menu-toggle:hover {
+  background-color: var(--bg-gray);
+}
+
+.menu-toggle svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* Mobile styles */
+@media (max-width: 768px) {
   .navbar-container {
-    width: 100%;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0 1.5rem;
-    height: 100%;
+      padding: 0 1rem; /* Slightly reduced padding on mobile */
   }
   
-  /* Brand section with logo */
-  .navbar-brand {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-  
-  .logo {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--primary-blue);
-    text-decoration: none;
-    transition: color 0.2s ease;
-    letter-spacing: -0.025em;
-  }
-  
-  .logo:hover {
-    color: var(--primary-hover);
-  }
-  
-  /* Navigation menu */
-  .navbar-menu {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-  }
-  
-  /* Navigation links */
-  .nav-link {
-    color: var(--text-dark);
-    text-decoration: none;
-    padding: 0.5rem 0.75rem;
-    border-radius: var(--radius-sm);
-    transition: all 0.2s ease;
-    font-size: 1rem;
-    font-weight: 500;
-    position: relative;
-  }
-  
-  .nav-link:hover {
-    color: var(--primary-blue);
-    background-color: var(--bg-gray);
-  }
-  
-  .nav-link.active {
-    color: var(--primary-blue);
-    font-weight: 600;
-  }
-  
-  .nav-link.active::after {
-    content: '';
-    position: absolute;
-    bottom: -4px;
-    left: 0;
-    width: 100%;
-    height: 2px;
-    background-color: var(--primary-blue);
-    border-radius: var(--radius-full);
-  }
-  
-  /* Login/Sign In button */
-  .login-button {
-    background: var(--primary-blue);
-    color: var(--text-light);
-    padding: 0.5rem 1rem;
-    border-radius: var(--radius-sm);
-    font-size: 1rem;
-    font-weight: 500;
-    text-decoration: none;
-    transition: all 0.2s ease;
-    border: none;
-    cursor: pointer;
-  }
-  
-  .login-button:hover {
-    background: var(--primary-hover);
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-sm);
-  }
-  
-  .login-button:active {
-    transform: translateY(0);
-  }
-  
-  /* Mobile menu toggle */
   .menu-toggle {
-    display: none;
-    background: none;
-    border: none;
-    padding: 0.5rem;
-    cursor: pointer;
-    color: var(--text-dark);
-  }
-  
-  .menu-toggle svg {
-    width: 24px;
-    height: 24px;
-  }
-  
-  /* Mobile styles */
-  @media (max-width: 768px) {
-    .menu-toggle {
       display: block;
-    }
-  
-    .navbar-menu {
+  }
+
+  .navbar-menu {
       position: absolute;
       top: 64px;
       left: 0;
       right: 0;
       background: var(--bg-light);
-      padding: 1rem;
+      padding: 0.5rem;
       flex-direction: column;
       align-items: stretch;
       display: none;
       box-shadow: var(--shadow-md);
-    }
-  
-    .navbar-menu.active {
+      border-bottom: 1px solid var(--border-light);
+      z-index: 1000;
+  }
+
+  .navbar-menu.active {
       display: flex;
-    }
-  
-    .nav-link {
+  }
+
+  .nav-link {
       padding: 0.75rem 1rem;
-    }
-  
-    .nav-link.active::after {
+      border-radius: var(--radius-sm);
+      margin: 0.25rem 0;
+  }
+
+  .nav-link.active::after {
       display: none;
-    }
-  
-    .nav-link.active {
+  }
+
+  .nav-link.active {
       background-color: var(--bg-gray);
-    }
   }
   
-  /* Accessibility */
-  .nav-link:focus-visible,
-  .login-button:focus-visible,
-  .menu-toggle:focus-visible {
-    outline: 2px solid var(--primary-blue);
-    outline-offset: 2px;
+  .login-button {
+      margin: 0.5rem 0;
+      text-align: center;
+      width: 100%;
   }
+}
+
+/* Accessibility */
+.nav-link:focus-visible,
+.login-button:focus-visible,
+.menu-toggle:focus-visible {
+  outline: 2px solid var(--primary-blue);
+  outline-offset: 2px;
+}
+
+/* User avatar in navbar (if applicable) */
+.user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  object-fit: cover;
+  border: 2px solid var(--border-light);
+}
+
+/* Dropdown menu (if applicable) */
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: var(--bg-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  min-width: 200px;
+  padding: 0.5rem 0;
+  display: none;
+  z-index: 1001;
+  border: 1px solid var(--border-light);
+}
+
+.dropdown-menu.active {
+  display: block;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.dropdown-item {
+  padding: 0.75rem 1rem;
+  color: var(--text-dark);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: background-color 0.2s;
+}
+
+.dropdown-item:hover {
+  background-color: var(--bg-gray);
+}
+
+.dropdown-divider {
+  height: 1px;
+  background-color: var(--border-light);
+  margin: 0.5rem 0;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
