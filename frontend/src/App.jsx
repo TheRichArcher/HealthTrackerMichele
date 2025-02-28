@@ -17,7 +17,6 @@ import ProtectedRoute from './components/ProtectedRoute';
 
 // Styles
 import './styles/App.css';
-import './styles/navbar.css';
 import './styles/Chat.css';
 
 // Protected Route Wrapper
