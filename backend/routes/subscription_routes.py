@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app, session
 from backend.routes.extensions import db
-from backend.models import User, Symptom, Report
+from backend.models import User, Symptom, Report, UserTierEnum
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 import openai
 import os
@@ -19,11 +19,54 @@ MAX_RETRIES = 3
 RETRY_DELAY = 2
 MAX_DETAILED_EXCHANGES = 5  # Number of recent exchanges to keep in full detail
 QUESTION_COUNT_THRESHOLD = 3  # Minimum number of questions before assessment
+MAX_FREE_MESSAGES = 15  # Maximum number of messages for free tier users
 
 class UserTier:
     FREE = "free"  # Nurse Mode
-    PAID = "paid"  # PA Mode
+    PAID = "pro"   # PA Mode - Updated to match UserTierEnum
     ONE_TIME = "one_time"  # Doctor's Report
+
+# Helper function to check if user has premium access
+def is_premium_user(user):
+    """Check if user has premium access (PA Mode or One-time purchase)"""
+    if not user:
+        return False
+    return user.subscription_tier in [UserTierEnum.PAID, UserTierEnum.ONE_TIME]
+
+@symptom_routes.route('/debug', methods=['GET'])
+def debug_route():
+    """Debug endpoint to check if our subscription enforcement logic is working"""
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info("Debug endpoint called")
+    
+    # Create a mock user with FREE tier
+    class MockUser:
+        def __init__(self):
+            self.subscription_tier = UserTierEnum.FREE
+    
+    mock_user = MockUser()
+    logger.info(f"Created mock user with tier: {mock_user.subscription_tier}")
+    
+    # Test medical recommendation detection
+    test_response = "Please seek a consultation with a healthcare professional. Based on your symptoms, here are some possible conditions: Bacterial Conjunctivitis – 85%, Viral Conjunctivitis – 15%. Please seek a consultation with a healthcare professional. It's important to get a proper diagnosis as treatment can differ. Avoid touching your eyes and make sure to wash your hands frequently to prevent spread."
+    
+    logger.info(f"Testing with response: {test_response}")
+    
+    # Call clean_ai_response with the mock user
+    processed = clean_ai_response(test_response, mock_user)
+    logger.info(f"Processed response: {processed}")
+    
+    # Check if requires_upgrade is set
+    requires_upgrade = processed.get('requires_upgrade', False)
+    logger.info(f"Requires upgrade: {requires_upgrade}")
+    
+    return jsonify({
+        'test_response': test_response,
+        'processed': processed,
+        'requires_upgrade': requires_upgrade,
+        'user_tier': mock_user.subscription_tier.value if hasattr(mock_user.subscription_tier, 'value') else str(mock_user.subscription_tier)
+    }), 200
 
 @symptom_routes.route('/reset', methods=['POST'])
 def reset_conversation():
@@ -110,6 +153,7 @@ def analyze_symptoms():
     auth_header = request.headers.get('Authorization')
     is_authenticated = False
     user_id = None
+    current_user = None
     user_tier = UserTier.FREE  # Default to free tier (Nurse Mode)
     
     if auth_header and auth_header.startswith('Bearer '):
@@ -121,27 +165,25 @@ def analyze_symptoms():
             
             # In a real implementation, you would fetch the user's subscription tier from the database
             if is_authenticated:
-                user = User.query.get(user_id)
-                # Safely get subscription tier without directly accessing the attribute
-                try:
-                    # Use a direct SQL query to avoid ORM issues with the column type
-                    result = db.session.execute(
-                        "SELECT subscription_tier FROM users WHERE id = :user_id",
-                        {"user_id": user_id}
-                    ).fetchone()
-                    
-                    if result and result[0]:
-                        user_tier = result[0]  # Use the string value directly
-                    else:
-                        user_tier = UserTier.FREE
-                        
+                current_user = User.query.get(user_id)
+                if current_user:
+                    # Get subscription tier from the user object
+                    user_tier = current_user.subscription_tier.value if hasattr(current_user, 'subscription_tier') else UserTier.FREE
                     current_app.logger.info(f"User {user_id} subscription tier: {user_tier}")
-                except Exception as e:
-                    current_app.logger.warning(f"Could not access subscription_tier: {str(e)}")
-                    user_tier = UserTier.FREE
         except Exception as e:
             current_app.logger.warning(f"Invalid token provided: {str(e)}")
             # Continue as unauthenticated user
+    
+    # For unauthenticated users or if user not found, create a mock user with FREE tier
+    if not current_user:
+        current_app.logger.info("Creating mock FREE tier user for unauthenticated request")
+        # Create a mock user object with FREE tier
+        class MockUser:
+            def __init__(self):
+                self.subscription_tier = UserTierEnum.FREE
+        
+        current_user = MockUser()
+        current_app.logger.info(f"Mock user created with tier: {current_user.subscription_tier}")
     
     try:
         data = request.get_json()
@@ -150,6 +192,22 @@ def analyze_symptoms():
         context_notes = data.get('context_notes', '')
         one_time_report = data.get('one_time_report', False)  # Flag for one-time Doctor's Report purchase
         reset = data.get('reset', False)  # Flag to reset conversation
+        
+        # Check message count for free users
+        if not is_premium_user(current_user):
+            # Count user messages in conversation history
+            user_message_count = sum(1 for msg in conversation_history if not msg.get('isBot', False))
+            
+            # If user has exceeded free message limit, require upgrade
+            if user_message_count >= MAX_FREE_MESSAGES:
+                return jsonify({
+                    'message': "You've reached the free message limit. Please upgrade to continue.",
+                    'requires_upgrade': True,
+                    'upgrade_options': [
+                        {"type": "subscription", "name": "PA Mode", "price": 9.99, "period": "month"},
+                        {"type": "one_time", "name": "Doctor's Report", "price": 4.99}
+                    ]
+                }), 200
         
         if reset:
             return jsonify({
@@ -187,6 +245,18 @@ def analyze_symptoms():
         # Prepare messages with context preservation
         messages, question_count = prepare_messages_with_context(conversation_history, symptoms, context_notes)
 
+        # For free users, add instruction to avoid specific diagnoses and treatments
+        if not is_premium_user(current_user):
+            messages.append({
+                "role": "system",
+                "content": """MONETIZATION ENFORCEMENT: 
+                1. DO NOT provide specific diagnoses or condition names to free users
+                2. DO NOT suggest specific treatments or medications
+                3. DO NOT provide detailed care recommendations
+                4. If you determine this is likely a specific condition, respond with a general description and indicate an upgrade is needed for details
+                5. For free users, only ask questions or provide very general information"""
+            })
+
         current_app.logger.info(f"Sending {len(messages)} messages to OpenAI")
         current_app.logger.debug(f"Full messages: {json.dumps(messages)}")
 
@@ -205,11 +275,28 @@ def analyze_symptoms():
                 current_app.logger.info(f"Raw OpenAI response: {ai_response[:200]}...")
 
                 # Process the response using the clean_ai_response function from openai_config
-                processed_response = clean_ai_response(ai_response)
+                # Pass the current_user to enforce subscription tier restrictions
+                current_app.logger.info(f"Processing response for user with tier: {current_user.subscription_tier}")
+                processed_response = clean_ai_response(ai_response, current_user)
                 
                 # Check if this is a JSON response (assessment)
                 is_assessment = processed_response.get("is_assessment", False)
                 is_question = processed_response.get("is_question", False)
+                
+                # For free users, always require upgrade for assessments
+                requires_upgrade = processed_response.get("requires_upgrade", False)
+                if is_assessment and not is_premium_user(current_user):
+                    requires_upgrade = True
+                    current_app.logger.info("FREE tier user needs upgrade for medical recommendation")
+                    
+                    # For free users, limit to only the first condition
+                    if "assessment" in processed_response and "conditions" in processed_response["assessment"]:
+                        if len(processed_response["assessment"]["conditions"]) > 1:
+                            processed_response["assessment"]["conditions"] = [processed_response["assessment"]["conditions"][0]]
+                            current_app.logger.info("Limited conditions to first one for FREE tier user")
+                
+                current_app.logger.info(f"Setting requires_upgrade={requires_upgrade}")
+                current_app.logger.info(f"Requires upgrade: {requires_upgrade}")
                 
                 # Determine care recommendation
                 care_recommendation = "Consider seeing a doctor soon."
@@ -242,46 +329,13 @@ def analyze_symptoms():
                     else:
                         confidence = 80  # Default confidence for assessments
 
-                # Apply tier-based limitations
-                requires_upgrade = False
-                upgrade_options = []
-                
-                # For free users (Nurse Mode) with non-mild conditions, limit information
-                if is_assessment and user_tier == UserTier.FREE and care_recommendation != "You can likely manage this at home.":
-                    # Extract a "mini-win" insight to show value before upgrade prompt
-                    mini_win = extract_mini_win(ai_response)
-                    
-                    # For moderate or severe conditions, limit information for free tier
-                    ai_response = f"""{mini_win}
-
-Based on your symptoms, I'm seeing a pattern that suggests this may require more detailed analysis.
-
-Care Recommendation: {care_recommendation}
-
-To unlock deeper insights into your symptoms, you have two options:
-
-1. Upgrade to PA Mode ($9.99/month) for:
-   - Comprehensive assessment of all conditions
-   - Ongoing symptom tracking
-   - Personalized health insights
-   - Unlimited consultations
-
-2. Purchase a one-time Doctor's Report ($4.99) for:
-   - Detailed analysis of this specific case
-   - Formatted summary you can share with healthcare providers
-   - Specific recommendations for next steps
-
-Disclaimer: This assessment is for informational purposes only and does not replace professional medical advice."""
-                    
-                    # Set requires_upgrade flag and options
-                    requires_upgrade = True
-                    upgrade_options = [
-                        {"type": "subscription", "name": "PA Mode", "price": 9.99, "period": "month"},
-                        {"type": "one_time", "name": "Doctor's Report", "price": 4.99}
-                    ]
-                
                 # For one-time report purchases, generate a comprehensive doctor's report
-                elif one_time_report or user_tier == UserTier.ONE_TIME:
+                # Only allow for premium users or those who specifically purchased it
+                if one_time_report and not is_premium_user(current_user):
+                    # If they requested a doctor's report but aren't premium, require upgrade
+                    requires_upgrade = True
+                    current_app.logger.info("FREE tier user requested doctor's report, requiring upgrade")
+                elif one_time_report or (current_user and current_user.subscription_tier == UserTierEnum.ONE_TIME):
                     # Generate a more formal, detailed doctor's report
                     doctor_report_messages = messages.copy()
                     doctor_report_messages.append({
@@ -348,16 +402,23 @@ Disclaimer: This assessment is for informational purposes only and does not repl
                             'triage_level': processed_response.get("assessment", {}).get("triage_level", None) if is_assessment else None
                         }
                 
+                # Add the requires_upgrade flag from the processed response
                 if requires_upgrade:
                     result['requires_upgrade'] = True
-                    result['upgrade_options'] = upgrade_options
+                    result['upgrade_options'] = [
+                        {"type": "subscription", "name": "PA Mode", "price": 9.99, "period": "month"},
+                        {"type": "one_time", "name": "Doctor's Report", "price": 4.99}
+                    ]
                 
                 return jsonify(result)
                 
             except openai.RateLimitError as e:
                 current_app.logger.error(f"OpenAI rate limit exceeded (attempt {attempt + 1}): {e}")
                 if attempt == MAX_RETRIES - 1:
-                    return jsonify({'error': 'AI service is temporarily busy. Please try again later.'}), 429
+                    return jsonify({
+                        'error': 'AI service is temporarily busy. Please try again later.',
+                        'requires_upgrade': False  # Ensure we don't trigger upgrade on error
+                    }), 429
                 # Exponential backoff: 2^attempt * RETRY_DELAY seconds (2, 4, 8...)
                 backoff_time = (2 ** attempt) * RETRY_DELAY
                 current_app.logger.info(f"Backing off for {backoff_time} seconds")
@@ -366,29 +427,44 @@ Disclaimer: This assessment is for informational purposes only and does not repl
             except openai.APIConnectionError as e:
                 current_app.logger.error(f"OpenAI API connection error (attempt {attempt + 1}): {e}")
                 if attempt == MAX_RETRIES - 1:
-                    return jsonify({'error': 'Unable to connect to AI service. Please try again later.'}), 503
+                    return jsonify({
+                        'error': 'Unable to connect to AI service. Please try again later.',
+                        'requires_upgrade': False  # Ensure we don't trigger upgrade on error
+                    }), 503
                 backoff_time = (2 ** attempt) * RETRY_DELAY
                 time.sleep(backoff_time)
 
             except openai.APIError as e:
                 current_app.logger.error(f"OpenAI API error (attempt {attempt + 1}): {e}")
                 if attempt == MAX_RETRIES - 1:
-                    return jsonify({'error': 'AI service error. Please try again later.'}), 500
+                    return jsonify({
+                        'error': 'AI service error. Please try again later.',
+                        'requires_upgrade': False  # Ensure we don't trigger upgrade on error
+                    }), 500
                 backoff_time = (2 ** attempt) * RETRY_DELAY
                 time.sleep(backoff_time)
 
             except openai.AuthenticationError as e:
                 current_app.logger.error(f"OpenAI authentication error: {e}")
-                return jsonify({'error': 'AI service authentication error. Please check your API key.'}), 500
+                return jsonify({
+                    'error': 'AI service authentication error. Please check your API key.',
+                    'requires_upgrade': False  # Ensure we don't trigger upgrade on error
+                }), 500
 
             except openai.InvalidRequestError as e:
                 current_app.logger.error(f"OpenAI invalid request error: {e}")
-                return jsonify({'error': 'Invalid request to AI service.'}), 400
+                return jsonify({
+                    'error': 'Invalid request to AI service.',
+                    'requires_upgrade': False  # Ensure we don't trigger upgrade on error
+                }), 400
                 
             except Exception as e:
                 current_app.logger.error(f"Unexpected error (attempt {attempt + 1}): {e}", exc_info=True)
                 if attempt == MAX_RETRIES - 1:
-                    return jsonify({'error': 'Unable to process your request.'}), 500
+                    return jsonify({
+                        'error': 'Unable to process your request.',
+                        'requires_upgrade': False  # Ensure we don't trigger upgrade on error
+                    }), 500
                 backoff_time = (2 ** attempt) * RETRY_DELAY
                 time.sleep(backoff_time)
 
@@ -397,7 +473,8 @@ Disclaimer: This assessment is for informational purposes only and does not repl
         return jsonify({
             'possible_conditions': "I apologize, but I'm having trouble processing your request right now. Please try again or seek medical attention if you're concerned about your symptoms.",
             'care_recommendation': "Consider seeing a doctor soon.",
-            'confidence': None
+            'confidence': None,
+            'requires_upgrade': False  # Ensure we don't trigger upgrade on error
         }), 500
 
 def extract_mini_win(ai_response):
@@ -468,6 +545,17 @@ def get_symptom_history():
         current_app.logger.warning(f"Authentication required for symptom history: {str(e)}")
         return jsonify({"error": "Authentication required"}), 401
     
+    # Check if user has premium access
+    current_user = User.query.get(user_id)
+    if not current_user or current_user.subscription_tier != UserTierEnum.PAID:
+        return jsonify({
+            "error": "Premium subscription required for symptom history", 
+            "requires_upgrade": True,
+            "upgrade_options": [
+                {"type": "subscription", "name": "PA Mode", "price": 9.99, "period": "month"}
+            ]
+        }), 403
+    
     try:
         # Get the user's symptom history
         symptoms = Symptom.query.filter_by(user_id=user_id).order_by(Symptom.created_at.desc()).all()
@@ -519,22 +607,36 @@ def get_symptom_history():
 @symptom_routes.route('/doctor-report', methods=['POST'])
 def generate_doctor_report():
     """Generate a one-time doctor's report for a specific symptom conversation."""
-    data = request.get_json()
-    symptoms = data.get('symptom', '')
-    conversation_history = data.get('conversation_history', [])
-    
     # Check for JWT token to determine if user is authenticated
     auth_header = request.headers.get('Authorization')
     is_authenticated = False
     user_id = None
+    current_user = None
     
     if auth_header and auth_header.startswith('Bearer '):
         try:
             verify_jwt_in_request(optional=True)
             user_id = get_jwt_identity()
             is_authenticated = user_id is not None
+            if is_authenticated:
+                current_user = User.query.get(user_id)
         except Exception as e:
             current_app.logger.warning(f"Invalid token provided: {str(e)}")
+    
+    # Verify user has appropriate access (paid or one-time purchase)
+    if not current_user or not is_premium_user(current_user):
+        return jsonify({
+            "error": "Premium access required to generate a doctor's report",
+            "requires_upgrade": True,
+            "upgrade_options": [
+                {"type": "subscription", "name": "PA Mode", "price": 9.99, "period": "month"},
+                {"type": "one_time", "name": "Doctor's Report", "price": 4.99}
+            ]
+        }), 403
+    
+    data = request.get_json()
+    symptoms = data.get('symptom', '')
+    conversation_history = data.get('conversation_history', [])
     
     try:
         # Verify API key is available

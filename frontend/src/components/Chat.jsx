@@ -544,6 +544,8 @@ const Chat = () => {
             // Debug logging
             if (CONFIG.DEBUG_MODE) {
                 console.log("Raw API response:", response.data);
+                console.log("Requires upgrade:", response.data.requires_upgrade);
+                console.log("Is assessment:", response.data.is_assessment);
             }
 
             setTimeout(() => {
@@ -605,6 +607,8 @@ const Chat = () => {
                 if (CONFIG.DEBUG_MODE) {
                     console.error("API error details:", error);
                 }
+                // Reset pendingUpgrade state when there's an error
+                setPendingUpgrade(false);
                 const errorMessage = "I apologize, but I'm having trouble processing your request. Could you try rephrasing that?";
                 setError(errorMessage);
                 setTimeout(() => {
