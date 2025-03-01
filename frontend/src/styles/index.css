@@ -15,50 +15,7 @@ body {
     padding: 20px;
 }
 
-/* 🛑 Reset navbar styles to prevent conflicts with navbar.css */
-.navbar {
-    all: unset !important; /* Reset all properties */
-    display: flex !important; /* Restore essential layout property */
-    width: 100% !important; /* Ensure full width */
-}
-
-/* Reset other navbar elements that might conflict */
-.nav-links {
-    all: unset !important;
-}
-
-.nav-links li, .nav-links a {
-    all: unset !important;
-}
-
-/* Error Messages */
-.error {
-    color: red;
-    font-weight: bold;
-}
-
-/* Buttons */
-button {
-    background-color: #4CAF50;
-    color: white;
-    padding: 10px 20px;
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-    font-size: 16px;
-    transition: background-color 0.2s ease-in-out;
-}
-
-button:hover:not(:disabled) {
-    background-color: #388E3C;
-}
-
-button:disabled {
-    background-color: #a5d6a7;
-    cursor: not-allowed;
-}
-
-/* Inputs & Textareas */
+/* Basic form styling - consider moving to component-specific CSS */
 input, textarea {
     width: 100%;
     padding: 10px;
@@ -68,51 +25,9 @@ input, textarea {
     font-size: 16px;
 }
 
-/* Conversation Log */
-.conversation-log {
-    margin-top: 20px;
-}
-
-/* User Messages */
-.user-message {
-    background-color: #f1f1f1;
-    padding: 10px;
-    margin-bottom: 10px;
-    border-radius: 5px;
-}
-
-/* 🔥 FIX: Removed bot-message styling to avoid conflicts with Chat.css */
-.bot-message {
-    all: unset !important; /* Ensures no interference */
-}
-
-/* 🛑 Completely remove global overrides affecting .message.bot */
-.chat-container .message.bot,
-.chat-container .message.bot .metrics-container,
-.chat-container .message.bot .confidence-label,
-.chat-container .message.bot .care-recommendation {
-    all: unset !important;
-}
-
-/* ✅ Prevent unwanted global interference */
-.chat-container .message.bot * {
-    background: unset !important;
-    color: unset !important;
-    padding: unset !important;
-    border: unset !important;
-}
-
-/* 🔧 Ensure Chat.css fully controls bot messages */
-.message.bot {
-    background: inherit !important;
-    color: inherit !important;
-    border-radius: inherit !important;
-    padding: inherit !important;
-    margin: inherit !important;
-}
-
-/* ✅ Final safeguard to prevent conflicts */
-.chat-container .message.bot .metrics-container {
-    display: inherit !important;
-    flex-direction: inherit !important;
+/* Responsive Design */
+@media (max-width: 768px) {
+    .app-container {
+        padding: 10px;
+    }
 }
