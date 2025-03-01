@@ -124,7 +124,7 @@
   overflow-y: auto;
   background: var(--bg-light);
   gap: 1.5rem;
-  padding-bottom: 120px; /* Added space for the input and assessment summary */
+  padding-bottom: 160px; /* Increased from 120px to provide more space */
 }
 
 /* Message Row Styling - NEW */
@@ -250,10 +250,10 @@
   background-color: #fcd34d;
 }
 
-/* Assessment Summary - NEW */
+/* Assessment Summary - UPDATED */
 .assessment-summary {
   position: fixed;
-  bottom: 80px; /* Position above the input container */
+  bottom: 90px; /* Increased from 80px to provide more space */
   left: 50%;
   transform: translateX(-50%);
   width: calc(100% - 32px);
