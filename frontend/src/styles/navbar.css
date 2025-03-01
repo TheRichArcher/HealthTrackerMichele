@@ -1,4 +1,4 @@
-/* Navbar.css - Complete file */
+/* Navbar.css - Complete file with !important flags */
 :root {
   --primary-blue: #2563eb;
   --primary-hover: #1d4ed8;
@@ -20,63 +20,63 @@
 
 /* Base navbar styles */
 .navbar {
-  position: sticky;
-  top: 0;
-  background: white;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-  z-index: 1000;
-  height: 64px;
-  display: flex;
-  align-items: center;
-  font-family: var(--font-sans);
-  width: 100%;
-  margin: 0;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.03);
+  position: sticky !important;
+  top: 0 !important;
+  background: white !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+  z-index: 1000 !important;
+  height: 64px !important;
+  display: flex !important;
+  align-items: center !important;
+  font-family: var(--font-sans) !important;
+  width: 100% !important;
+  margin: 0 !important;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.03) !important;
 }
 
 .navbar-container {
-  width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 1.5rem;
-  height: 100%;
+  width: 100% !important;
+  max-width: 1200px !important;
+  margin: 0 auto !important;
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  padding: 0 1.5rem !important;
+  height: 100% !important;
 }
 
 /* Brand section with logo */
 .navbar-brand {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.75rem !important;
 }
 
 .logo {
-  font-size: 1.4rem;
-  font-weight: 600;
-  color: var(--primary-blue);
-  text-decoration: none;
-  transition: color 0.2s ease;
-  letter-spacing: -0.02em;
-  display: flex;
-  align-items: center;
+  font-size: 1.4rem !important;
+  font-weight: 600 !important;
+  color: var(--primary-blue) !important;
+  text-decoration: none !important;
+  transition: color 0.2s ease !important;
+  letter-spacing: -0.02em !important;
+  display: flex !important;
+  align-items: center !important;
 }
 
 .logo:hover {
-  color: var(--primary-hover);
+  color: var(--primary-hover) !important;
 }
 
 .logo img {
-  height: 32px;
-  margin-right: 8px;
+  height: 32px !important;
+  margin-right: 8px !important;
 }
 
 /* Navigation menu */
 .navbar-menu {
-  display: flex;
-  align-items: center;
-  gap: 1.25rem;
+  display: flex !important;
+  align-items: center !important;
+  gap: 1.25rem !important;
 }
 
 /* Navigation buttons - Target more broadly */
@@ -84,143 +84,143 @@
 .nav-button,
 a.nav-button,
 button.nav-button {
-  color: #475569;
-  text-decoration: none;
-  padding: 0.5rem 0.75rem;
-  border-radius: var(--radius-sm);
-  transition: all 0.2s ease;
-  font-size: 0.95rem;
-  font-weight: 500;
-  position: relative;
-  background: none;
-  border: none;
-  cursor: pointer;
+  color: #475569 !important;
+  text-decoration: none !important;
+  padding: 0.5rem 0.75rem !important;
+  border-radius: var(--radius-sm) !important;
+  transition: all 0.2s ease !important;
+  font-size: 0.95rem !important;
+  font-weight: 500 !important;
+  position: relative !important;
+  background: none !important;
+  border: none !important;
+  cursor: pointer !important;
 }
 
 .navbar-menu a:hover,
 .nav-button:hover,
 a.nav-button:hover,
 button.nav-button:hover {
-  color: var(--primary-blue);
-  background-color: rgba(37, 99, 235, 0.05);
+  color: var(--primary-blue) !important;
+  background-color: rgba(37, 99, 235, 0.05) !important;
 }
 
 /* Chat button specific styling */
 .chat-button,
 a[href="/"] {
-  color: var(--primary-blue);
-  font-weight: 600;
+  color: var(--primary-blue) !important;
+  font-weight: 600 !important;
 }
 
 /* Sign In button - Target more broadly */
 .sign-in-button,
 a[href="/auth"],
 .navbar-menu a[href="/auth"] {
-  background: var(--primary-blue);
-  color: white;
-  padding: 0.5rem 1.25rem;
-  border-radius: var(--radius-md);
-  font-size: 0.95rem;
-  font-weight: 500;
-  text-decoration: none;
-  transition: all 0.2s ease;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  background: var(--primary-blue) !important;
+  color: white !important;
+  padding: 0.5rem 1.25rem !important;
+  border-radius: var(--radius-md) !important;
+  font-size: 0.95rem !important;
+  font-weight: 500 !important;
+  text-decoration: none !important;
+  transition: all 0.2s ease !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
 }
 
 .sign-in-button:hover,
 a[href="/auth"]:hover,
 .navbar-menu a[href="/auth"]:hover {
-  background: var(--primary-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(37, 99, 235, 0.15);
+  background: var(--primary-hover) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 8px rgba(37, 99, 235, 0.15) !important;
 }
 
 .sign-in-button:active,
 a[href="/auth"]:active,
 .navbar-menu a[href="/auth"]:active {
-  transform: translateY(0);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transform: translateY(0) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
 }
 
 /* Logout button */
 .logout-button {
-  color: #ef4444;
+  color: #ef4444 !important;
 }
 
 .logout-button:hover {
-  color: #dc2626;
-  background-color: rgba(239, 68, 68, 0.05);
+  color: #dc2626 !important;
+  background-color: rgba(239, 68, 68, 0.05) !important;
 }
 
 /* Mobile menu toggle */
 .navbar-burger {
-  display: none;
-  background: none;
-  border: none;
-  padding: 0.5rem;
-  cursor: pointer;
-  color: var(--text-dark);
-  border-radius: var(--radius-sm);
+  display: none !important;
+  background: none !important;
+  border: none !important;
+  padding: 0.5rem !important;
+  cursor: pointer !important;
+  color: var(--text-dark) !important;
+  border-radius: var(--radius-sm) !important;
 }
 
 .navbar-burger:hover {
-  background-color: var(--bg-gray);
+  background-color: var(--bg-gray) !important;
 }
 
 /* Hamburger icon */
 .navbar-burger span {
-  display: block;
-  width: 24px;
-  height: 2px;
-  margin: 5px 0;
-  background-color: var(--text-dark);
-  border-radius: 1px;
+  display: block !important;
+  width: 24px !important;
+  height: 2px !important;
+  margin: 5px 0 !important;
+  background-color: var(--text-dark) !important;
+  border-radius: 1px !important;
 }
 
 /* Mobile styles */
 @media (max-width: 768px) {
   .navbar-container {
-    padding: 0 1rem;
+    padding: 0 1rem !important;
   }
   
   .navbar-burger {
-    display: block;
+    display: block !important;
   }
 
   .navbar-menu {
-    position: absolute;
-    top: 64px;
-    left: 0;
-    right: 0;
-    background: white;
-    padding: 0.75rem;
-    flex-direction: column;
-    align-items: stretch;
-    display: none;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-    border-bottom: 1px solid var(--border-light);
-    z-index: 1000;
+    position: absolute !important;
+    top: 64px !important;
+    left: 0 !important;
+    right: 0 !important;
+    background: white !important;
+    padding: 0.75rem !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    display: none !important;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05) !important;
+    border-bottom: 1px solid var(--border-light) !important;
+    z-index: 1000 !important;
   }
 
   .navbar-menu.active {
-    display: flex;
+    display: flex !important;
   }
 
   .nav-button,
   .navbar-menu a {
-    padding: 0.75rem 1rem;
-    border-radius: var(--radius-sm);
-    margin: 0.25rem 0;
-    width: 100%;
-    text-align: left;
+    padding: 0.75rem 1rem !important;
+    border-radius: var(--radius-sm) !important;
+    margin: 0.25rem 0 !important;
+    width: 100% !important;
+    text-align: left !important;
   }
   
   .sign-in-button,
   a[href="/auth"],
   .navbar-menu a[href="/auth"] {
-    margin: 0.5rem 0;
-    text-align: center;
-    width: 100%;
+    margin: 0.5rem 0 !important;
+    text-align: center !important;
+    width: 100% !important;
   }
 }
 
@@ -229,70 +229,70 @@ a[href="/auth"]:active,
 .sign-in-button:focus-visible,
 .navbar-burger:focus-visible,
 a:focus-visible {
-  outline: 2px solid var(--primary-blue);
-  outline-offset: 2px;
+  outline: 2px solid var(--primary-blue) !important;
+  outline-offset: 2px !important;
 }
 
 /* Modal styles for logout confirmation */
 .modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1100;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  background-color: rgba(0, 0, 0, 0.5) !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  z-index: 1100 !important;
 }
 
 .modal-content {
-  background: white;
-  padding: 2rem;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
-  max-width: 400px;
-  width: 90%;
+  background: white !important;
+  padding: 2rem !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-md) !important;
+  max-width: 400px !important;
+  width: 90% !important;
 }
 
 .modal-content h3 {
-  margin-top: 0;
-  color: var(--text-dark);
+  margin-top: 0 !important;
+  color: var(--text-dark) !important;
 }
 
 .modal-buttons {
-  display: flex;
-  justify-content: flex-end;
-  gap: 1rem;
-  margin-top: 1.5rem;
+  display: flex !important;
+  justify-content: flex-end !important;
+  gap: 1rem !important;
+  margin-top: 1.5rem !important;
 }
 
 .btn {
-  padding: 0.5rem 1rem;
-  border-radius: var(--radius-sm);
-  font-size: 0.95rem;
-  font-weight: 500;
-  cursor: pointer;
-  border: none;
+  padding: 0.5rem 1rem !important;
+  border-radius: var(--radius-sm) !important;
+  font-size: 0.95rem !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  border: none !important;
 }
 
 .btn-danger {
-  background-color: #ef4444;
-  color: white;
+  background-color: #ef4444 !important;
+  color: white !important;
 }
 
 .btn-danger:hover {
-  background-color: #dc2626;
+  background-color: #dc2626 !important;
 }
 
 .btn-secondary {
-  background-color: #e5e7eb;
-  color: var(--text-dark);
+  background-color: #e5e7eb !important;
+  color: var(--text-dark) !important;
 }
 
 .btn-secondary:hover {
-  background-color: #d1d5db;
+  background-color: #d1d5db !important;
 }
 
 @keyframes fadeIn {
