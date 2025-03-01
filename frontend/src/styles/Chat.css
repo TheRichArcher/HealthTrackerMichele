@@ -124,7 +124,7 @@
   overflow-y: auto;
   background: var(--bg-light);
   gap: 1.5rem;
-  padding-bottom: 160px; /* Increased from 120px to provide more space */
+  padding-bottom: 200px; /* Significantly increased from 160px to provide more space */
 }
 
 /* Message Row Styling - NEW */
@@ -265,6 +265,8 @@
   border-left: 4px solid var(--primary-blue);
   z-index: 20;
   animation: fadeIn 0.3s ease-in-out;
+  max-height: 120px; /* Limit the height */
+  overflow-y: auto; /* Allow scrolling if content is too large */
 }
 
 .assessment-summary h4 {
@@ -460,7 +462,7 @@
   border: 1px solid #3a86ff; /* Thinner border */
   border-radius: 10px; /* Slightly smaller radius */
   padding: 12px; /* Reduced from 16px */
-  margin: 12px 0; /* Reduced from 16px */
+  margin: 12px 0 80px 0; /* Added bottom margin to ensure visibility above assessment summary */
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); /* Lighter shadow */
   animation: fadeIn 0.5s ease-in-out;
   position: relative;
