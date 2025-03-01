@@ -18,6 +18,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 // Styles
 import './styles/App.css';
 import './styles/Chat.css';
+import './styles/navbar.css'; // Added navbar.css import LAST to ensure it overrides other styles
 
 // Protected Route Wrapper
 const PrivateRoute = ({ children }) => {
