@@ -58,7 +58,7 @@ class ChatErrorBoundary extends React.Component {
     }
 }
 
-const Message = memo(({ message, onRetry, index }) => {
+const Message = memo(({ message, onRetry, index, hideAssessmentDetails }) => {
     const { sender, text, confidence, careRecommendation, isAssessment, triageLevel } = message;
 
     const getCareRecommendation = useCallback((level) => {
@@ -88,8 +88,8 @@ const Message = memo(({ message, onRetry, index }) => {
                         <p key={i}>{line}</p>
                     ))}
                 </div>
-                {/* Only show metrics if this is an assessment */}
-                {sender === 'bot' && isAssessment && (confidence || careRecommendation || triageLevel) && (
+                {/* Only show metrics if this is an assessment AND we're not hiding assessment details */}
+                {sender === 'bot' && isAssessment && !hideAssessmentDetails && (confidence || careRecommendation || triageLevel) && (
                     <div className="assessment-info">
                         {confidence && (
                             <div 
@@ -134,7 +134,8 @@ Message.propTypes = {
         triageLevel: PropTypes.string
     }).isRequired,
     onRetry: PropTypes.func.isRequired,
-    index: PropTypes.number.isRequired
+    index: PropTypes.number.isRequired,
+    hideAssessmentDetails: PropTypes.bool
 };
 
 // New Assessment Summary component to keep assessment visible
@@ -201,6 +202,9 @@ const Chat = () => {
     // Add state for the latest assessment to keep it visible
     const [latestAssessment, setLatestAssessment] = useState(null);
     
+    // Add state to track if we should hide assessment details in messages
+    const [hideAssessmentDetailsInMessages, setHideAssessmentDetailsInMessages] = useState(false);
+    
     // Add state for showing the onboarding component
     const [showChatOnboarding, setShowChatOnboarding] = useState(() => {
         return !localStorage.getItem('healthtracker_chat_onboarding_complete');
@@ -211,6 +215,13 @@ const Chat = () => {
     const chatContainerRef = useRef(null);
     const inputRef = useRef(null);
     const messagesContainerRef = useRef(null);
+
+    // Update the useEffect that sets latestAssessment to also set hideAssessmentDetailsInMessages
+    useEffect(() => {
+        if (latestAssessment) {
+            setHideAssessmentDetailsInMessages(true);
+        }
+    }, [latestAssessment]);
 
     // Force focus on input field - more aggressive approach
     const forceFocus = useCallback(() => {
@@ -316,17 +327,11 @@ const Chat = () => {
                 setSignupPrompt(true);
                 setPendingUpgrade(false);
                 
-                // Add a bot message explaining the upgrade options
-                setTimeout(() => {
-                    typeMessage(
-                        "To get more detailed insights and recommendations about your condition, please choose one of the upgrade options below.",
-                        false
-                    );
-                    
-                    // Scroll to make sure upgrade options are visible
-                    setTimeout(scrollToBottom, 100);
-                    setTimeout(scrollToBottom, 500);
-                }, 1000);
+                // We'll skip adding a bot message here since the upgrade box will be visible
+                
+                // Scroll to make sure upgrade options are visible
+                setTimeout(scrollToBottom, 100);
+                setTimeout(scrollToBottom, 500);
             }, 500);
         }
     }, [pendingUpgrade, typing, isTypingComplete, scrollToBottom]);
@@ -349,6 +354,15 @@ const Chat = () => {
     }, []);
 
     const typeMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null) => {
+        // Check if this is an upgrade prompt message and we already have the upgrade box showing
+        const isUpgradePrompt = message.includes("upgrade options") || message.includes("more detailed insights");
+        if (isUpgradePrompt && signupPrompt) {
+            // Skip adding this message as we already have the upgrade box
+            setTyping(false);
+            setIsTypingComplete(true);
+            return;
+        }
+        
         let index = 0;
         setIsTypingComplete(false);
         
@@ -398,7 +412,7 @@ const Chat = () => {
                 forceFocus();
             }
         }, CONFIG.TYPING_SPEED);
-    }, [scrollToBottom, forceFocus]);
+    }, [scrollToBottom, forceFocus, signupPrompt]);
 
     const handleRetry = useCallback(async (messageIndex) => {
         const originalMessage = messages[messageIndex - 1];
@@ -431,6 +445,7 @@ const Chat = () => {
             setLoadingOneTime(false);
             setPendingUpgrade(false);
             setLatestAssessment(null); // Reset the latest assessment
+            setHideAssessmentDetailsInMessages(false); // Reset this state too
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
             
             // Focus the input after reset
@@ -455,6 +470,7 @@ const Chat = () => {
             setLoadingOneTime(false);
             setPendingUpgrade(false);
             setLatestAssessment(null); // Reset the latest assessment
+            setHideAssessmentDetailsInMessages(false); // Reset this state too
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
         } finally {
             setResetting(false);
@@ -478,15 +494,9 @@ const Chat = () => {
         setInputError(null);
 
         // Handle free tier message limit
-        if (newMessageCount >= CONFIG.MAX_FREE_MESSAGES && !signupPrompt) {
+        if (newMessageCount >= CONFIG.MAX_FREE_MESSAGES && !signupPrompt && !upgradeDismissed) {
             setSignupPrompt(true);
-            setMessages(prev => [...prev, {
-                sender: 'bot',
-                text: "You've reached the free message limit. Subscribe for unlimited access or purchase a one-time AI report for this conversation.",
-                confidence: null,
-                careRecommendation: null,
-                isAssessment: false
-            }]);
+            // Don't add a message here since we'll show the upgrade box
             return;
         }
 
@@ -724,6 +734,7 @@ const Chat = () => {
                             message={msg}
                             onRetry={handleRetry}
                             index={index}
+                            hideAssessmentDetails={hideAssessmentDetailsInMessages && msg.isAssessment}
                         />
                     ))}
                     
