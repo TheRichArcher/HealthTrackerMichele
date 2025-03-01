@@ -327,8 +327,6 @@ const Chat = () => {
                 setSignupPrompt(true);
                 setPendingUpgrade(false);
                 
-                // We'll skip adding a bot message here since the upgrade box will be visible
-                
                 // Scroll to make sure upgrade options are visible
                 setTimeout(scrollToBottom, 100);
                 setTimeout(scrollToBottom, 500);
@@ -510,7 +508,7 @@ const Chat = () => {
         }]);
         
         // Check if we need to show the secondary prompt after user dismisses the upgrade prompt
-        if (upgradeDismissed && !showSecondaryPrompt) {
+        if (upgradeDismissed && !showSecondaryPrompt && !pendingUpgrade) {
             setShowSecondaryPrompt(true);
             
             // Find the latest user message for personalization
@@ -601,7 +599,7 @@ const Chat = () => {
                 const requiresUpgrade = response.data.requires_upgrade === true;
                 
                 // If this requires an upgrade, set a flag to show it after the assessment is displayed
-                if (requiresUpgrade) {
+                if (requiresUpgrade && !signupPrompt) {
                     setPendingUpgrade(true);
                 }
                 
@@ -623,7 +621,14 @@ const Chat = () => {
                         conditions.forEach(condition => {
                             formattedMessage += `${condition.name} – ${condition.confidence}%\n`;
                         });
-                        formattedMessage += `\n${careRecommendation}\n\n${disclaimer}`;
+                        
+                        // Only add care recommendation if we're not going to show an upgrade prompt
+                        // This prevents duplicate "see a doctor" messages
+                        if (!requiresUpgrade || signupPrompt) {
+                            formattedMessage += `\n${careRecommendation}\n\n${disclaimer}`;
+                        } else {
+                            formattedMessage += `\n${disclaimer}`;
+                        }
                         
                         confidence = conditions[0]?.confidence || response.data.confidence;
                         
