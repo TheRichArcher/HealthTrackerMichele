@@ -299,45 +299,41 @@ const Chat = () => {
         }
     }, [messages, isTypingComplete]);
 
-    // Enhanced scroll function with multi-step scrolling for absolute reliability
+    // Enhanced scroll function with more targeted approach
     const scrollToBottom = useCallback(() => {
+        // Use requestAnimationFrame for smoother scrolling
         requestAnimationFrame(() => {
+            // Only scroll if we have a container to scroll
             if (messagesContainerRef.current) {
-                messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+                // Calculate if we're near the bottom already (within 100px)
+                const container = messagesContainerRef.current;
+                const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+                
+                // Only do a smooth scroll if we're already near the bottom
+                // This prevents the "bouncing" effect during typing
+                if (isNearBottom || !typing) {
+                    container.scrollTop = container.scrollHeight;
+                    
+                    if (messagesEndRef.current) {
+                        messagesEndRef.current.scrollIntoView({ 
+                            behavior: "auto", 
+                            block: "end" 
+                        });
+                    }
+                }
             }
-            if (messagesEndRef.current) {
-                messagesEndRef.current.scrollIntoView({ 
-                    behavior: "auto", // More reliable than smooth for ensuring full visibility
-                    block: "end" 
-                });
-            }
-
-            // Multi-Step Scrolling to Cover Edge Cases
-            setTimeout(() => {
-                if (messagesContainerRef.current) {
-                    messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
-                }
-            }, 50);
-
-            setTimeout(() => {
-                if (messagesContainerRef.current) {
-                    messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
-                }
-            }, 150);
-
-            setTimeout(() => {
-                if (messagesContainerRef.current) {
-                    messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
-                }
-            }, 300);
         });
-    }, []);
+    }, [typing]);
 
     // Add MutationObserver to detect DOM changes and scroll
     useEffect(() => {
         if (messagesContainerRef.current) {
             const observer = new MutationObserver(() => {
-                scrollToBottom();
+                // Only scroll on DOM changes if we're not typing
+                // This helps prevent the bouncing effect
+                if (!typing) {
+                    scrollToBottom();
+                }
             });
             
             observer.observe(messagesContainerRef.current, {
@@ -347,7 +343,7 @@ const Chat = () => {
             
             return () => observer.disconnect();
         }
-    }, [scrollToBottom]);
+    }, [scrollToBottom, typing]);
 
     // Enhanced scroll when messages change
     useEffect(() => {
@@ -365,9 +361,10 @@ const Chat = () => {
         }
     }, [messages, scrollToBottom]);
 
-    // Scroll during typing animation
+    // Scroll during typing animation - reduced frequency to prevent bouncing
     useEffect(() => {
         if (typing) {
+            // Scroll less frequently during typing (every 500ms instead of continuously)
             const interval = setInterval(() => scrollToBottom(), 500);
             return () => clearInterval(interval);
         }
@@ -404,8 +401,22 @@ const Chat = () => {
         if (latestAssessment && !typing && isTypingComplete && uiState === UI_STATES.DEFAULT) {
             // Show the assessment UI state
             setUiState(UI_STATES.ASSESSMENT);
+            
+            // Add a small delay before scrolling to ensure UI has updated
+            setTimeout(() => {
+                // Find the last message and scroll to it
+                if (messagesContainerRef.current) {
+                    const container = messagesContainerRef.current;
+                    const lastMessage = container.querySelector('.message-row:last-child');
+                    if (lastMessage) {
+                        lastMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    } else {
+                        scrollToBottom();
+                    }
+                }
+            }, 100);
         }
-    }, [latestAssessment, typing, isTypingComplete, uiState]);
+    }, [latestAssessment, typing, isTypingComplete, uiState, scrollToBottom]);
 
     useEffect(() => {
         return () => {
@@ -439,7 +450,10 @@ const Chat = () => {
         const interval = setInterval(() => {
             if (index < message.length) {
                 setCurrentBotMessage(prev => message.slice(0, index + 1));
-                // Don't scroll during typing to avoid the jumping effect
+                // Only scroll every 20 characters to reduce bouncing
+                if (index % 20 === 0) {
+                    scrollToBottom();
+                }
                 index++;
             } else {
                 clearInterval(interval);
@@ -467,13 +481,12 @@ const Chat = () => {
                 setTyping(false);
                 setIsTypingComplete(true);
                 
-                // Immediately force full visibility, ensuring no cutoff issues
+                // Scroll after message is complete - use fewer, more strategic scrolls
                 scrollToBottom();
-                setTimeout(scrollToBottom, 50);
-                setTimeout(scrollToBottom, 150);
-                setTimeout(scrollToBottom, 300);
-                setTimeout(scrollToBottom, 600);
-                setTimeout(scrollToBottom, 1000); // Final delayed check to guarantee visibility
+                
+                // Add just two backup scrolls with reasonable delays
+                setTimeout(scrollToBottom, 100);
+                setTimeout(scrollToBottom, 500);
                 
                 // Re-focus input after typing completes
                 forceFocus();
