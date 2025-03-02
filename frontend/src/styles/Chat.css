@@ -513,6 +513,12 @@
   to { transform: rotate(360deg); }
 }
 
+/* Positioning for assessment summary when shown with upgrade prompt */
+.assessment-with-upgrade .assessment-summary {
+  bottom: 300px; /* Adjust based on the height of your upgrade prompt */
+  z-index: 15; /* Lower than upgrade prompt but higher than other elements */
+}
+
 /* Mobile optimizations */
 @media (max-width: 768px) {
   .message {

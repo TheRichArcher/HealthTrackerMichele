@@ -12,6 +12,7 @@ const UI_STATES = {
   DEFAULT: 'default',
   ASSESSMENT: 'assessment',
   UPGRADE_PROMPT: 'upgrade_prompt',
+  ASSESSMENT_WITH_UPGRADE: 'assessment_with_upgrade', // New state
   SECONDARY_PROMPT: 'secondary_prompt'
 };
 
@@ -322,22 +323,24 @@ const Chat = () => {
         }
     }, [scrollToBottom]);
 
-    // Enhanced scroll when messages change or typing state changes
+    // Enhanced scroll when messages change
     useEffect(() => {
-        // Immediate scroll
-        scrollToBottom();
-        
-        // Multiple delayed scrolls with increasing timeouts
-        const timeouts = [
-            setTimeout(scrollToBottom, 50),
-            setTimeout(scrollToBottom, 100),
-            setTimeout(scrollToBottom, 300),
-            setTimeout(scrollToBottom, 500),
-            setTimeout(scrollToBottom, 1000)
-        ];
-        
-        return () => timeouts.forEach(clearTimeout);
-    }, [messages, typing, uiState, latestAssessment, scrollToBottom]);
+        if (messages.length > 0) {
+            // Immediate scroll
+            scrollToBottom();
+            
+            // Multiple delayed scrolls with increasing timeouts
+            const timeouts = [
+                setTimeout(scrollToBottom, 10),
+                setTimeout(scrollToBottom, 50),
+                setTimeout(scrollToBottom, 100),
+                setTimeout(scrollToBottom, 300),
+                setTimeout(scrollToBottom, 500)
+            ];
+            
+            return () => timeouts.forEach(clearTimeout);
+        }
+    }, [messages, scrollToBottom]);
 
     // Scroll during typing animation
     useEffect(() => {
@@ -349,7 +352,7 @@ const Chat = () => {
 
     // Auto-scroll when upgrade options appear
     useEffect(() => {
-        if (uiState === UI_STATES.UPGRADE_PROMPT) {
+        if (uiState === UI_STATES.UPGRADE_PROMPT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) {
             // Scroll to the upgrade options with a slight delay to ensure they're rendered
             setTimeout(() => {
                 scrollToBottom();
@@ -386,7 +389,7 @@ const Chat = () => {
 
     const typeMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null) => {
         // For assessments that will trigger an upgrade prompt, show a simplified message
-        if (isAssessment && uiState === UI_STATES.ASSESSMENT) {
+        if (isAssessment && (uiState === UI_STATES.ASSESSMENT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE)) {
             message = "Based on your symptoms, I've completed an assessment. Please see the summary below.";
         }
         
@@ -399,8 +402,8 @@ const Chat = () => {
         const interval = setInterval(() => {
             if (index < message.length) {
                 setCurrentBotMessage(prev => message.slice(0, index + 1));
-                // Scroll on each update
-                setTimeout(scrollToBottom, 0);
+                // Scroll on each character update - more aggressive
+                scrollToBottom();
                 index++;
             } else {
                 clearInterval(interval);
@@ -423,18 +426,13 @@ const Chat = () => {
                 setTyping(false);
                 setIsTypingComplete(true);
                 
-                // Extra scrolling for assessments which tend to be longer
-                if (isAssessment) {
-                    // Multiple scroll attempts with increasing delays for longer assessment messages
-                    setTimeout(scrollToBottom, 100);
-                    setTimeout(scrollToBottom, 300);
-                    setTimeout(scrollToBottom, 500);
-                    setTimeout(scrollToBottom, 1000);
-                    setTimeout(scrollToBottom, 2000);
-                } else {
-                    // Standard scroll for regular messages
-                    setTimeout(scrollToBottom, 100);
-                }
+                // Extra aggressive scrolling for all messages
+                scrollToBottom();
+                setTimeout(scrollToBottom, 10);
+                setTimeout(scrollToBottom, 50);
+                setTimeout(scrollToBottom, 100);
+                setTimeout(scrollToBottom, 300);
+                setTimeout(scrollToBottom, 500);
                 
                 // Re-focus input after typing completes
                 forceFocus();
@@ -655,13 +653,8 @@ const Chat = () => {
                                 null // Don't include care recommendation in the message
                             );
                             
-                            // First show the assessment summary
-                            setUiState(UI_STATES.ASSESSMENT);
-                            
-                            // After a delay, show the upgrade prompt
-                            setTimeout(() => {
-                                setUiState(UI_STATES.UPGRADE_PROMPT);
-                            }, 2000); // Increased delay to give users time to see the assessment
+                            // Show both assessment and upgrade
+                            setUiState(UI_STATES.ASSESSMENT_WITH_UPGRADE);
                         } else {
                             // Regular assessment without upgrade
                             formattedMessage += 'Based on your symptoms, here are some possible conditions:\n\n';
@@ -709,13 +702,8 @@ const Chat = () => {
                                 null // Don't include care recommendation in the message
                             );
                             
-                            // First show the assessment summary
-                            setUiState(UI_STATES.ASSESSMENT);
-                            
-                            // After a delay, show the upgrade prompt
-                            setTimeout(() => {
-                                setUiState(UI_STATES.UPGRADE_PROMPT);
-                            }, 2000); // Increased delay to give users time to see the assessment
+                            // Show both assessment and upgrade
+                            setUiState(UI_STATES.ASSESSMENT_WITH_UPGRADE);
                         } else {
                             // For non-upgrade assessments, show the full assessment
                             typeMessage(
@@ -778,7 +766,12 @@ const Chat = () => {
 
     return (
         <ChatErrorBoundary>
-            <div className="chat-container" ref={chatContainerRef} role="main" aria-label="Chat interface">
+            <div 
+                className={`chat-container ${uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE ? 'assessment-with-upgrade' : ''}`} 
+                ref={chatContainerRef} 
+                role="main" 
+                aria-label="Chat interface"
+            >
                 <div className="chat-header">
                     <div className="chat-header-left">
                         <img
@@ -820,7 +813,7 @@ const Chat = () => {
                             message={msg}
                             onRetry={handleRetry}
                             index={index}
-                            hideAssessmentDetails={uiState === UI_STATES.ASSESSMENT && msg.isAssessment}
+                            hideAssessmentDetails={(uiState === UI_STATES.ASSESSMENT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) && msg.isAssessment}
                         />
                     ))}
                     
@@ -864,8 +857,10 @@ const Chat = () => {
                     <div ref={messagesEndRef} />
                 </div>
 
-                {/* Add the sticky assessment summary here - only show if in ASSESSMENT state */}
-                {uiState === UI_STATES.ASSESSMENT && latestAssessment && <AssessmentSummary assessment={latestAssessment} />}
+                {/* Add the sticky assessment summary here - show if in ASSESSMENT or ASSESSMENT_WITH_UPGRADE state */}
+                {(uiState === UI_STATES.ASSESSMENT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) && latestAssessment && (
+                    <AssessmentSummary assessment={latestAssessment} />
+                )}
 
                 <div className="chat-input-container">
                     <div className="chat-input-wrapper">
@@ -879,7 +874,7 @@ const Chat = () => {
                             }}
                             onKeyDown={handleKeyDown}
                             placeholder="Describe your symptoms in detail..."
-                            disabled={loading || uiState === UI_STATES.UPGRADE_PROMPT || resetting}
+                            disabled={loading || (uiState === UI_STATES.UPGRADE_PROMPT && uiState !== UI_STATES.ASSESSMENT_WITH_UPGRADE) || resetting}
                             maxLength={CONFIG.MAX_MESSAGE_LENGTH}
                             aria-label="Symptom description input"
                             aria-invalid={!!inputError}
@@ -899,7 +894,7 @@ const Chat = () => {
                         <button
                             className="send-button"
                             onClick={() => handleSendMessage()}
-                            disabled={loading || uiState === UI_STATES.UPGRADE_PROMPT || resetting || !userInput.trim()}
+                            disabled={loading || (uiState === UI_STATES.UPGRADE_PROMPT && uiState !== UI_STATES.ASSESSMENT_WITH_UPGRADE) || resetting || !userInput.trim()}
                             aria-label="Send message"
                         >
                             Send
@@ -912,13 +907,13 @@ const Chat = () => {
                     )}
                 </div>
 
-                {/* Show upgrade prompt only in UPGRADE_PROMPT state */}
-                {uiState === UI_STATES.UPGRADE_PROMPT && (
+                {/* Show upgrade prompt if in UPGRADE_PROMPT or ASSESSMENT_WITH_UPGRADE state */}
+                {(uiState === UI_STATES.UPGRADE_PROMPT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) && (
                     <div className="upgrade-options">
                         <button 
                             className="close-upgrade" 
                             onClick={() => {
-                                setUiState(UI_STATES.ASSESSMENT);
+                                setUiState(uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE ? UI_STATES.ASSESSMENT : UI_STATES.DEFAULT);
                                 forceFocus();
                             }}
                             aria-label="Dismiss upgrade prompt"
@@ -929,8 +924,8 @@ const Chat = () => {
                             <h3>Based on your symptoms, I've identified a condition that may require further evaluation.</h3>
                             <p>💡 To get more insights, you can choose one of these options:</p>
                             <ul>
-                                <li>🔹 Premium Access ($12.99/month): Unlimited symptom checks, detailed assessments, and personalized health monitoring.</li>
-                                <li>🔹 One-time Consultation Report ($7.99): Get a comprehensive analysis of your current symptoms.</li>
+                                <li>🔹 Premium Access ($9.99/month): Unlimited symptom checks, detailed assessments, and personalized health monitoring.</li>
+                                <li>🔹 One-time Consultation Report ($4.99): Get a comprehensive analysis of your current symptoms.</li>
                             </ul>
                             <p>Would you like to continue with one of these options?</p>
                         </div>
@@ -946,7 +941,7 @@ const Chat = () => {
                                 }}
                                 disabled={loadingSubscription || loadingOneTime}
                             >
-                                {loadingSubscription ? 'Processing...' : '🩺 Get Premium Access ($12.99/month)'}
+                                {loadingSubscription ? 'Processing...' : '🩺 Get Premium Access ($9.99/month)'}
                             </button>
                             <button 
                                 className={`upgrade-button one-time ${loadingOneTime ? 'loading' : ''}`}
@@ -959,7 +954,7 @@ const Chat = () => {
                                 }}
                                 disabled={loadingSubscription || loadingOneTime}
                             >
-                                {loadingOneTime ? 'Processing...' : '📄 Get Consultation Report ($7.99)'}
+                                {loadingOneTime ? 'Processing...' : '📄 Get Consultation Report ($4.99)'}
                             </button>
                         </div>
                     </div>
