@@ -374,8 +374,25 @@
   border-radius: 8px;
   padding: 16px;
   margin: 15px 0;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
   z-index: 20;
+  max-height: 80vh; /* Limit height to ensure it's visible */
+  overflow-y: auto; /* Allow scrolling if needed */
+}
+
+/* Ensure upgrade options are visible in assessment_with_upgrade state */
+.assessment-with-upgrade .upgrade-options {
+  margin-top: 20px;
+  margin-bottom: 80px; /* Add more space at bottom */
+}
+
+/* Adjust assessment summary position in assessment_with_upgrade state */
+.assessment-with-upgrade .assessment-summary {
+  position: sticky;
+  bottom: auto;
+  top: 10px;
+  margin-bottom: 20px;
+  z-index: 15;
 }
 
 .close-upgrade {

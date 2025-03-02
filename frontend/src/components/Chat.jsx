@@ -208,6 +208,9 @@ const Chat = () => {
     const [currentBotMessage, setCurrentBotMessage] = useState('');
     const [isTypingComplete, setIsTypingComplete] = useState(true);
     
+    // Add a counter for bot messages to track question number
+    const [botMessageCount, setBotMessageCount] = useState(0);
+    
     // Unified UI state
     const [uiState, setUiState] = useState(UI_STATES.DEFAULT);
     
@@ -228,6 +231,7 @@ const Chat = () => {
     const chatContainerRef = useRef(null);
     const inputRef = useRef(null);
     const messagesContainerRef = useRef(null);
+    const upgradeOptionsRef = useRef(null);
 
     // Debug mode toggle (only in development)
     useEffect(() => {
@@ -238,6 +242,7 @@ const Chat = () => {
                     console.log('Current UI State:', uiState);
                     console.log('Latest Assessment:', latestAssessment);
                     console.log('Message Count:', messageCount);
+                    console.log('Bot Message Count:', botMessageCount);
                     console.log('Current Messages:', messages);
                 }
             };
@@ -245,7 +250,7 @@ const Chat = () => {
             window.addEventListener('keydown', handleKeyPress);
             return () => window.removeEventListener('keydown', handleKeyPress);
         }
-    }, [uiState, latestAssessment, messageCount, messages]);
+    }, [uiState, latestAssessment, messageCount, botMessageCount, messages]);
 
     // Force focus on input field - more aggressive approach
     const forceFocus = useCallback(() => {
@@ -350,15 +355,30 @@ const Chat = () => {
         }
     }, [typing, scrollToBottom]);
 
-    // Auto-scroll when upgrade options appear
+    // Enhanced auto-scroll when upgrade options appear
     useEffect(() => {
         if (uiState === UI_STATES.UPGRADE_PROMPT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) {
-            // Scroll to the upgrade options with a slight delay to ensure they're rendered
-            setTimeout(() => {
-                scrollToBottom();
-                // Additional scroll after a longer delay to ensure visibility
-                setTimeout(scrollToBottom, 500);
-            }, 100);
+            // Immediate scroll to bottom to ensure upgrade options are in view
+            scrollToBottom();
+            
+            // Multiple delayed scrolls with increasing timeouts
+            const timeouts = [
+                setTimeout(() => {
+                    scrollToBottom();
+                    
+                    // Find the upgrade options element and scroll it into view
+                    const upgradeOptions = document.querySelector('.upgrade-options');
+                    if (upgradeOptions) {
+                        upgradeOptions.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }, 100),
+                setTimeout(scrollToBottom, 300),
+                setTimeout(scrollToBottom, 500),
+                setTimeout(scrollToBottom, 1000),
+                setTimeout(scrollToBottom, 1500)
+            ];
+            
+            return () => timeouts.forEach(clearTimeout);
         }
     }, [uiState, scrollToBottom]);
 
@@ -408,6 +428,11 @@ const Chat = () => {
             } else {
                 clearInterval(interval);
                 
+                // Increment bot message counter for non-assessment messages
+                if (!isAssessment) {
+                    setBotMessageCount(prev => prev + 1);
+                }
+                
                 // When typing is complete, add the full message to the messages array
                 setMessages(prev => [...prev, {
                     sender: 'bot',
@@ -428,17 +453,19 @@ const Chat = () => {
                 
                 // Extra aggressive scrolling for all messages
                 scrollToBottom();
-                setTimeout(scrollToBottom, 10);
-                setTimeout(scrollToBottom, 50);
-                setTimeout(scrollToBottom, 100);
-                setTimeout(scrollToBottom, 300);
-                setTimeout(scrollToBottom, 500);
+                
+                // More aggressive scrolling for later messages
+                const scrollTimes = botMessageCount >= 2 ? [10, 50, 100, 200, 300, 500, 800, 1200, 2000] : [10, 50, 100, 300, 500];
+                
+                scrollTimes.forEach(time => {
+                    setTimeout(scrollToBottom, time);
+                });
                 
                 // Re-focus input after typing completes
                 forceFocus();
             }
         }, CONFIG.TYPING_SPEED);
-    }, [scrollToBottom, forceFocus, uiState]);
+    }, [scrollToBottom, forceFocus, uiState, botMessageCount]);
 
     const handleRetry = useCallback(async (messageIndex) => {
         const originalMessage = messages[messageIndex - 1];
@@ -460,6 +487,7 @@ const Chat = () => {
             // Reset local state
             setMessages([WELCOME_MESSAGE]);
             setMessageCount(0);
+            setBotMessageCount(0); // Reset bot message counter
             setError(null);
             setInputError(null);
             setCurrentBotMessage('');
@@ -483,6 +511,7 @@ const Chat = () => {
             // Even if the API call fails, reset the local state
             setMessages([WELCOME_MESSAGE]);
             setMessageCount(0);
+            setBotMessageCount(0); // Reset bot message counter
             setCurrentBotMessage('');
             setIsTypingComplete(true);
             setLoadingSubscription(false);
@@ -909,7 +938,7 @@ const Chat = () => {
 
                 {/* Show upgrade prompt if in UPGRADE_PROMPT or ASSESSMENT_WITH_UPGRADE state */}
                 {(uiState === UI_STATES.UPGRADE_PROMPT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) && (
-                    <div className="upgrade-options">
+                    <div className="upgrade-options" ref={upgradeOptionsRef}>
                         <button 
                             className="close-upgrade" 
                             onClick={() => {
