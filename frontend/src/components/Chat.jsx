@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, memo, createRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import axios from 'axios';
 import PropTypes from 'prop-types';
 import { debounce } from 'lodash';
@@ -67,7 +67,7 @@ class ChatErrorBoundary extends React.Component {
     }
 }
 
-const Message = memo(({ message, onRetry, index, hideAssessmentDetails, messageRef }) => {
+const Message = memo(({ message, onRetry, index, hideAssessmentDetails }) => {
     const { sender, text, confidence, careRecommendation, isAssessment, triageLevel, className } = message;
 
     const getCareRecommendation = useCallback((level) => {
@@ -87,10 +87,7 @@ const Message = memo(({ message, onRetry, index, hideAssessmentDetails, messageR
     );
 
     return (
-        <div 
-            className={`message-row ${sender === 'user' ? 'user' : ''}`}
-            ref={messageRef}
-        >
+        <div className={`message-row ${sender === 'user' ? 'user' : ''}`}>
             <div className="avatar-container">
                 {avatarContent}
             </div>
@@ -151,11 +148,7 @@ Message.propTypes = {
     }).isRequired,
     onRetry: PropTypes.func.isRequired,
     index: PropTypes.number.isRequired,
-    hideAssessmentDetails: PropTypes.bool,
-    messageRef: PropTypes.oneOfType([
-        PropTypes.func, 
-        PropTypes.shape({ current: PropTypes.instanceOf(Element) })
-    ])
+    hideAssessmentDetails: PropTypes.bool
 };
 
 // New Assessment Summary component to keep assessment visible
@@ -239,9 +232,6 @@ const Chat = () => {
     const inputRef = useRef(null);
     const messagesContainerRef = useRef(null);
     const upgradeOptionsRef = useRef(null);
-    
-    // Create a ref for each bot message
-    const botMessageRefs = useRef({});
 
     // Debug mode toggle (only in development)
     useEffect(() => {
@@ -309,38 +299,19 @@ const Chat = () => {
         }
     }, [messages, isTypingComplete]);
 
-    // Enhanced scroll function with more aggressive approach
+    // Enhanced scroll function with more targeted approach
     const scrollToBottom = useCallback((force = false) => {
-        // More aggressive approach with both methods
+        // Use smooth scrolling by default, but allow forcing instant scrolling
         if (messagesEndRef.current) {
-            messagesEndRef.current.scrollIntoView({ behavior: force ? "auto" : "smooth", block: "end" });
+            messagesEndRef.current.scrollIntoView({ 
+                behavior: force ? "auto" : "smooth", 
+                block: "end" 
+            });
         }
         
         if (messagesContainerRef.current) {
             const container = messagesContainerRef.current;
             container.scrollTop = container.scrollHeight;
-        }
-        
-        // If force is true, use window.scrollTo as well
-        if (force) {
-            window.scrollTo(0, document.body.scrollHeight);
-        }
-    }, []);
-
-    // Add this function to scroll to a specific message
-    const scrollToMessage = useCallback((messageId) => {
-        if (botMessageRefs.current[messageId] && botMessageRefs.current[messageId].current) {
-            botMessageRefs.current[messageId].current.scrollIntoView({ 
-                behavior: 'smooth', 
-                block: 'center' 
-            });
-            
-            // Also try window scrolling
-            const rect = botMessageRefs.current[messageId].current.getBoundingClientRect();
-            window.scrollTo({
-                top: window.scrollY + rect.top - window.innerHeight / 2,
-                behavior: 'smooth'
-            });
         }
     }, []);
 
@@ -366,12 +337,9 @@ const Chat = () => {
             // Immediate scroll
             scrollToBottom(true);
             
-            // Multiple delayed scrolls with increasing timeouts
+            // Add a delayed scroll to ensure content is rendered
             const timeouts = [
-                setTimeout(() => scrollToBottom(true), 10),
-                setTimeout(() => scrollToBottom(true), 50),
                 setTimeout(() => scrollToBottom(true), 100),
-                setTimeout(() => scrollToBottom(true), 300),
                 setTimeout(() => scrollToBottom(true), 500)
             ];
             
@@ -382,7 +350,7 @@ const Chat = () => {
     // Scroll during typing animation
     useEffect(() => {
         if (typing) {
-            const interval = setInterval(() => scrollToBottom(true), 500);
+            const interval = setInterval(() => scrollToBottom(), 500);
             return () => clearInterval(interval);
         }
     }, [typing, scrollToBottom]);
@@ -393,33 +361,20 @@ const Chat = () => {
             // Immediate scroll to bottom to ensure upgrade options are in view
             scrollToBottom(true);
             
-            // Use window.scrollTo as well
-            window.scrollTo(0, document.body.scrollHeight);
-            
-            // Multiple delayed scrolls with increasing timeouts
+            // Add a delayed scroll to ensure content is rendered
             const timeouts = [
                 setTimeout(() => {
                     scrollToBottom(true);
-                    window.scrollTo(0, document.body.scrollHeight);
                     
                     // Find the upgrade options element and scroll it into view
-                    const upgradeOptions = document.querySelector('.upgrade-options');
-                    if (upgradeOptions) {
-                        upgradeOptions.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    if (upgradeOptionsRef.current) {
+                        upgradeOptionsRef.current.scrollIntoView({ 
+                            behavior: 'smooth', 
+                            block: 'center' 
+                        });
                     }
-                }, 100),
-                setTimeout(() => {
-                    scrollToBottom(true);
-                    window.scrollTo(0, document.body.scrollHeight);
-                }, 500),
-                setTimeout(() => {
-                    scrollToBottom(true);
-                    window.scrollTo(0, document.body.scrollHeight);
-                }, 1000),
-                setTimeout(() => {
-                    scrollToBottom(true);
-                    window.scrollTo(0, document.body.scrollHeight);
-                }, 2000)
+                }, 300),
+                setTimeout(() => scrollToBottom(true), 800)
             ];
             
             return () => timeouts.forEach(clearTimeout);
@@ -466,17 +421,10 @@ const Chat = () => {
         const interval = setInterval(() => {
             if (index < message.length) {
                 setCurrentBotMessage(prev => message.slice(0, index + 1));
-                // Scroll on each character update - more aggressive
-                scrollToBottom();
+                // Don't scroll during typing to avoid the jumping effect
                 index++;
             } else {
                 clearInterval(interval);
-                
-                // Create a unique ID for this message
-                const messageId = `bot-message-${Date.now()}`;
-                
-                // Create a ref for this message
-                botMessageRefs.current[messageId] = createRef();
                 
                 // Increment bot message counter for non-assessment messages
                 if (!isAssessment) {
@@ -485,7 +433,6 @@ const Chat = () => {
                 
                 // When typing is complete, add the full message to the messages array
                 setMessages(prev => [...prev, {
-                    id: messageId,
                     sender: 'bot',
                     text: message,
                     isAssessment,
@@ -502,54 +449,27 @@ const Chat = () => {
                 setTyping(false);
                 setIsTypingComplete(true);
                 
-                // Extra aggressive scrolling for all messages
-                scrollToBottom(true);
+                // Use the EXACT SAME scrolling pattern as user messages
+                // This is the key change!
+                setTimeout(() => scrollToBottom(true), 0);
+                setTimeout(() => scrollToBottom(true), 100);
                 
-                // Use multiple delayed scrolls with increasing timeouts
-                const scrollTimes = [10, 50, 100, 200, 300, 500, 800, 1200, 2000];
-                
-                scrollTimes.forEach(time => {
-                    setTimeout(() => {
-                        scrollToBottom(true);
-                        
-                        // After a delay, also try to scroll to this specific message
-                        setTimeout(() => {
-                            scrollToMessage(messageId);
-                        }, 50);
-                    }, time);
-                });
-                
-                // For the third message and beyond, use even more aggressive scrolling
+                // For the third message and beyond, add extra scrolling attempts
                 if (botMessageCount >= 2) {
-                    // Use window.scrollTo as well
-                    setTimeout(() => {
-                        window.scrollTo(0, document.body.scrollHeight);
-                    }, 300);
-                    
-                    // Try scrolling again after a longer delay
-                    setTimeout(() => {
-                        scrollToBottom(true);
-                        window.scrollTo(0, document.body.scrollHeight);
-                        
-                        // Try to scroll to this specific message
-                        scrollToMessage(messageId);
-                    }, 1000);
-                    
-                    // And again after an even longer delay
-                    setTimeout(() => {
-                        scrollToBottom(true);
-                        window.scrollTo(0, document.body.scrollHeight);
-                        
-                        // Try to scroll to this specific message
-                        scrollToMessage(messageId);
-                    }, 2000);
+                    setTimeout(() => scrollToBottom(true), 300);
+                    setTimeout(() => scrollToBottom(true), 500);
+                }
+                
+                // For assessments or upgrade prompts, add one more scroll attempt
+                if (isAssessment || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE || uiState === UI_STATES.UPGRADE_PROMPT) {
+                    setTimeout(() => scrollToBottom(true), 800);
                 }
                 
                 // Re-focus input after typing completes
                 forceFocus();
             }
         }, CONFIG.TYPING_SPEED);
-    }, [scrollToBottom, forceFocus, uiState, botMessageCount, scrollToMessage]);
+    }, [scrollToBottom, forceFocus, uiState, botMessageCount]);
 
     const handleRetry = useCallback(async (messageIndex) => {
         const originalMessage = messages[messageIndex - 1];
@@ -580,7 +500,6 @@ const Chat = () => {
             setLoadingOneTime(false);
             setLatestAssessment(null); // Reset the latest assessment
             setUiState(UI_STATES.DEFAULT); // Reset UI state
-            botMessageRefs.current = {}; // Clear message refs
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
             
             // Focus the input after reset
@@ -603,7 +522,6 @@ const Chat = () => {
             setLoadingOneTime(false);
             setLatestAssessment(null); // Reset the latest assessment
             setUiState(UI_STATES.DEFAULT); // Reset UI state
-            botMessageRefs.current = {}; // Clear message refs
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
         } finally {
             setResetting(false);
@@ -658,15 +576,8 @@ const Chat = () => {
             
             // Add a slight delay before showing the secondary prompt
             setTimeout(() => {
-                // Create a unique ID for this message
-                const messageId = `bot-message-${Date.now()}`;
-                
-                // Create a ref for this message
-                botMessageRefs.current[messageId] = createRef();
-                
                 // Add a personalized reminder as a bot message with a stronger CTA
                 setMessages(prev => [...prev, {
-                    id: messageId,
                     sender: 'bot',
                     text: `🔎 You mentioned "${symptomSnippet}". Want a deeper understanding? Unlock Premium Access for continuous tracking or get a one-time Consultation Report for a detailed summary!`,
                     confidence: null,
@@ -675,10 +586,8 @@ const Chat = () => {
                 }]);
                 
                 // Scroll to make the message visible
-                setTimeout(() => {
-                    scrollToBottom(true);
-                    scrollToMessage(messageId);
-                }, 100);
+                setTimeout(() => scrollToBottom(true), 0);
+                setTimeout(() => scrollToBottom(true), 100);
             }, 1000);
         }
         
@@ -934,12 +843,11 @@ const Chat = () => {
                 >
                     {messages.map((msg, index) => (
                         <Message
-                            key={msg.id || index}
+                            key={index}
                             message={msg}
                             onRetry={handleRetry}
                             index={index}
                             hideAssessmentDetails={(uiState === UI_STATES.ASSESSMENT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) && msg.isAssessment}
-                            messageRef={msg.id && botMessageRefs.current[msg.id] ? botMessageRefs.current[msg.id] : null}
                         />
                     ))}
                     
