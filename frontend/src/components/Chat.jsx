@@ -299,20 +299,38 @@ const Chat = () => {
         }
     }, [messages, isTypingComplete]);
 
-    // Enhanced scroll function with more targeted approach
-    const scrollToBottom = useCallback((force = false) => {
-        // Use smooth scrolling by default, but allow forcing instant scrolling
-        if (messagesEndRef.current) {
-            messagesEndRef.current.scrollIntoView({ 
-                behavior: force ? "auto" : "smooth", 
-                block: "end" 
-            });
-        }
-        
-        if (messagesContainerRef.current) {
-            const container = messagesContainerRef.current;
-            container.scrollTop = container.scrollHeight;
-        }
+    // Enhanced scroll function with multi-step scrolling for absolute reliability
+    const scrollToBottom = useCallback(() => {
+        requestAnimationFrame(() => {
+            if (messagesContainerRef.current) {
+                messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+            }
+            if (messagesEndRef.current) {
+                messagesEndRef.current.scrollIntoView({ 
+                    behavior: "auto", // More reliable than smooth for ensuring full visibility
+                    block: "end" 
+                });
+            }
+
+            // Multi-Step Scrolling to Cover Edge Cases
+            setTimeout(() => {
+                if (messagesContainerRef.current) {
+                    messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+                }
+            }, 50);
+
+            setTimeout(() => {
+                if (messagesContainerRef.current) {
+                    messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+                }
+            }, 150);
+
+            setTimeout(() => {
+                if (messagesContainerRef.current) {
+                    messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+                }
+            }, 300);
+        });
     }, []);
 
     // Add MutationObserver to detect DOM changes and scroll
@@ -335,12 +353,12 @@ const Chat = () => {
     useEffect(() => {
         if (messages.length > 0) {
             // Immediate scroll
-            scrollToBottom(true);
+            scrollToBottom();
             
             // Add a delayed scroll to ensure content is rendered
             const timeouts = [
-                setTimeout(() => scrollToBottom(true), 100),
-                setTimeout(() => scrollToBottom(true), 500)
+                setTimeout(() => scrollToBottom(), 100),
+                setTimeout(() => scrollToBottom(), 500)
             ];
             
             return () => timeouts.forEach(clearTimeout);
@@ -359,12 +377,12 @@ const Chat = () => {
     useEffect(() => {
         if (uiState === UI_STATES.UPGRADE_PROMPT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) {
             // Immediate scroll to bottom to ensure upgrade options are in view
-            scrollToBottom(true);
+            scrollToBottom();
             
             // Add a delayed scroll to ensure content is rendered
             const timeouts = [
                 setTimeout(() => {
-                    scrollToBottom(true);
+                    scrollToBottom();
                     
                     // Find the upgrade options element and scroll it into view
                     if (upgradeOptionsRef.current) {
@@ -374,7 +392,7 @@ const Chat = () => {
                         });
                     }
                 }, 300),
-                setTimeout(() => scrollToBottom(true), 800)
+                setTimeout(() => scrollToBottom(), 800)
             ];
             
             return () => timeouts.forEach(clearTimeout);
@@ -442,21 +460,20 @@ const Chat = () => {
                     className: isAssessment ? 'assessment-message' : '' // Add special class for assessment messages
                 }]);
                 
-                // Clear the current bot message
+                // MOVED: Clear the current bot message AFTER setting messages
                 setCurrentBotMessage('');
                 
                 // Set typing to false and typing complete to true
                 setTyping(false);
                 setIsTypingComplete(true);
                 
-                // Use the exact same aggressive scrolling strategy as user messages
-                setTimeout(() => scrollToBottom(true), 0);
-                setTimeout(() => scrollToBottom(true), 100);
-                setTimeout(() => scrollToBottom(true), 300);
-                setTimeout(() => scrollToBottom(true), 500);
-                setTimeout(() => scrollToBottom(true), 800);
-                setTimeout(() => scrollToBottom(true), 1200);
-                setTimeout(() => scrollToBottom(true), 2500);
+                // Immediately force full visibility, ensuring no cutoff issues
+                scrollToBottom();
+                setTimeout(scrollToBottom, 50);
+                setTimeout(scrollToBottom, 150);
+                setTimeout(scrollToBottom, 300);
+                setTimeout(scrollToBottom, 600);
+                setTimeout(scrollToBottom, 1000); // Final delayed check to guarantee visibility
                 
                 // Re-focus input after typing completes
                 forceFocus();
@@ -579,8 +596,8 @@ const Chat = () => {
                 }]);
                 
                 // Scroll to make the message visible
-                setTimeout(() => scrollToBottom(true), 0);
-                setTimeout(() => scrollToBottom(true), 100);
+                setTimeout(() => scrollToBottom(), 0);
+                setTimeout(() => scrollToBottom(), 100);
             }, 1000);
         }
         
@@ -593,8 +610,8 @@ const Chat = () => {
         forceFocus();
 
         // Scroll to bottom after adding user message
-        setTimeout(() => scrollToBottom(true), 0);
-        setTimeout(() => scrollToBottom(true), 100);
+        setTimeout(() => scrollToBottom(), 0);
+        setTimeout(() => scrollToBottom(), 100);
 
         // Cancel any pending requests
         if (abortControllerRef.current) {
