@@ -293,34 +293,51 @@ const Chat = () => {
         }
     }, [messages, isTypingComplete]);
 
-    // Improved scroll function with multiple approaches
+    // Enhanced scroll function with more aggressive approach
     const scrollToBottom = useCallback(() => {
-        // Method 1: Using scrollIntoView
+        // More aggressive approach with both methods
         if (messagesEndRef.current) {
-            messagesEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+            messagesEndRef.current.scrollIntoView({ behavior: "auto", block: "end" });
         }
         
-        // Method 2: Direct scrollTop manipulation
         if (messagesContainerRef.current) {
             const container = messagesContainerRef.current;
             container.scrollTop = container.scrollHeight;
         }
     }, []);
 
-    // Scroll when messages change or typing state changes
+    // Add MutationObserver to detect DOM changes and scroll
+    useEffect(() => {
+        if (messagesContainerRef.current) {
+            const observer = new MutationObserver(() => {
+                scrollToBottom();
+            });
+            
+            observer.observe(messagesContainerRef.current, {
+                childList: true,
+                subtree: true
+            });
+            
+            return () => observer.disconnect();
+        }
+    }, [scrollToBottom]);
+
+    // Enhanced scroll when messages change or typing state changes
     useEffect(() => {
         // Immediate scroll
         scrollToBottom();
         
-        // Delayed scrolls to handle content rendering
+        // Multiple delayed scrolls with increasing timeouts
         const timeouts = [
+            setTimeout(scrollToBottom, 50),
             setTimeout(scrollToBottom, 100),
+            setTimeout(scrollToBottom, 300),
             setTimeout(scrollToBottom, 500),
             setTimeout(scrollToBottom, 1000)
         ];
         
         return () => timeouts.forEach(clearTimeout);
-    }, [messages, typing, scrollToBottom]);
+    }, [messages, typing, uiState, latestAssessment, scrollToBottom]);
 
     // Scroll during typing animation
     useEffect(() => {
@@ -531,7 +548,7 @@ const Chat = () => {
                 // Add a personalized reminder as a bot message with a stronger CTA
                 setMessages(prev => [...prev, {
                     sender: 'bot',
-                    text: `🔎 You mentioned "${symptomSnippet}". Want a deeper understanding? Unlock PA Mode for continuous tracking or get a one-time AI Doctor Report for a detailed summary!`,
+                    text: `🔎 You mentioned "${symptomSnippet}". Want a deeper understanding? Unlock Premium Access for continuous tracking or get a one-time Consultation Report for a detailed summary!`,
                     confidence: null,
                     careRecommendation: null,
                     isAssessment: false
@@ -912,8 +929,8 @@ const Chat = () => {
                             <h3>Based on your symptoms, I've identified a condition that may require further evaluation.</h3>
                             <p>💡 To get more insights, you can choose one of these options:</p>
                             <ul>
-                                <li>🔹 PA Mode ($9.99/month): Unlock full symptom tracking, detailed assessments, and AI-driven health monitoring.</li>
-                                <li>🔹 One-time AI Doctor Report ($4.99): Get a comprehensive summary of your case, formatted for medical professionals.</li>
+                                <li>🔹 Premium Access ($12.99/month): Unlimited symptom checks, detailed assessments, and personalized health monitoring.</li>
+                                <li>🔹 One-time Consultation Report ($7.99): Get a comprehensive analysis of your current symptoms.</li>
                             </ul>
                             <p>Would you like to continue with one of these options?</p>
                         </div>
@@ -921,30 +938,28 @@ const Chat = () => {
                             <button 
                                 className={`upgrade-button subscription ${loadingSubscription ? 'loading' : ''}`}
                                 onClick={() => {
-                                    if (loadingSubscription || loadingOneTime) return; // Prevent duplicate clicks
+                                    if (loadingSubscription || loadingOneTime) return;
                                     setLoadingSubscription(true);
-                                    // Short timeout to show loading state before navigation
                                     setTimeout(() => {
                                         window.location.href = '/subscribe';
                                     }, 300);
                                 }}
                                 disabled={loadingSubscription || loadingOneTime}
                             >
-                                {loadingSubscription ? 'Processing...' : '🩺 Unlock Full Health Insights (PA Mode - $9.99/month)'}
+                                {loadingSubscription ? 'Processing...' : '🩺 Get Premium Access ($12.99/month)'}
                             </button>
                             <button 
                                 className={`upgrade-button one-time ${loadingOneTime ? 'loading' : ''}`}
                                 onClick={() => {
-                                    if (loadingSubscription || loadingOneTime) return; // Prevent duplicate clicks
+                                    if (loadingSubscription || loadingOneTime) return;
                                     setLoadingOneTime(true);
-                                    // Short timeout to show loading state before navigation
                                     setTimeout(() => {
                                         window.location.href = '/one-time-report';
                                     }, 300);
                                 }}
                                 disabled={loadingSubscription || loadingOneTime}
                             >
-                                {loadingOneTime ? 'Processing...' : '📄 Generate AI Doctor\'s Report ($4.99 - One Time)'}
+                                {loadingOneTime ? 'Processing...' : '📄 Get Consultation Report ($7.99)'}
                             </button>
                         </div>
                     </div>

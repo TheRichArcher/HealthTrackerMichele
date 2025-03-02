@@ -187,6 +187,7 @@
 .chat-input-wrapper {
   display: flex;
   position: relative;
+  align-items: center; /* Ensure vertical alignment */
 }
 
 .chat-input {
@@ -219,12 +220,16 @@
   border-radius: 50%;
   width: 45px;
   height: 45px;
+  min-width: 45px; /* Ensure minimum width */
+  min-height: 45px; /* Ensure minimum height */
   margin-left: 10px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: background-color 0.2s;
+  flex-shrink: 0; /* Prevent button from shrinking */
+  padding: 0; /* Remove padding that might affect size */
 }
 
 .send-button:hover {
@@ -567,6 +572,8 @@
   .send-button {
     width: 40px;
     height: 40px;
+    min-width: 40px; /* Ensure minimum width */
+    min-height: 40px; /* Ensure minimum height */
   }
   
   .assessment-summary {

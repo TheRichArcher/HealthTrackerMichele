@@ -1,13 +1,16 @@
-// src/components/AssessmentSummary.jsx
 import React, { memo } from 'react';
 import PropTypes from 'prop-types';
-import '../styles/AssessmentSummary.css'; // We'll create this file next
+import '../styles/AssessmentSummary.css';
 
 const AssessmentSummary = memo(({ assessment }) => {
     if (!assessment) return null;
     
     return (
-        <div className="assessment-summary">
+        <div 
+            className="assessment-summary" 
+            role="region" 
+            aria-label="Assessment summary"
+        >
             <h4>Assessment Summary</h4>
             <div className="assessment-condition">
                 <strong>Condition:</strong> {assessment.condition}
