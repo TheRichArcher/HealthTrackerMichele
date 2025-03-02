@@ -299,51 +299,45 @@ const Chat = () => {
         }
     }, [messages, isTypingComplete]);
 
-    // Enhanced scroll function with more targeted approach
+    // Optimized scroll function for both user & bot messages
     const scrollToBottom = useCallback(() => {
-        // Use requestAnimationFrame for smoother scrolling
         requestAnimationFrame(() => {
-            // Only scroll if we have a container to scroll
-            if (messagesContainerRef.current) {
-                // Calculate if we're near the bottom already (within 100px)
-                const container = messagesContainerRef.current;
-                const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+            const container = messagesContainerRef.current;
+            if (!container) return;
+
+            // Check if user is already near the bottom (avoid unwanted jumps)
+            const isNearBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 50;
+            
+            if (isNearBottom || !typing) {
+                container.scrollTop = container.scrollHeight;
                 
-                // Only do a smooth scroll if we're already near the bottom
-                // This prevents the "bouncing" effect during typing
-                if (isNearBottom || !typing) {
-                    container.scrollTop = container.scrollHeight;
-                    
-                    if (messagesEndRef.current) {
-                        messagesEndRef.current.scrollIntoView({ 
-                            behavior: "auto", 
-                            block: "end" 
-                        });
-                    }
+                if (messagesEndRef.current) {
+                    messagesEndRef.current.scrollIntoView({ 
+                        behavior: "auto", 
+                        block: "end" 
+                    });
                 }
             }
         });
     }, [typing]);
 
-    // Add MutationObserver to detect DOM changes and scroll
+    // Improved MutationObserver that only scrolls when needed
     useEffect(() => {
         if (messagesContainerRef.current) {
-            const observer = new MutationObserver(() => {
-                // Only scroll on DOM changes if we're not typing
-                // This helps prevent the bouncing effect
-                if (!typing) {
-                    scrollToBottom();
+            const observer = new MutationObserver((mutations) => {
+                for (const mutation of mutations) {
+                    // Only scroll if a new message was added (prevents unnecessary scrolling)
+                    if (mutation.addedNodes.length > 0) {
+                        scrollToBottom();
+                    }
                 }
             });
-            
-            observer.observe(messagesContainerRef.current, {
-                childList: true,
-                subtree: true
-            });
-            
+
+            observer.observe(messagesContainerRef.current, { childList: true, subtree: true });
+
             return () => observer.disconnect();
         }
-    }, [scrollToBottom, typing]);
+    }, [scrollToBottom]);
 
     // Enhanced scroll when messages change
     useEffect(() => {
@@ -360,15 +354,6 @@ const Chat = () => {
             return () => timeouts.forEach(clearTimeout);
         }
     }, [messages, scrollToBottom]);
-
-    // Scroll during typing animation - reduced frequency to prevent bouncing
-    useEffect(() => {
-        if (typing) {
-            // Scroll less frequently during typing (every 500ms instead of continuously)
-            const interval = setInterval(() => scrollToBottom(), 500);
-            return () => clearInterval(interval);
-        }
-    }, [typing, scrollToBottom]);
 
     // Enhanced auto-scroll when upgrade options appear
     useEffect(() => {
@@ -435,35 +420,36 @@ const Chat = () => {
         return null;
     }, []);
 
+    // Improved typeMessage with better scroll timing
     const typeMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null) => {
-        // For assessments that will trigger an upgrade prompt, show a simplified message
         if (isAssessment && (uiState === UI_STATES.ASSESSMENT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE)) {
             message = "Based on your symptoms, I've completed an assessment. Please see the summary below.";
         }
         
         let index = 0;
         setIsTypingComplete(false);
-        
-        // Instead of adding a new message with empty text, we'll update the current bot message
         setCurrentBotMessage('');
-        
+
         const interval = setInterval(() => {
             if (index < message.length) {
                 setCurrentBotMessage(prev => message.slice(0, index + 1));
-                // Only scroll every 20 characters to reduce bouncing
-                if (index % 20 === 0) {
+
+                // Scroll every 15 characters to maintain visibility but prevent bouncing
+                // Also scroll on the last character to ensure complete visibility
+                if (index % 15 === 0 || index === message.length - 1) {
                     scrollToBottom();
                 }
+
                 index++;
             } else {
                 clearInterval(interval);
-                
+
                 // Increment bot message counter for non-assessment messages
                 if (!isAssessment) {
                     setBotMessageCount(prev => prev + 1);
                 }
-                
-                // When typing is complete, add the full message to the messages array
+
+                // Add the full message once typing is complete
                 setMessages(prev => [...prev, {
                     sender: 'bot',
                     text: message,
@@ -471,24 +457,20 @@ const Chat = () => {
                     confidence,
                     triageLevel,
                     careRecommendation,
-                    className: isAssessment ? 'assessment-message' : '' // Add special class for assessment messages
+                    className: isAssessment ? 'assessment-message' : ''
                 }]);
-                
+
                 // MOVED: Clear the current bot message AFTER setting messages
                 setCurrentBotMessage('');
-                
-                // Set typing to false and typing complete to true
                 setTyping(false);
                 setIsTypingComplete(true);
-                
-                // Scroll after message is complete - use fewer, more strategic scrolls
+
+                // Multiple final scrolls to ensure proper alignment
                 scrollToBottom();
-                
-                // Add just two backup scrolls with reasonable delays
                 setTimeout(scrollToBottom, 100);
-                setTimeout(scrollToBottom, 500);
-                
-                // Re-focus input after typing completes
+                setTimeout(scrollToBottom, 300);
+
+                // Ensure input is focused again
                 forceFocus();
             }
         }, CONFIG.TYPING_SPEED);
