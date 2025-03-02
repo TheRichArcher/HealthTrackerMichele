@@ -1,0 +1,86 @@
+// src/components/MessageItem.jsx
+import React, { memo, useCallback } from 'react';
+import PropTypes from 'prop-types';
+import '../styles/MessageItem.css'; // We'll create this file next
+
+const MessageItem = memo(({ message, onRetry, index, hideAssessmentDetails }) => {
+    const { sender, text, confidence, careRecommendation, isAssessment, triageLevel } = message;
+
+    const getCareRecommendation = useCallback((level) => {
+        switch(level?.toLowerCase()) {
+            case 'mild': return "You can likely manage this at home";
+            case 'severe': return "You should seek urgent care";
+            case 'moderate': return "Consider seeing a doctor soon";
+            default: return null;
+        }
+    }, []);
+
+    // Create avatar content based on sender
+    const avatarContent = sender === 'bot' ? (
+        <img src="/doctor-avatar.png" alt="AI Assistant" />
+    ) : (
+        <img src="/user-avatar.png" alt="User" />
+    );
+
+    return (
+        <div className={`message-row ${sender === 'user' ? 'user' : ''}`}>
+            <div className="avatar-container">
+                {avatarContent}
+            </div>
+            <div className={`message ${sender}`}>
+                <div className="message-content">
+                    {text.split('\n').map((line, i) => (
+                        <p key={i}>{line}</p>
+                    ))}
+                </div>
+                {/* Only show metrics if this is an assessment AND we're not hiding assessment details */}
+                {sender === 'bot' && isAssessment && !hideAssessmentDetails && (confidence || careRecommendation || triageLevel) && (
+                    <div className="assessment-info">
+                        {confidence && (
+                            <div 
+                                className="assessment-item confidence"
+                                title="Confidence indicates how likely this condition matches your symptoms based on available information"
+                            >
+                                Confidence: {confidence}%
+                            </div>
+                        )}
+                        {(careRecommendation || triageLevel) && (
+                            <div 
+                                className="assessment-item care-recommendation"
+                                title="This recommendation is based on the severity of your symptoms and potential conditions"
+                            >
+                                {careRecommendation || getCareRecommendation(triageLevel)}
+                            </div>
+                        )}
+                    </div>
+                )}
+                {sender === 'bot' && text.includes("trouble processing") && (
+                    <button 
+                        className="retry-button"
+                        onClick={() => onRetry(index)}
+                        aria-label="Retry message"
+                    >
+                        Retry
+                    </button>
+                )}
+            </div>
+        </div>
+    );
+});
+
+MessageItem.displayName = 'MessageItem';
+MessageItem.propTypes = {
+    message: PropTypes.shape({
+        sender: PropTypes.string.isRequired,
+        text: PropTypes.string.isRequired,
+        confidence: PropTypes.number,
+        careRecommendation: PropTypes.string,
+        isAssessment: PropTypes.bool,
+        triageLevel: PropTypes.string
+    }).isRequired,
+    onRetry: PropTypes.func.isRequired,
+    index: PropTypes.number.isRequired,
+    hideAssessmentDetails: PropTypes.bool
+};
+
+export default MessageItem;

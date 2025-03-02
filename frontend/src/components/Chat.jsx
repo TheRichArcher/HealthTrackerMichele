@@ -7,6 +7,14 @@ import '../styles/Chat.css';
 // Import the ChatOnboarding component
 import ChatOnboarding from './ChatOnboarding';
 
+// Define UI state enum
+const UI_STATES = {
+  DEFAULT: 'default',
+  ASSESSMENT: 'assessment',
+  UPGRADE_PROMPT: 'upgrade_prompt',
+  SECONDARY_PROMPT: 'secondary_prompt'
+};
+
 const CONFIG = {
     MAX_FREE_MESSAGES: 15,
     TYPING_SPEED: 30,
@@ -59,7 +67,7 @@ class ChatErrorBoundary extends React.Component {
 }
 
 const Message = memo(({ message, onRetry, index, hideAssessmentDetails }) => {
-    const { sender, text, confidence, careRecommendation, isAssessment, triageLevel } = message;
+    const { sender, text, confidence, careRecommendation, isAssessment, triageLevel, className } = message;
 
     const getCareRecommendation = useCallback((level) => {
         switch(level?.toLowerCase()) {
@@ -82,7 +90,10 @@ const Message = memo(({ message, onRetry, index, hideAssessmentDetails }) => {
             <div className="avatar-container">
                 {avatarContent}
             </div>
-            <div className={`message ${sender}`}>
+            <div className={`message ${sender} ${className || ''}`}>
+                {isAssessment && !hideAssessmentDetails && (
+                    <div className="assessment-indicator">Assessment</div>
+                )}
                 <div className="message-content">
                     {text.split('\n').map((line, i) => (
                         <p key={i}>{line}</p>
@@ -131,7 +142,8 @@ Message.propTypes = {
         confidence: PropTypes.number,
         careRecommendation: PropTypes.string,
         isAssessment: PropTypes.bool,
-        triageLevel: PropTypes.string
+        triageLevel: PropTypes.string,
+        className: PropTypes.string
     }).isRequired,
     onRetry: PropTypes.func.isRequired,
     index: PropTypes.number.isRequired,
@@ -143,7 +155,11 @@ const AssessmentSummary = memo(({ assessment }) => {
     if (!assessment) return null;
     
     return (
-        <div className="assessment-summary">
+        <div 
+            className="assessment-summary" 
+            role="region" 
+            aria-label="Assessment summary"
+        >
             <h4>Assessment Summary</h4>
             <div className="assessment-condition">
                 <strong>Condition:</strong> {assessment.condition}
@@ -184,7 +200,6 @@ const Chat = () => {
     const [userInput, setUserInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [messageCount, setMessageCount] = useState(0);
-    const [signupPrompt, setSignupPrompt] = useState(false);
     const [typing, setTyping] = useState(false);
     const [error, setError] = useState(null);
     const [inputError, setInputError] = useState(null);
@@ -192,18 +207,15 @@ const Chat = () => {
     const [currentBotMessage, setCurrentBotMessage] = useState('');
     const [isTypingComplete, setIsTypingComplete] = useState(true);
     
-    // Add state for upgrade options
-    const [upgradeDismissed, setUpgradeDismissed] = useState(false);
-    const [showSecondaryPrompt, setShowSecondaryPrompt] = useState(false);
+    // Unified UI state
+    const [uiState, setUiState] = useState(UI_STATES.DEFAULT);
+    
+    // Loading states for upgrade buttons
     const [loadingSubscription, setLoadingSubscription] = useState(false);
     const [loadingOneTime, setLoadingOneTime] = useState(false);
-    const [pendingUpgrade, setPendingUpgrade] = useState(false);
     
     // Add state for the latest assessment to keep it visible
     const [latestAssessment, setLatestAssessment] = useState(null);
-    
-    // Add state to track if we should hide assessment details in messages
-    const [hideAssessmentDetailsInMessages, setHideAssessmentDetailsInMessages] = useState(false);
     
     // Add state for showing the onboarding component
     const [showChatOnboarding, setShowChatOnboarding] = useState(() => {
@@ -216,12 +228,23 @@ const Chat = () => {
     const inputRef = useRef(null);
     const messagesContainerRef = useRef(null);
 
-    // Update the useEffect that sets latestAssessment to also set hideAssessmentDetailsInMessages
+    // Debug mode toggle (only in development)
     useEffect(() => {
-        if (latestAssessment) {
-            setHideAssessmentDetailsInMessages(true);
+        if (CONFIG.DEBUG_MODE) {
+            const handleKeyPress = (e) => {
+                // Press Ctrl+Shift+D to toggle debug info
+                if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+                    console.log('Current UI State:', uiState);
+                    console.log('Latest Assessment:', latestAssessment);
+                    console.log('Message Count:', messageCount);
+                    console.log('Current Messages:', messages);
+                }
+            };
+            
+            window.addEventListener('keydown', handleKeyPress);
+            return () => window.removeEventListener('keydown', handleKeyPress);
         }
-    }, [latestAssessment]);
+    }, [uiState, latestAssessment, messageCount, messages]);
 
     // Force focus on input field - more aggressive approach
     const forceFocus = useCallback(() => {
@@ -309,7 +332,7 @@ const Chat = () => {
 
     // Auto-scroll when upgrade options appear
     useEffect(() => {
-        if (signupPrompt) {
+        if (uiState === UI_STATES.UPGRADE_PROMPT) {
             // Scroll to the upgrade options with a slight delay to ensure they're rendered
             setTimeout(() => {
                 scrollToBottom();
@@ -317,22 +340,15 @@ const Chat = () => {
                 setTimeout(scrollToBottom, 500);
             }, 100);
         }
-    }, [signupPrompt, scrollToBottom]);
+    }, [uiState, scrollToBottom]);
 
-    // Effect to show upgrade prompt after assessment is complete
+    // Effect to show assessment UI state after assessment is complete
     useEffect(() => {
-        if (pendingUpgrade && !typing && isTypingComplete) {
-            // Assessment is complete, now show the upgrade prompt
-            setTimeout(() => {
-                setSignupPrompt(true);
-                setPendingUpgrade(false);
-                
-                // Scroll to make sure upgrade options are visible
-                setTimeout(scrollToBottom, 100);
-                setTimeout(scrollToBottom, 500);
-            }, 500);
+        if (latestAssessment && !typing && isTypingComplete && uiState === UI_STATES.DEFAULT) {
+            // Show the assessment UI state
+            setUiState(UI_STATES.ASSESSMENT);
         }
-    }, [pendingUpgrade, typing, isTypingComplete, scrollToBottom]);
+    }, [latestAssessment, typing, isTypingComplete, uiState]);
 
     useEffect(() => {
         return () => {
@@ -352,13 +368,9 @@ const Chat = () => {
     }, []);
 
     const typeMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null) => {
-        // Check if this is an upgrade prompt message and we already have the upgrade box showing
-        const isUpgradePrompt = message.includes("upgrade options") || message.includes("more detailed insights");
-        if (isUpgradePrompt && signupPrompt) {
-            // Skip adding this message as we already have the upgrade box
-            setTyping(false);
-            setIsTypingComplete(true);
-            return;
+        // For assessments that will trigger an upgrade prompt, show a simplified message
+        if (isAssessment && uiState === UI_STATES.ASSESSMENT) {
+            message = "Based on your symptoms, I've completed an assessment. Please see the summary below.";
         }
         
         let index = 0;
@@ -383,7 +395,8 @@ const Chat = () => {
                     isAssessment,
                     confidence,
                     triageLevel,
-                    careRecommendation
+                    careRecommendation,
+                    className: isAssessment ? 'assessment-message' : '' // Add special class for assessment messages
                 }]);
                 
                 // Clear the current bot message
@@ -410,7 +423,7 @@ const Chat = () => {
                 forceFocus();
             }
         }, CONFIG.TYPING_SPEED);
-    }, [scrollToBottom, forceFocus, signupPrompt]);
+    }, [scrollToBottom, forceFocus, uiState]);
 
     const handleRetry = useCallback(async (messageIndex) => {
         const originalMessage = messages[messageIndex - 1];
@@ -434,16 +447,12 @@ const Chat = () => {
             setMessageCount(0);
             setError(null);
             setInputError(null);
-            setSignupPrompt(false);
             setCurrentBotMessage('');
             setIsTypingComplete(true);
-            setUpgradeDismissed(false);
-            setShowSecondaryPrompt(false);
             setLoadingSubscription(false);
             setLoadingOneTime(false);
-            setPendingUpgrade(false);
             setLatestAssessment(null); // Reset the latest assessment
-            setHideAssessmentDetailsInMessages(false); // Reset this state too
+            setUiState(UI_STATES.DEFAULT); // Reset UI state
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
             
             // Focus the input after reset
@@ -459,16 +468,12 @@ const Chat = () => {
             // Even if the API call fails, reset the local state
             setMessages([WELCOME_MESSAGE]);
             setMessageCount(0);
-            setSignupPrompt(false);
             setCurrentBotMessage('');
             setIsTypingComplete(true);
-            setUpgradeDismissed(false);
-            setShowSecondaryPrompt(false);
             setLoadingSubscription(false);
             setLoadingOneTime(false);
-            setPendingUpgrade(false);
             setLatestAssessment(null); // Reset the latest assessment
-            setHideAssessmentDetailsInMessages(false); // Reset this state too
+            setUiState(UI_STATES.DEFAULT); // Reset UI state
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
         } finally {
             setResetting(false);
@@ -492,9 +497,8 @@ const Chat = () => {
         setInputError(null);
 
         // Handle free tier message limit
-        if (newMessageCount >= CONFIG.MAX_FREE_MESSAGES && !signupPrompt && !upgradeDismissed) {
-            setSignupPrompt(true);
-            // Don't add a message here since we'll show the upgrade box
+        if (newMessageCount >= CONFIG.MAX_FREE_MESSAGES && uiState === UI_STATES.DEFAULT) {
+            setUiState(UI_STATES.UPGRADE_PROMPT);
             return;
         }
 
@@ -508,8 +512,8 @@ const Chat = () => {
         }]);
         
         // Check if we need to show the secondary prompt after user dismisses the upgrade prompt
-        if (upgradeDismissed && !showSecondaryPrompt && !pendingUpgrade) {
-            setShowSecondaryPrompt(true);
+        if (uiState === UI_STATES.DEFAULT && messageCount > CONFIG.MAX_FREE_MESSAGES) {
+            setUiState(UI_STATES.SECONDARY_PROMPT);
             
             // Find the latest user message for personalization
             const userMessages = messages.filter(msg => msg.sender === 'user');
@@ -598,11 +602,6 @@ const Chat = () => {
                 const isAssessment = response.data.is_assessment === true;
                 const requiresUpgrade = response.data.requires_upgrade === true;
                 
-                // If this requires an upgrade, set a flag to show it after the assessment is displayed
-                if (requiresUpgrade && !signupPrompt) {
-                    setPendingUpgrade(true);
-                }
-                
                 if (isAssessment) {
                     // It's a final assessment with conditions
                     let formattedMessage = '';
@@ -617,21 +616,6 @@ const Chat = () => {
                         careRecommendation = response.data.assessment.care_recommendation || response.data.care_recommendation;
                         const disclaimer = response.data.assessment.disclaimer || "This assessment is for informational purposes only and does not replace professional medical advice.";
                         
-                        formattedMessage += 'Based on your symptoms, here are some possible conditions:\n\n';
-                        conditions.forEach(condition => {
-                            formattedMessage += `${condition.name} – ${condition.confidence}%\n`;
-                        });
-                        
-                        // Only add care recommendation if we're not going to show an upgrade prompt
-                        // This prevents duplicate "see a doctor" messages
-                        if (!requiresUpgrade || signupPrompt) {
-                            formattedMessage += `\n${careRecommendation}\n\n${disclaimer}`;
-                        } else {
-                            formattedMessage += `\n${disclaimer}`;
-                        }
-                        
-                        confidence = conditions[0]?.confidence || response.data.confidence;
-                        
                         // Update the latest assessment for the sticky summary
                         if (conditions.length > 0) {
                             setLatestAssessment({
@@ -639,6 +623,49 @@ const Chat = () => {
                                 confidence: conditions[0].confidence,
                                 recommendation: careRecommendation
                             });
+                        }
+                        
+                        // If this requires an upgrade, show a simplified message
+                        if (requiresUpgrade) {
+                            formattedMessage = "Based on your symptoms, I've completed an assessment. Please see the summary below.";
+                            
+                            // Add the message with minimal details
+                            typeMessage(
+                                formattedMessage,
+                                true,
+                                conditions[0]?.confidence,
+                                triageLevel,
+                                null // Don't include care recommendation in the message
+                            );
+                            
+                            // First show the assessment summary
+                            setUiState(UI_STATES.ASSESSMENT);
+                            
+                            // After a delay, show the upgrade prompt
+                            setTimeout(() => {
+                                setUiState(UI_STATES.UPGRADE_PROMPT);
+                            }, 2000); // Increased delay to give users time to see the assessment
+                        } else {
+                            // Regular assessment without upgrade
+                            formattedMessage += 'Based on your symptoms, here are some possible conditions:\n\n';
+                            conditions.forEach(condition => {
+                                formattedMessage += `${condition.name} – ${condition.confidence}%\n`;
+                            });
+                            formattedMessage += `\n${careRecommendation}\n\n${disclaimer}`;
+                            
+                            confidence = conditions[0]?.confidence || response.data.confidence;
+                            
+                            // For non-upgrade assessments, show the full assessment
+                            typeMessage(
+                                formattedMessage,
+                                true,
+                                confidence,
+                                triageLevel,
+                                careRecommendation
+                            );
+                            
+                            // Set UI state to ASSESSMENT
+                            setUiState(UI_STATES.ASSESSMENT);
                         }
                     } else {
                         // Unstructured assessment
@@ -653,15 +680,39 @@ const Chat = () => {
                             confidence: confidence,
                             recommendation: careRecommendation
                         });
+                        
+                        // If this requires an upgrade, show the upgrade prompt
+                        if (requiresUpgrade) {
+                            // Add a simplified message
+                            typeMessage(
+                                "Based on your symptoms, I've completed an assessment. Please see the summary below.",
+                                true,
+                                confidence,
+                                triageLevel,
+                                null // Don't include care recommendation in the message
+                            );
+                            
+                            // First show the assessment summary
+                            setUiState(UI_STATES.ASSESSMENT);
+                            
+                            // After a delay, show the upgrade prompt
+                            setTimeout(() => {
+                                setUiState(UI_STATES.UPGRADE_PROMPT);
+                            }, 2000); // Increased delay to give users time to see the assessment
+                        } else {
+                            // For non-upgrade assessments, show the full assessment
+                            typeMessage(
+                                formattedMessage,
+                                true,
+                                confidence,
+                                triageLevel,
+                                careRecommendation
+                            );
+                            
+                            // Set UI state to ASSESSMENT
+                            setUiState(UI_STATES.ASSESSMENT);
+                        }
                     }
-                    
-                    typeMessage(
-                        formattedMessage,
-                        true,
-                        confidence,
-                        triageLevel,
-                        careRecommendation
-                    );
                 } else {
                     // It's a follow-up question or other response
                     const responseText = response.data.question || response.data.possible_conditions || "Could you tell me more about your symptoms?";
@@ -674,9 +725,22 @@ const Chat = () => {
                 if (CONFIG.DEBUG_MODE) {
                     console.error("API error details:", error);
                 }
-                // Reset pendingUpgrade state when there's an error
-                setPendingUpgrade(false);
-                const errorMessage = "I apologize, but I'm having trouble processing your request. Could you try rephrasing that?";
+                
+                let errorMessage = "I apologize, but I'm having trouble processing your request.";
+                
+                if (error.response) {
+                    // The request was made and the server responded with a status code
+                    // that falls out of the range of 2xx
+                    if (error.response.status === 429) {
+                        errorMessage = "I'm receiving too many requests right now. Please try again in a moment.";
+                    } else if (error.response.status >= 500) {
+                        errorMessage = "I'm having trouble connecting to my medical knowledge. Please try again shortly.";
+                    }
+                } else if (error.request) {
+                    // The request was made but no response was received
+                    errorMessage = "I'm having trouble connecting to my medical database. Please check your internet connection and try again.";
+                }
+                
                 setError(errorMessage);
                 setTimeout(() => {
                     typeMessage(errorMessage, false);
@@ -739,7 +803,7 @@ const Chat = () => {
                             message={msg}
                             onRetry={handleRetry}
                             index={index}
-                            hideAssessmentDetails={hideAssessmentDetailsInMessages && msg.isAssessment}
+                            hideAssessmentDetails={uiState === UI_STATES.ASSESSMENT && msg.isAssessment}
                         />
                     ))}
                     
@@ -767,6 +831,14 @@ const Chat = () => {
                         </div>
                     )}
                     
+                    {/* Add loading indicator */}
+                    {loading && !typing && (
+                        <div className="loading-indicator" aria-live="polite">
+                            <div className="loading-spinner"></div>
+                            <span>Analyzing your symptoms...</span>
+                        </div>
+                    )}
+                    
                     {error && (
                         <div className="error-message" role="alert">
                             {error}
@@ -775,8 +847,8 @@ const Chat = () => {
                     <div ref={messagesEndRef} />
                 </div>
 
-                {/* Add the sticky assessment summary here */}
-                {latestAssessment && <AssessmentSummary assessment={latestAssessment} />}
+                {/* Add the sticky assessment summary here - only show if in ASSESSMENT state */}
+                {uiState === UI_STATES.ASSESSMENT && latestAssessment && <AssessmentSummary assessment={latestAssessment} />}
 
                 <div className="chat-input-container">
                     <div className="chat-input-wrapper">
@@ -790,7 +862,7 @@ const Chat = () => {
                             }}
                             onKeyDown={handleKeyDown}
                             placeholder="Describe your symptoms in detail..."
-                            disabled={loading || (signupPrompt && !upgradeDismissed) || resetting}
+                            disabled={loading || uiState === UI_STATES.UPGRADE_PROMPT || resetting}
                             maxLength={CONFIG.MAX_MESSAGE_LENGTH}
                             aria-label="Symptom description input"
                             aria-invalid={!!inputError}
@@ -810,7 +882,7 @@ const Chat = () => {
                         <button
                             className="send-button"
                             onClick={() => handleSendMessage()}
-                            disabled={loading || (signupPrompt && !upgradeDismissed) || resetting || !userInput.trim()}
+                            disabled={loading || uiState === UI_STATES.UPGRADE_PROMPT || resetting || !userInput.trim()}
                             aria-label="Send message"
                         >
                             Send
@@ -823,14 +895,13 @@ const Chat = () => {
                     )}
                 </div>
 
-                {signupPrompt && (
+                {/* Show upgrade prompt only in UPGRADE_PROMPT state */}
+                {uiState === UI_STATES.UPGRADE_PROMPT && (
                     <div className="upgrade-options">
                         <button 
                             className="close-upgrade" 
                             onClick={() => {
-                                setSignupPrompt(false);
-                                setUpgradeDismissed(true);
-                                // Re-enable the input field
+                                setUiState(UI_STATES.ASSESSMENT);
                                 forceFocus();
                             }}
                             aria-label="Dismiss upgrade prompt"

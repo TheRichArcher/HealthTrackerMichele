@@ -1,0 +1,118 @@
+/* src/styles/UpgradePrompt.css */
+.upgrade-options {
+    position: relative;
+    background-color: #f0f8ff;
+    border: 1px solid #b8daff;
+    border-radius: 8px;
+    padding: 16px;
+    margin: 15px 0;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    z-index: 20;
+}
+
+.close-upgrade {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: none;
+    border: none;
+    font-size: 16px;
+    cursor: pointer;
+    color: #6c757d;
+    padding: 5px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    transition: background-color 0.2s;
+}
+
+.close-upgrade:hover {
+    background-color: rgba(108, 117, 125, 0.1);
+}
+
+.upgrade-message h3 {
+    margin-top: 0;
+    color: #0056b3;
+    font-size: 18px;
+}
+
+.upgrade-message p {
+    margin: 10px 0;
+    font-size: 14px;
+}
+
+.upgrade-message ul {
+    padding-left: 20px;
+    margin: 10px 0;
+}
+
+.upgrade-message li {
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.upgrade-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.upgrade-button {
+    padding: 12px 15px;
+    border: none;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.upgrade-button.subscription {
+    background-color: #4285f4;
+    color: white;
+}
+
+.upgrade-button.subscription:hover {
+    background-color: #3367d6;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.upgrade-button.one-time {
+    background-color: #34a853;
+    color: white;
+}
+
+.upgrade-button.one-time:hover {
+    background-color: #2d8e47;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.upgrade-button.loading {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+    .upgrade-options {
+        padding: 12px;
+        margin: 10px 0;
+    }
+    
+    .upgrade-message h3 {
+        font-size: 16px;
+    }
+    
+    .upgrade-button {
+        padding: 10px;
+        font-size: 13px;
+    }
+}
