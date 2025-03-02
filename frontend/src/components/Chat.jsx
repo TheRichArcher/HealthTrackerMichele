@@ -449,21 +449,14 @@ const Chat = () => {
                 setTyping(false);
                 setIsTypingComplete(true);
                 
-                // Use the EXACT SAME scrolling pattern as user messages
-                // This is the key change!
+                // Use the exact same aggressive scrolling strategy as user messages
                 setTimeout(() => scrollToBottom(true), 0);
                 setTimeout(() => scrollToBottom(true), 100);
-                
-                // For the third message and beyond, add extra scrolling attempts
-                if (botMessageCount >= 2) {
-                    setTimeout(() => scrollToBottom(true), 300);
-                    setTimeout(() => scrollToBottom(true), 500);
-                }
-                
-                // For assessments or upgrade prompts, add one more scroll attempt
-                if (isAssessment || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE || uiState === UI_STATES.UPGRADE_PROMPT) {
-                    setTimeout(() => scrollToBottom(true), 800);
-                }
+                setTimeout(() => scrollToBottom(true), 300);
+                setTimeout(() => scrollToBottom(true), 500);
+                setTimeout(() => scrollToBottom(true), 800);
+                setTimeout(() => scrollToBottom(true), 1200);
+                setTimeout(() => scrollToBottom(true), 2500);
                 
                 // Re-focus input after typing completes
                 forceFocus();
