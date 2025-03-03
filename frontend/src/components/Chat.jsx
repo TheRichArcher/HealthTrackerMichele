@@ -326,7 +326,7 @@ const Chat = () => {
         }
     }, [messages, isTypingComplete]);
 
-    // Enhanced scroll function that accounts for sticky elements
+    // Simplified scrollToBottom function
     const scrollToBottom = useCallback((force = false) => {
         requestAnimationFrame(() => {
             const container = messagesContainerRef.current;
@@ -336,12 +336,10 @@ const Chat = () => {
             const upgradeBoxHeight = document.querySelector('.upgrade-options')?.offsetHeight || 0;
             const extraPadding = 20; // Ensure visibility
 
-            const isNearBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 100;
-
-            if (force || isNearBottom || !typing) {
+            // Always scroll to bottom when force=true
+            if (force) {
                 // Account for sticky elements when scrolling
-                container.scrollTop = container.scrollHeight - (assessmentSummaryHeight > 0 || upgradeBoxHeight > 0 ? 
-                    (assessmentSummaryHeight + upgradeBoxHeight + extraPadding) : 0);
+                container.scrollTop = container.scrollHeight;
                 
                 if (messagesEndRef.current) {
                     messagesEndRef.current.scrollIntoView({ 
@@ -349,28 +347,9 @@ const Chat = () => {
                         block: "end" 
                     });
                 }
-                
-                // Backup scroll for rendering delays
-                setTimeout(() => {
-                    if (container) {
-                        container.scrollTop = container.scrollHeight - (assessmentSummaryHeight > 0 || upgradeBoxHeight > 0 ? 
-                            (assessmentSummaryHeight + upgradeBoxHeight + extraPadding) : 0);
-                    }
-                }, 100);
-            }
-            
-            if (CONFIG.DEBUG_MODE) {
-                console.log({ 
-                    scrollTop: container.scrollTop, 
-                    scrollHeight: container.scrollHeight, 
-                    clientHeight: container.clientHeight,
-                    isNearBottom,
-                    assessmentSummaryHeight,
-                    upgradeBoxHeight
-                });
             }
         });
-    }, [typing]);
+    }, []);
 
     // Improved MutationObserver that only scrolls when needed
     useEffect(() => {
@@ -496,7 +475,7 @@ const Chat = () => {
         return height;
     }, []);
 
-    // Simplified typeMessage function with pre-calculation of message height
+    // Completely simplified typeMessage function with improved delay calculation
     const typeMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null) => {
         if (isAssessment && (uiState === UI_STATES.ASSESSMENT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE)) {
             message = "Based on your symptoms, I've completed an assessment. Please see the summary below.";
@@ -508,13 +487,14 @@ const Chat = () => {
         // Pre-calculate the message height
         const messageHeight = calculateMessageHeight(message);
         
-        // Calculate a realistic typing delay based on message length
+        // Calculate a realistic thinking delay based on message length with a reasonable cap
         const wordCount = message.split(/\s+/).length;
-        const typingDelay = Math.max(1000, Math.min(wordCount * 120, 3000)); // Between 1-3 seconds
+        // Base delay between 1-3 seconds, with diminishing returns for very long messages
+        const thinkingDelay = Math.max(1000, Math.min(1000 + (wordCount * 50), 3000));
         
-        // Show typing indicator for the calculated delay
+        // Show typing indicator for the calculated delay, then show full message at once
         setTimeout(() => {
-            // Add the full message with pre-calculated height
+            // Add the full message immediately (no character-by-character typing)
             setMessages(prev => [...prev, {
                 sender: 'bot',
                 text: message,
@@ -535,15 +515,18 @@ const Chat = () => {
             setTyping(false);
             setIsTypingComplete(true);
             
-            // Scroll to bottom after message is added with multiple attempts
-            scrollToBottom(true);
-            setTimeout(() => scrollToBottom(true), 50);
-            setTimeout(() => scrollToBottom(true), 150);
-            setTimeout(() => scrollToBottom(true), 300);
+            // Wait for React to finish rendering the new message
+            requestAnimationFrame(() => {
+                // Then scroll to bottom once with force=true
+                scrollToBottom(true);
+                
+                // Add a single backup scroll after a short delay to handle any post-render adjustments
+                setTimeout(() => scrollToBottom(true), 100);
+            });
             
             // Focus input after message is complete
             forceFocus();
-        }, typingDelay);
+        }, thinkingDelay);
         
         return () => {
             // Cleanup function if component unmounts during typing
