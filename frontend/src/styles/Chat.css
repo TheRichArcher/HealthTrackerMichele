@@ -377,17 +377,17 @@
   border: 1px solid #b8daff;
   border-radius: 8px;
   padding: 16px;
-  margin: 15px 0;
+  margin: 15px 15px 100px 15px; /* Add horizontal margins and increase bottom margin */
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
   z-index: 20;
-  max-height: 80vh; /* Limit height to ensure it's visible */
-  overflow-y: auto; /* Allow scrolling if needed */
+  max-height: none; /* Remove max-height restriction */
+  overflow-y: visible; /* Change from auto to visible */
 }
 
 /* Ensure upgrade options are visible in assessment_with_upgrade state */
 .assessment-with-upgrade .upgrade-options {
   margin-top: 20px;
-  margin-bottom: 80px; /* Add more space at bottom */
+  margin-bottom: 100px; /* Increase bottom margin */
 }
 
 /* Adjust assessment summary position in assessment_with_upgrade state */
@@ -611,7 +611,7 @@
   
   .upgrade-options {
     padding: 12px;
-    margin: 10px 0;
+    margin: 10px 15px 100px 15px;
   }
   
   .upgrade-message h3 {
