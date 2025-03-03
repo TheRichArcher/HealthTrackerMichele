@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 MIN_CONFIDENCE = 10  # Allowing lower confidence for nuanced assessments
 MAX_CONFIDENCE = 95  # Preventing overconfidence
 DEFAULT_CONFIDENCE = 75
+MIN_CONFIDENCE_THRESHOLD = 85  # Minimum confidence required for upgrade prompts - match frontend threshold
 
 # Using a different approach to represent the JSON example
 SYSTEM_PROMPT = """You are Michele, an AI medical assistant trained to have conversations like a doctor's visit.
@@ -94,7 +95,7 @@ def create_default_response() -> Dict:
 def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
     """
     Processes the AI response and determines if it's a question or assessment.
-    Now includes subscription tier enforcement.
+    Now includes subscription tier and confidence threshold enforcement.
     """
     # Log user information for debugging
     if user:
@@ -165,13 +166,24 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
                 assessment_data["is_assessment"] = True
                 assessment_data["is_question"] = False
                 
+                # ✅ Get confidence level
+                confidence = None
+                if "assessment" in assessment_data and "conditions" in assessment_data["assessment"]:
+                    conditions = assessment_data["assessment"]["conditions"]
+                    if conditions and len(conditions) > 0:
+                        confidence = conditions[0].get("confidence", 0)
+                
+                # ✅ Check if confidence is high enough
+                is_confident = confidence is not None and confidence >= MIN_CONFIDENCE_THRESHOLD
+                logger.info(f"Confidence: {confidence}, Is confident: {is_confident}")
+                
                 # ✅ If emergency detected, ensure triage level is set to SEVERE
                 if is_emergency and "assessment" in assessment_data:
                     assessment_data["assessment"]["triage_level"] = "SEVERE"
                     assessment_data["assessment"]["care_recommendation"] = "Seek immediate medical attention."
                     logger.info("Set triage level to SEVERE due to emergency detection")
                 
-                # ✅ Enforce paywall if necessary
+                # ✅ Enforce paywall if necessary AND confidence is high enough
                 requires_upgrade = False
                 triage_level = assessment_data["assessment"].get("triage_level", "").upper() if "assessment" in assessment_data else ""
                 care_recommendation = assessment_data["assessment"].get("care_recommendation", "").lower() if "assessment" in assessment_data else ""
@@ -179,7 +191,7 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
                 logger.info(f"Triage level: {triage_level}")
                 logger.info(f"Care recommendation: {care_recommendation}")
 
-                if (triage_level in ['MODERATE', 'SEVERE'] or 
+                if is_confident and (triage_level in ['MODERATE', 'SEVERE'] or 
                     'doctor' in care_recommendation or 
                     'medical attention' in care_recommendation or
                     'urgent care' in care_recommendation or
@@ -187,7 +199,7 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
                     is_emergency or 
                     needs_medical_attention):
                     
-                    logger.info("Response contains medical recommendation that may require upgrade")
+                    logger.info("Response contains medical recommendation with high confidence that may require upgrade")
                     
                     # ✅ Check user's subscription tier
                     if user and hasattr(user, 'subscription_tier') and user.subscription_tier == UserTierEnum.FREE:
@@ -200,6 +212,11 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
                             logger.info("Limited conditions to first one for FREE tier user")
                     else:
                         logger.info("User has appropriate subscription tier or is not authenticated")
+                else:
+                    if not is_confident:
+                        logger.info(f"Not requiring upgrade due to low confidence ({confidence})")
+                    else:
+                        logger.info("Not requiring upgrade as no medical recommendation detected")
                 
                 assessment_data["requires_upgrade"] = requires_upgrade
                 logger.info(f"Setting requires_upgrade={requires_upgrade}")
@@ -217,10 +234,27 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
     # Check if this appears to be an assessment with care recommendations
     if not is_question and (is_emergency or needs_medical_attention):
         logger.info("Non-JSON response contains medical recommendation")
+        
+        # ✅ NEW: Try to estimate confidence from text
+        confidence = None
+        if "high confidence" in response_text.lower():
+            confidence = 90
+        elif "moderate confidence" in response_text.lower():
+            confidence = 80
+        elif "low confidence" in response_text.lower():
+            confidence = 60
+        else:
+            confidence = DEFAULT_CONFIDENCE
+        
+        # ✅ Only require upgrade if confidence is high enough
+        is_confident = confidence >= MIN_CONFIDENCE_THRESHOLD
+        
         # Check user's subscription tier
-        if user and hasattr(user, 'subscription_tier') and user.subscription_tier == UserTierEnum.FREE:
+        if is_confident and user and hasattr(user, 'subscription_tier') and user.subscription_tier == UserTierEnum.FREE:
             logger.info("FREE tier user needs upgrade for medical recommendation in text response")
             requires_upgrade = True
+        elif not is_confident:
+            logger.info(f"Not requiring upgrade due to low confidence in text response ({confidence})")
     
     logger.info(f"Final determination: is_question={is_question}, requires_upgrade={requires_upgrade}")
     
@@ -229,5 +263,6 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
         "is_assessment": not is_question,
         "possible_conditions": response_text,
         "triage_level": "MODERATE" if requires_upgrade or needs_medical_attention else "MILD",
-        "requires_upgrade": requires_upgrade
+        "requires_upgrade": requires_upgrade,
+        "confidence": confidence if 'confidence' in locals() else None
     }

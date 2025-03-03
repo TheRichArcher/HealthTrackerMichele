@@ -9,7 +9,7 @@ import logging
 import time
 from datetime import datetime
 from sqlalchemy.exc import SQLAlchemyError
-from backend.routes.openai_config import SYSTEM_PROMPT, clean_ai_response
+from backend.routes.openai_config import SYSTEM_PROMPT, clean_ai_response, MIN_CONFIDENCE_THRESHOLD
 
 # Blueprint setup
 symptom_routes = Blueprint('symptom_routes', __name__)
@@ -283,17 +283,41 @@ def analyze_symptoms():
                 is_assessment = processed_response.get("is_assessment", False)
                 is_question = processed_response.get("is_question", False)
                 
-                # For free users, always require upgrade for assessments
+                # Get confidence level
+                confidence = processed_response.get("confidence", None)
+                if is_assessment and "assessment" in processed_response and "conditions" in processed_response["assessment"]:
+                    conditions = processed_response["assessment"]["conditions"]
+                    if conditions and len(conditions) > 0:
+                        confidence = conditions[0].get("confidence", 80)
+                elif is_assessment:
+                    if "multiple possible conditions" in ai_response.lower():
+                        confidence = 75
+                    elif "strong indication" in ai_response.lower():
+                        confidence = 85
+                    elif "clear, definitive" in ai_response.lower():
+                        confidence = 90
+                    else:
+                        confidence = 80  # Default confidence for assessments
+                
+                # ✅ NEW: Check if confidence is high enough for upgrade
+                is_confident = confidence is not None and confidence >= MIN_CONFIDENCE_THRESHOLD
+                
+                # For free users, only require upgrade for assessments with high confidence
                 requires_upgrade = processed_response.get("requires_upgrade", False)
                 if is_assessment and not is_premium_user(current_user):
-                    requires_upgrade = True
-                    current_app.logger.info("FREE tier user needs upgrade for medical recommendation")
-                    
-                    # For free users, limit to only the first condition
-                    if "assessment" in processed_response and "conditions" in processed_response["assessment"]:
-                        if len(processed_response["assessment"]["conditions"]) > 1:
-                            processed_response["assessment"]["conditions"] = [processed_response["assessment"]["conditions"][0]]
-                            current_app.logger.info("Limited conditions to first one for FREE tier user")
+                    if is_confident:
+                        requires_upgrade = True
+                        current_app.logger.info("FREE tier user needs upgrade for high-confidence assessment")
+                        
+                        # For free users, limit to only the first condition
+                        if "assessment" in processed_response and "conditions" in processed_response["assessment"]:
+                            if len(processed_response["assessment"]["conditions"]) > 1:
+                                processed_response["assessment"]["conditions"] = [processed_response["assessment"]["conditions"][0]]
+                                current_app.logger.info("Limited conditions to first one for FREE tier user")
+                    else:
+                        # Low confidence, don't require upgrade yet
+                        requires_upgrade = False
+                        current_app.logger.info(f"Not requiring upgrade due to low confidence ({confidence})")
                 
                 current_app.logger.info(f"Setting requires_upgrade={requires_upgrade}")
                 current_app.logger.info(f"Requires upgrade: {requires_upgrade}")
@@ -312,22 +336,6 @@ def analyze_symptoms():
                     care_recommendation = "You should seek urgent care."
                 elif all(word in ai_response.lower() for word in ['mild', 'minor', 'normal', 'common']):
                     care_recommendation = "You can likely manage this at home."
-
-                # Determine confidence score
-                confidence = None
-                if is_assessment and "assessment" in processed_response and "conditions" in processed_response["assessment"]:
-                    conditions = processed_response["assessment"]["conditions"]
-                    if conditions and len(conditions) > 0:
-                        confidence = conditions[0].get("confidence", 80)
-                elif is_assessment:
-                    if "multiple possible conditions" in ai_response.lower():
-                        confidence = 75
-                    elif "strong indication" in ai_response.lower():
-                        confidence = 85
-                    elif "clear, definitive" in ai_response.lower():
-                        confidence = 90
-                    else:
-                        confidence = 80  # Default confidence for assessments
 
                 # For one-time report purchases, generate a comprehensive doctor's report
                 # Only allow for premium users or those who specifically purchased it
@@ -409,6 +417,9 @@ def analyze_symptoms():
                         {"type": "subscription", "name": "PA Mode", "price": 9.99, "period": "month"},
                         {"type": "one_time", "name": "Doctor's Report", "price": 4.99}
                     ]
+                else:
+                    # Explicitly set requires_upgrade to False to override any previous setting
+                    result['requires_upgrade'] = False
                 
                 return jsonify(result)
                 

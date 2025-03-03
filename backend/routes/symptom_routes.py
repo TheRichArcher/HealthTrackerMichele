@@ -9,7 +9,7 @@ import logging
 import time
 from datetime import datetime
 from sqlalchemy.exc import SQLAlchemyError
-from backend.routes.openai_config import SYSTEM_PROMPT, clean_ai_response
+from backend.routes.openai_config import SYSTEM_PROMPT, clean_ai_response, MIN_CONFIDENCE_THRESHOLD
 
 # Blueprint setup
 symptom_routes = Blueprint('symptom_routes', __name__)
@@ -248,7 +248,30 @@ def analyze_symptoms():
                 
                 # Check if this requires an upgrade (from clean_ai_response)
                 requires_upgrade = processed_response.get("requires_upgrade", False)
-                current_app.logger.info(f"Requires upgrade: {requires_upgrade}")
+                
+                # Get confidence level
+                confidence = processed_response.get("confidence", None)
+                if is_assessment and "assessment" in processed_response and "conditions" in processed_response["assessment"]:
+                    conditions = processed_response["assessment"]["conditions"]
+                    if conditions and len(conditions) > 0:
+                        confidence = conditions[0].get("confidence", 80)
+                elif is_assessment:
+                    if "multiple possible conditions" in ai_response.lower():
+                        confidence = 75
+                    elif "strong indication" in ai_response.lower():
+                        confidence = 85
+                    elif "clear, definitive" in ai_response.lower():
+                        confidence = 90
+                    else:
+                        confidence = 80  # Default confidence for assessments
+                
+                # ✅ NEW: Override requires_upgrade if confidence is too low
+                is_confident = confidence is not None and confidence >= MIN_CONFIDENCE_THRESHOLD
+                if requires_upgrade and not is_confident:
+                    requires_upgrade = False
+                    current_app.logger.info(f"Overriding requires_upgrade to False due to low confidence ({confidence})")
+                
+                current_app.logger.info(f"Final requires_upgrade={requires_upgrade}, confidence={confidence}, is_confident={is_confident}")
                 
                 # Determine care recommendation
                 care_recommendation = "Consider seeing a doctor soon."
@@ -264,22 +287,6 @@ def analyze_symptoms():
                     care_recommendation = "You should seek urgent care."
                 elif all(word in ai_response.lower() for word in ['mild', 'minor', 'normal', 'common']):
                     care_recommendation = "You can likely manage this at home."
-
-                # Determine confidence score
-                confidence = None
-                if is_assessment and "assessment" in processed_response and "conditions" in processed_response["assessment"]:
-                    conditions = processed_response["assessment"]["conditions"]
-                    if conditions and len(conditions) > 0:
-                        confidence = conditions[0].get("confidence", 80)
-                elif is_assessment:
-                    if "multiple possible conditions" in ai_response.lower():
-                        confidence = 75
-                    elif "strong indication" in ai_response.lower():
-                        confidence = 85
-                    elif "clear, definitive" in ai_response.lower():
-                        confidence = 90
-                    else:
-                        confidence = 80  # Default confidence for assessments
 
                 # For one-time report purchases, generate a comprehensive doctor's report
                 if one_time_report or (current_user and current_user.subscription_tier == UserTierEnum.ONE_TIME):
@@ -356,6 +363,9 @@ def analyze_symptoms():
                         {"type": "subscription", "name": "PA Mode", "price": 9.99, "period": "month"},
                         {"type": "one_time", "name": "Doctor's Report", "price": 4.99}
                     ]
+                else:
+                    # Explicitly set requires_upgrade to False to override any previous setting
+                    result['requires_upgrade'] = False
                 
                 return jsonify(result)
                 

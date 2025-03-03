@@ -625,14 +625,25 @@ const Chat = () => {
                 // Only treat as assessment if confidence is high enough
                 const isConfidentAssessment = isAssessment && confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD;
                 
-                // Get condition name for context in upgrade prompt
+                // Get condition name for context in follow-up questions
                 let conditionName = "";
                 if (response.data.assessment?.conditions && response.data.assessment.conditions.length > 0) {
                     conditionName = response.data.assessment.conditions[0].name;
                 }
                 
+                // Add detailed logging
+                if (CONFIG.DEBUG_MODE) {
+                    console.log("API response analysis:", {
+                        isAssessment,
+                        requiresUpgrade,
+                        confidence,
+                        isConfidentAssessment,
+                        conditionName
+                    });
+                }
+                
                 if (isConfidentAssessment) {
-                    // It's a final assessment with conditions
+                    // It's a final assessment with conditions and high confidence
                     let triageLevel = null;
                     let careRecommendation = null;
                     
@@ -652,7 +663,7 @@ const Chat = () => {
                             });
                         }
                         
-                        // If this requires an upgrade, show a simplified message
+                        // Only now check if upgrade is required - AFTER confirming high confidence
                         if (requiresUpgrade) {
                             // Add sequential messages for a smoother experience
                             addSequentialBotMessages([
@@ -713,7 +724,7 @@ const Chat = () => {
                             recommendation: careRecommendation
                         });
                         
-                        // If this requires an upgrade, show the upgrade prompt
+                        // Only now check if upgrade is required - AFTER confirming high confidence
                         if (requiresUpgrade) {
                             // Add sequential messages for a smoother experience
                             addSequentialBotMessages([
@@ -747,10 +758,17 @@ const Chat = () => {
                         }
                     }
                 } else if (isAssessment) {
-                    // It's an assessment but confidence is too low
+                    // It's an assessment but confidence is too low - ALWAYS ask more questions
+                    // regardless of whether the server says upgrade is required
+                    
                     // Generate a unique follow-up question
                     const followUpMessage = generateUniqueFollowUpQuestion(response, conditionName);
                     addBotMessage(followUpMessage, false);
+                    
+                    // Log this situation for debugging
+                    if (CONFIG.DEBUG_MODE && requiresUpgrade) {
+                        console.warn("Server requested upgrade but confidence is too low. Asking more questions instead.");
+                    }
                 } else {
                     // It's a follow-up question or other response
                     const responseText = response.data.question || response.data.possible_conditions || "Could you tell me more about your symptoms?";
