@@ -4,9 +4,6 @@ import PropTypes from 'prop-types';
 import { debounce } from 'lodash';
 import '../styles/Chat.css';
 
-// Import the ChatOnboarding component if it exists
-// import ChatOnboarding from './ChatOnboarding';
-
 // Define UI state enum
 const UI_STATES = {
   DEFAULT: 'default',
@@ -18,7 +15,6 @@ const UI_STATES = {
 
 const CONFIG = {
     MAX_FREE_MESSAGES: 15,
-    TYPING_SPEED: 30,
     THINKING_DELAY: 1000,
     API_TIMEOUT: 10000,
     API_URL: '/api/symptoms/analyze', // Use relative URL for same-origin deployment
@@ -27,7 +23,9 @@ const CONFIG = {
     MIN_MESSAGE_LENGTH: 1, // Changed from 3 to 1 to allow short responses
     SCROLL_DEBOUNCE_DELAY: 100,
     LOCAL_STORAGE_KEY: 'healthtracker_chat_messages',
-    DEBUG_MODE: process.env.NODE_ENV === 'development'
+    DEBUG_MODE: process.env.NODE_ENV === 'development',
+    MIN_CONFIDENCE_THRESHOLD: 85, // Minimum confidence required for assessment
+    MESSAGE_DELAY: 1000 // Delay between sequential messages
 };
 
 // Enhanced welcome message with example prompts
@@ -124,7 +122,10 @@ const Message = memo(({ message, onRetry, index, hideAssessmentDetails }) => {
                 {sender === 'bot' && text.includes("trouble processing") && (
                     <button 
                         className="retry-button"
-                        onClick={() => onRetry(index)}
+                        onClick={() => {
+                            // Add a brief delay before retrying for a more natural feel
+                            setTimeout(() => onRetry(index), 500);
+                        }}
                         aria-label="Retry message"
                     >
                         Retry
@@ -209,6 +210,9 @@ const Chat = () => {
     // Add a counter for bot messages to track question number
     const [botMessageCount, setBotMessageCount] = useState(0);
     
+    // Track previously asked questions to avoid repetition
+    const [askedQuestions, setAskedQuestions] = useState([]);
+    
     // Unified UI state
     const [uiState, setUiState] = useState(UI_STATES.DEFAULT);
     
@@ -221,6 +225,9 @@ const Chat = () => {
     
     // Add state for showing the onboarding component
     const [showChatOnboarding, setShowChatOnboarding] = useState(false);
+    
+    // Track if user has declined an upgrade
+    const [hasDeclinedUpgrade, setHasDeclinedUpgrade] = useState(false);
 
     const messagesEndRef = useRef(null);
     const abortControllerRef = useRef(null);
@@ -249,30 +256,41 @@ const Chat = () => {
         }
     }, [messages, typing]);
 
-    // Simple and effective scrolling mechanism
-    const scrollToBottom = useCallback(() => {
+    // Optimized scrollToBottom with debounce
+    const debouncedScrollToBottom = useCallback(
+        debounce(() => {
+            if (messagesEndRef.current) {
+                messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+            }
+        }, CONFIG.SCROLL_DEBOUNCE_DELAY),
+        []
+    );
+
+    // Immediate scroll function for when we need it right away
+    const scrollToBottomImmediate = useCallback(() => {
         if (messagesEndRef.current) {
-            messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+            messagesEndRef.current.scrollIntoView({ behavior: "auto" });
         }
     }, []);
 
     // Scroll when messages change
     useEffect(() => {
-        scrollToBottom();
-    }, [messages, scrollToBottom]);
+        debouncedScrollToBottom();
+    }, [messages, debouncedScrollToBottom]);
 
     // Scroll when typing state changes
     useEffect(() => {
-        scrollToBottom();
-    }, [typing, scrollToBottom]);
+        debouncedScrollToBottom();
+    }, [typing, debouncedScrollToBottom]);
 
     useEffect(() => {
         return () => {
             if (abortControllerRef.current) {
                 abortControllerRef.current.abort();
             }
+            debouncedScrollToBottom.cancel();
         };
-    }, []);
+    }, [debouncedScrollToBottom]);
 
     const validateInput = useCallback((input) => {
         if (!input.trim()) return "Please enter a message";
@@ -282,61 +300,62 @@ const Chat = () => {
         return null;
     }, []);
 
-    const typeMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null) => {
-        let index = 0;
+    // Simplified message function - no character-by-character typing
+    const addBotMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null) => {
+        // Show thinking indicator
         setTyping(true);
         setIsTypingComplete(false);
         
-        // Start typing after a short delay to ensure typing indicator is visible
+        // Calculate a realistic thinking delay based on message length
+        const wordCount = message.split(/\s+/).length;
+        // Base delay between 1-3 seconds, with diminishing returns for very long messages
+        const thinkingDelay = Math.min(1000 + (wordCount * 30), 3000);
+        
         setTimeout(() => {
+            // Add the complete message at once
             setMessages(prev => [...prev, {
                 sender: 'bot',
-                text: "",
+                text: message,
                 isAssessment,
                 confidence,
                 triageLevel,
                 careRecommendation
             }]);
-
-            const interval = setInterval(() => {
-                setMessages(prev => {
-                    const updatedMessages = [...prev];
-                    const lastMessageIndex = updatedMessages.length - 1;
-                    if (lastMessageIndex >= 0 && index < message.length) {
-                        updatedMessages[lastMessageIndex].text = message.slice(0, index + 1);
-                    }
-                    return updatedMessages;
-                });
-                
-                // Scroll every 20 characters to reduce bouncing
-                if (index % 20 === 0) {
-                    scrollToBottom();
-                }
-                
-                index++;
-                
-                if (index >= message.length) {
-                    clearInterval(interval);
-                    
-                    // Important: Add a delay before setting typing to false
-                    // This ensures the message is fully displayed before typing indicator disappears
-                    setTimeout(() => {
-                        setTyping(false);
-                        setIsTypingComplete(true);
-                        
-                        // Final scroll to ensure message is visible
-                        scrollToBottom();
-                        setTimeout(scrollToBottom, 100);
-                    }, 500); // 500ms delay before clearing typing state
-                }
-            }, CONFIG.TYPING_SPEED);
-        }, 300); // 300ms delay before starting to type
-        
-        return () => {
-            // Cleanup function if component unmounts during typing
+            
+            // Increment bot message counter for non-assessment messages
+            if (!isAssessment) {
+                setBotMessageCount(prev => prev + 1);
+            }
+            
             setTyping(false);
-        };
-    }, [scrollToBottom]);
+            setIsTypingComplete(true);
+            
+            // Ensure message is visible
+            debouncedScrollToBottom();
+            
+            // Focus input after message is complete
+            if (inputRef.current) {
+                inputRef.current.focus();
+            }
+        }, thinkingDelay);
+        
+        return thinkingDelay; // Return the delay for sequential messaging
+    }, [debouncedScrollToBottom]);
+
+    // New function for sequential messaging
+    const addSequentialBotMessages = useCallback((messages, startDelay = 0) => {
+        let currentDelay = startDelay;
+        
+        messages.forEach((messageData) => {
+            setTimeout(() => {
+                const { message, isAssessment, confidence, triageLevel, careRecommendation } = messageData;
+                const messageDelay = addBotMessage(message, isAssessment, confidence, triageLevel, careRecommendation);
+                // No need to add the message delay here since we're controlling the sequence manually
+            }, currentDelay);
+            
+            currentDelay += CONFIG.MESSAGE_DELAY;
+        });
+    }, [addBotMessage]);
 
     const handleRetry = useCallback(async (messageIndex) => {
         const originalMessage = messages[messageIndex - 1];
@@ -359,6 +378,7 @@ const Chat = () => {
             setMessages([WELCOME_MESSAGE]);
             setMessageCount(0);
             setBotMessageCount(0); // Reset bot message counter
+            setAskedQuestions([]); // Reset asked questions
             setError(null);
             setInputError(null);
             setIsTypingComplete(true);
@@ -366,6 +386,7 @@ const Chat = () => {
             setLoadingOneTime(false);
             setLatestAssessment(null); // Reset the latest assessment
             setUiState(UI_STATES.DEFAULT); // Reset UI state
+            setHasDeclinedUpgrade(false); // Reset upgrade decline state
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
             
             // Focus the input after reset
@@ -384,16 +405,67 @@ const Chat = () => {
             setMessages([WELCOME_MESSAGE]);
             setMessageCount(0);
             setBotMessageCount(0); // Reset bot message counter
+            setAskedQuestions([]); // Reset asked questions
             setIsTypingComplete(true);
             setLoadingSubscription(false);
             setLoadingOneTime(false);
             setLatestAssessment(null); // Reset the latest assessment
             setUiState(UI_STATES.DEFAULT); // Reset UI state
+            setHasDeclinedUpgrade(false); // Reset upgrade decline state
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
         } finally {
             setResetting(false);
         }
     };
+
+    // Generate a unique follow-up question that hasn't been asked before
+    const generateUniqueFollowUpQuestion = useCallback((response, conditionName = "") => {
+        // Get a follow-up question from the API or create a generic one
+        let followUpQuestion = response.data.question || "";
+        
+        // If the question has already been asked, or no question was provided
+        if (!followUpQuestion || askedQuestions.includes(followUpQuestion)) {
+            // Create a unique follow-up question based on symptoms and what we've already asked
+            const symptoms = response.data.symptoms || [];
+            const possibleQuestions = [
+                "When did your symptoms first start?",
+                "Have you noticed any patterns or triggers that make your symptoms worse?",
+                "Have you tried any treatments or medications for your symptoms?",
+                "Does anyone in your family have a history of similar symptoms?",
+                "Have you experienced these symptoms before?",
+                "Are your symptoms constant or do they come and go?",
+                "On a scale of 1-10, how would you rate the severity of your symptoms?",
+                "Have you noticed any other symptoms that might be related?"
+            ];
+            
+            // Filter out questions we've already asked
+            const availableQuestions = possibleQuestions.filter(q => !askedQuestions.includes(q));
+            
+            if (symptoms.length > 0 && availableQuestions.length > 0) {
+                // Pick a random symptom and a random question
+                const symptom = symptoms[Math.floor(Math.random() * symptoms.length)];
+                const questionTemplate = availableQuestions[Math.floor(Math.random() * availableQuestions.length)];
+                
+                // Customize the question with the symptom if applicable
+                if (questionTemplate.includes("symptoms")) {
+                    followUpQuestion = questionTemplate.replace("symptoms", `${symptom}`);
+                } else {
+                    followUpQuestion = questionTemplate;
+                }
+            } else if (availableQuestions.length > 0) {
+                // Just pick a random question if no symptoms are available
+                followUpQuestion = availableQuestions[Math.floor(Math.random() * availableQuestions.length)];
+            } else {
+                // If we've exhausted all questions, create a generic one
+                followUpQuestion = "Could you tell me more about your symptoms?";
+            }
+        }
+        
+        // Add this question to the list of asked questions
+        setAskedQuestions(prev => [...prev, followUpQuestion]);
+        
+        return `I have some possible insights about your condition${conditionName ? ` (possibly ${conditionName})` : ""}, but I need a bit more information to be certain. ${followUpQuestion}`;
+    }, [askedQuestions]);
 
     const handleSendMessage = async (retryMessage = null) => {
         const messageToSend = retryMessage || userInput;
@@ -426,7 +498,7 @@ const Chat = () => {
             
             // Then add a bot message explaining the upgrade
             setTimeout(() => {
-                typeMessage(
+                addBotMessage(
                     "Based on your symptoms, I've identified a condition that may require further evaluation. To get more insights, you can choose between Premium Access for unlimited symptom checks or a one-time Consultation Report for your current symptoms.",
                     false
                 );
@@ -434,8 +506,8 @@ const Chat = () => {
                 // Show upgrade prompt after the explanation
                 setTimeout(() => {
                     setUiState(UI_STATES.UPGRADE_PROMPT);
-                    scrollToBottom();
-                }, 2000);
+                    debouncedScrollToBottom();
+                }, 500);
             }, 1000);
             
             return;
@@ -451,7 +523,7 @@ const Chat = () => {
         }]);
         
         // Check if we need to show the secondary prompt after user dismisses the upgrade prompt
-        if (uiState === UI_STATES.DEFAULT && messageCount > CONFIG.MAX_FREE_MESSAGES) {
+        if (uiState === UI_STATES.DEFAULT && messageCount > CONFIG.MAX_FREE_MESSAGES && hasDeclinedUpgrade) {
             setUiState(UI_STATES.SECONDARY_PROMPT);
             
             // Find the latest user message for personalization
@@ -477,8 +549,12 @@ const Chat = () => {
                 }]);
                 
                 // Scroll to make the message visible
-                scrollToBottom();
+                debouncedScrollToBottom();
             }, 1000);
+            
+            // Don't continue with API call if we're showing a secondary prompt
+            if (!retryMessage) setUserInput('');
+            return;
         }
         
         if (!retryMessage) setUserInput('');
@@ -492,7 +568,7 @@ const Chat = () => {
         }
 
         // Scroll to bottom after adding user message
-        scrollToBottom();
+        scrollToBottomImmediate();
 
         // Cancel any pending requests
         if (abortControllerRef.current) {
@@ -538,14 +614,25 @@ const Chat = () => {
 
             setTimeout(() => {
                 // Check if this is a question or assessment
-                const isQuestion = response.data.is_question === true;
                 const isAssessment = response.data.is_assessment === true;
                 const requiresUpgrade = response.data.requires_upgrade === true;
                 
-                if (isAssessment) {
+                // Get confidence level
+                const confidence = response.data.confidence || 
+                                  (response.data.assessment?.conditions && 
+                                   response.data.assessment.conditions[0]?.confidence) || 0;
+                
+                // Only treat as assessment if confidence is high enough
+                const isConfidentAssessment = isAssessment && confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD;
+                
+                // Get condition name for context in upgrade prompt
+                let conditionName = "";
+                if (response.data.assessment?.conditions && response.data.assessment.conditions.length > 0) {
+                    conditionName = response.data.assessment.conditions[0].name;
+                }
+                
+                if (isConfidentAssessment) {
                     // It's a final assessment with conditions
-                    let formattedMessage = '';
-                    let confidence = null;
                     let triageLevel = null;
                     let careRecommendation = null;
                     
@@ -567,56 +654,55 @@ const Chat = () => {
                         
                         // If this requires an upgrade, show a simplified message
                         if (requiresUpgrade) {
-                            formattedMessage = "Based on your symptoms, I've completed an assessment. Please see the summary below.";
+                            // Add sequential messages for a smoother experience
+                            addSequentialBotMessages([
+                                {
+                                    message: "Based on your symptoms, I've completed an assessment.",
+                                    isAssessment: true
+                                },
+                                {
+                                    message: "I've identified a condition that may require further evaluation. To get more insights, you can choose between Premium Access for unlimited symptom checks or a one-time Consultation Report for your current symptoms.",
+                                    isAssessment: false
+                                }
+                            ]);
                             
-                            // Add the message with minimal details
-                            typeMessage(
-                                formattedMessage,
-                                true,
-                                conditions[0]?.confidence,
-                                triageLevel,
-                                null // Don't include care recommendation in the message
-                            );
-                            
-                            // Add a bot message explaining the upgrade with INCREASED DELAY
+                            // Show both assessment and upgrade after a delay
                             setTimeout(() => {
-                                typeMessage(
-                                    "I've identified a condition that may require further evaluation. To get more insights, you can choose between Premium Access for unlimited symptom checks or a one-time Consultation Report for your current symptoms.",
-                                    false
-                                );
-                                
-                                // Show both assessment and upgrade with INCREASED DELAY
-                                setTimeout(() => {
-                                    setUiState(UI_STATES.ASSESSMENT_WITH_UPGRADE);
-                                    scrollToBottom();
-                                }, 2000); // Increased from 1000ms to 2000ms
-                            }, 3000); // Increased from 2000ms to 3000ms
+                                setUiState(UI_STATES.ASSESSMENT_WITH_UPGRADE);
+                                debouncedScrollToBottom();
+                            }, 3000); // Increased delay to account for sequential messages
                         } else {
-                            // Regular assessment without upgrade
-                            formattedMessage += 'Based on your symptoms, here are some possible conditions:\n\n';
-                            conditions.forEach(condition => {
-                                formattedMessage += `${condition.name} – ${condition.confidence}%\n`;
-                            });
-                            formattedMessage += `\n${careRecommendation}\n\n${disclaimer}`;
-                            
-                            confidence = conditions[0]?.confidence || response.data.confidence;
-                            
-                            // For non-upgrade assessments, show the full assessment
-                            typeMessage(
-                                formattedMessage,
-                                true,
-                                confidence,
-                                triageLevel,
-                                careRecommendation
-                            );
+                            // Regular assessment without upgrade - split into sequential messages
+                            addSequentialBotMessages([
+                                {
+                                    message: "Based on your symptoms, I've completed an assessment.",
+                                    isAssessment: true
+                                },
+                                {
+                                    message: `The most likely condition is ${conditions[0].name} (${conditions[0].confidence}% confidence).`,
+                                    isAssessment: true,
+                                    confidence: conditions[0].confidence
+                                },
+                                {
+                                    message: careRecommendation,
+                                    isAssessment: true,
+                                    triageLevel: triageLevel,
+                                    careRecommendation: careRecommendation
+                                },
+                                {
+                                    message: disclaimer,
+                                    isAssessment: true
+                                }
+                            ]);
                             
                             // Set UI state to ASSESSMENT
-                            setUiState(UI_STATES.ASSESSMENT);
+                            setTimeout(() => {
+                                setUiState(UI_STATES.ASSESSMENT);
+                            }, 1000);
                         }
                     } else {
                         // Unstructured assessment
-                        formattedMessage = response.data.possible_conditions || "Based on your symptoms, I can provide an assessment.";
-                        confidence = response.data.confidence;
+                        const formattedMessage = response.data.possible_conditions || "Based on your symptoms, I can provide an assessment.";
                         triageLevel = response.data.triage_level;
                         careRecommendation = response.data.care_recommendation;
                         
@@ -629,31 +715,26 @@ const Chat = () => {
                         
                         // If this requires an upgrade, show the upgrade prompt
                         if (requiresUpgrade) {
-                            // Add a simplified message
-                            typeMessage(
-                                "Based on your symptoms, I've completed an assessment. Please see the summary below.",
-                                true,
-                                confidence,
-                                triageLevel,
-                                null // Don't include care recommendation in the message
-                            );
+                            // Add sequential messages for a smoother experience
+                            addSequentialBotMessages([
+                                {
+                                    message: "Based on your symptoms, I've completed an assessment.",
+                                    isAssessment: true
+                                },
+                                {
+                                    message: "I've identified a condition that may require further evaluation. To get more insights, you can choose between Premium Access for unlimited symptom checks or a one-time Consultation Report for your current symptoms.",
+                                    isAssessment: false
+                                }
+                            ]);
                             
-                            // Add a bot message explaining the upgrade with INCREASED DELAY
+                            // Show both assessment and upgrade after a delay
                             setTimeout(() => {
-                                typeMessage(
-                                    "I've identified a condition that may require further evaluation. To get more insights, you can choose between Premium Access for unlimited symptom checks or a one-time Consultation Report for your current symptoms.",
-                                    false
-                                );
-                                
-                                // Show both assessment and upgrade with INCREASED DELAY
-                                setTimeout(() => {
-                                    setUiState(UI_STATES.ASSESSMENT_WITH_UPGRADE);
-                                    scrollToBottom();
-                                }, 2000); // Increased from 1000ms to 2000ms
-                            }, 3000); // Increased from 2000ms to 3000ms
+                                setUiState(UI_STATES.ASSESSMENT_WITH_UPGRADE);
+                                debouncedScrollToBottom();
+                            }, 3000); // Increased delay to account for sequential messages
                         } else {
                             // For non-upgrade assessments, show the full assessment
-                            typeMessage(
+                            addBotMessage(
                                 formattedMessage,
                                 true,
                                 confidence,
@@ -665,10 +746,20 @@ const Chat = () => {
                             setUiState(UI_STATES.ASSESSMENT);
                         }
                     }
+                } else if (isAssessment) {
+                    // It's an assessment but confidence is too low
+                    // Generate a unique follow-up question
+                    const followUpMessage = generateUniqueFollowUpQuestion(response, conditionName);
+                    addBotMessage(followUpMessage, false);
                 } else {
                     // It's a follow-up question or other response
                     const responseText = response.data.question || response.data.possible_conditions || "Could you tell me more about your symptoms?";
-                    typeMessage(responseText, false);
+                    addBotMessage(responseText, false);
+                    
+                    // Add this question to asked questions to avoid repetition
+                    if (response.data.question) {
+                        setAskedQuestions(prev => [...prev, response.data.question]);
+                    }
                 }
             }, CONFIG.THINKING_DELAY);
 
@@ -695,12 +786,12 @@ const Chat = () => {
                 
                 setError(errorMessage);
                 setTimeout(() => {
-                    typeMessage(errorMessage, false);
+                    addBotMessage(errorMessage, false);
                 }, CONFIG.THINKING_DELAY);
             }
         } finally {
             setLoading(false);
-            // Don't set typing to false here - it will be set in typeMessage when typing is complete
+            // Don't set typing to false here - it will be set in addBotMessage when typing is complete
         }
     };
 
@@ -806,6 +897,7 @@ const Chat = () => {
                             className="close-upgrade" 
                             onClick={() => {
                                 setUiState(uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE ? UI_STATES.ASSESSMENT : UI_STATES.DEFAULT);
+                                setHasDeclinedUpgrade(true); // Track that user has declined upgrade
                                 if (inputRef.current) {
                                     inputRef.current.focus();
                                 }
@@ -815,7 +907,12 @@ const Chat = () => {
                             ✖
                         </button>
                         <div className="upgrade-message">
-                            <h3>Based on your symptoms, I've identified a condition that may require further evaluation.</h3>
+                            <h3>
+                                Based on your symptoms, 
+                                {latestAssessment ? 
+                                    ` I've identified ${latestAssessment.condition} as a possible condition that may require further evaluation.` : 
+                                    ` I've identified a condition that may require further evaluation.`}
+                            </h3>
                             <p>💡 To get more insights, you can choose one of these options:</p>
                             <ul>
                                 <li>🔹 Premium Access ($9.99/month): Unlimited symptom checks, detailed assessments, and personalized health monitoring.</li>
@@ -922,7 +1019,7 @@ Chat.propTypes = {
 Chat.defaultProps = {
     maxFreeMessages: CONFIG.MAX_FREE_MESSAGES,
     apiUrl: CONFIG.API_URL,
-    typingSpeed: CONFIG.TYPING_SPEED,
+    typingSpeed: 30,
     thinkingDelay: CONFIG.THINKING_DELAY
 };
 
