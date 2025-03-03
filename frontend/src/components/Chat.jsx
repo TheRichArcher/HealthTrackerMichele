@@ -230,9 +230,6 @@ const Chat = () => {
         return !localStorage.getItem('healthtracker_chat_onboarding_complete');
     });
 
-    // Track if user has manually scrolled up
-    const [userScrolledUp, setUserScrolledUp] = useState(false);
-
     const messagesEndRef = useRef(null);
     const abortControllerRef = useRef(null);
     const chatContainerRef = useRef(null);
@@ -240,7 +237,6 @@ const Chat = () => {
     const messagesContainerRef = useRef(null);
     const upgradeOptionsRef = useRef(null);
     const hiddenMeasureRef = useRef(null);
-    const lastScrollPositionRef = useRef(0);
 
     // Create a persistent hidden div for message height calculations
     useEffect(() => {
@@ -264,31 +260,6 @@ const Chat = () => {
                 hiddenMeasureRef.current = null;
             }
         };
-    }, []);
-
-    // Track scroll position to detect manual scrolling
-    useEffect(() => {
-        const container = messagesContainerRef.current;
-        if (!container) return;
-
-        const handleScroll = () => {
-            const isNearBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 100;
-            
-            // If user scrolled up, mark it
-            if (!isNearBottom && container.scrollTop < lastScrollPositionRef.current) {
-                setUserScrolledUp(true);
-            }
-            
-            // If user scrolled to bottom, unmark it
-            if (isNearBottom) {
-                setUserScrolledUp(false);
-            }
-            
-            lastScrollPositionRef.current = container.scrollTop;
-        };
-
-        container.addEventListener('scroll', handleScroll);
-        return () => container.removeEventListener('scroll', handleScroll);
     }, []);
 
     // Debug mode toggle (only in development)
@@ -355,96 +326,75 @@ const Chat = () => {
         }
     }, [messages, isTypingComplete]);
 
-    // Improved scrollToBottom function with respect for user scrolling
+    // Aggressive scrollToBottom function that always works
     const scrollToBottom = useCallback((force = false) => {
-        requestAnimationFrame(() => {
+        // Use multiple approaches to ensure scrolling works
+        if (!messagesContainerRef.current) return;
+        
+        // Immediate scroll attempt
+        const scrollNow = () => {
             const container = messagesContainerRef.current;
             if (!container) return;
-
-            // Check if user is actively scrolling or has scrolled up to read
-            const isNearBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 100;
             
-            // Only auto-scroll if forced, near bottom already, or user hasn't manually scrolled up
-            if (force || isNearBottom || !userScrolledUp) {
-                // Account for sticky elements when scrolling
-                const assessmentSummaryHeight = document.querySelector('.assessment-summary')?.offsetHeight || 0;
-                const upgradeBoxHeight = document.querySelector('.upgrade-options')?.offsetHeight || 0;
-                const extraPadding = 20;
-                
-                container.scrollTop = container.scrollHeight;
-                
-                if (messagesEndRef.current) {
-                    messagesEndRef.current.scrollIntoView({ 
-                        behavior: "auto", 
-                        block: "end" 
-                    });
+            // Force scroll to the very bottom
+            container.scrollTop = container.scrollHeight;
+            
+            if (messagesEndRef.current) {
+                messagesEndRef.current.scrollIntoView({ behavior: "auto", block: "end" });
+            }
+        };
+        
+        // Execute immediate scroll
+        scrollNow();
+        
+        // Schedule multiple delayed scrolls to handle any rendering delays
+        const timeouts = [50, 100, 300, 500, 1000].map(delay => 
+            setTimeout(scrollNow, delay)
+        );
+        
+        return () => timeouts.forEach(clearTimeout);
+    }, []);
+
+    // Setup MutationObserver to watch for DOM changes and scroll accordingly
+    useEffect(() => {
+        if (!messagesContainerRef.current) return;
+        
+        const observer = new MutationObserver((mutations) => {
+            let shouldScroll = false;
+            
+            // Check if any mutations involve adding nodes or changing text
+            for (const mutation of mutations) {
+                if (mutation.addedNodes.length > 0 || mutation.type === 'characterData') {
+                    shouldScroll = true;
+                    break;
                 }
             }
+            
+            if (shouldScroll) {
+                scrollToBottom(true);
+            }
         });
-    }, [userScrolledUp]);
-
-    // Improved MutationObserver that only scrolls when needed
-    useEffect(() => {
-        if (messagesContainerRef.current) {
-            const observer = new MutationObserver((mutations) => {
-                for (const mutation of mutations) {
-                    // Only scroll if a new message was added (prevents unnecessary scrolling)
-                    if (mutation.addedNodes.length > 0) {
-                        scrollToBottom();
-                    }
-                }
-            });
-
-            observer.observe(messagesContainerRef.current, { childList: true, subtree: true });
-
-            return () => observer.disconnect();
-        }
+        
+        // Observe both direct children and text changes
+        observer.observe(messagesContainerRef.current, { 
+            childList: true, 
+            subtree: true, 
+            characterData: true 
+        });
+        
+        return () => observer.disconnect();
     }, [scrollToBottom]);
 
-    // Enhanced scroll when messages change
+    // Scroll when messages change
     useEffect(() => {
         if (messages.length > 0) {
-            // Immediate scroll
             scrollToBottom(true);
-            
-            // Add a delayed scroll to ensure content is rendered
-            const timeouts = [
-                setTimeout(() => scrollToBottom(true), 100),
-                setTimeout(() => scrollToBottom(true), 500)
-            ];
-            
-            return () => timeouts.forEach(clearTimeout);
         }
     }, [messages, scrollToBottom]);
 
-    // Enhanced auto-scroll when upgrade options appear
+    // Scroll when UI state changes
     useEffect(() => {
-        if (uiState === UI_STATES.UPGRADE_PROMPT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) {
-            // Reset user scroll state when upgrade appears
-            setUserScrolledUp(false);
-            
-            // Immediate scroll to bottom to ensure upgrade options are in view
-            scrollToBottom(true);
-            
-            // Add a delayed scroll to ensure content is rendered
-            const timeouts = [
-                setTimeout(() => {
-                    scrollToBottom(true);
-                    
-                    // Find the upgrade box and scroll it into view
-                    const upgradeBox = document.querySelector('.upgrade-options');
-                    if (upgradeBox) {
-                        upgradeBox.scrollIntoView({ 
-                            behavior: 'smooth', 
-                            block: 'center' 
-                        });
-                    }
-                }, 300),
-                setTimeout(() => scrollToBottom(true), 800)
-            ];
-            
-            return () => timeouts.forEach(clearTimeout);
-        }
+        scrollToBottom(true);
     }, [uiState, scrollToBottom]);
 
     // Effect to show assessment UI state after assessment is complete
@@ -453,22 +403,8 @@ const Chat = () => {
             // Show the assessment UI state
             setUiState(UI_STATES.ASSESSMENT);
             
-            // Reset user scroll state when assessment appears
-            setUserScrolledUp(false);
-            
-            // Add a small delay before scrolling to ensure UI has updated
-            setTimeout(() => {
-                // Find the last message and scroll to it
-                if (messagesContainerRef.current) {
-                    const container = messagesContainerRef.current;
-                    const lastMessage = container.querySelector('.message-row:last-child');
-                    if (lastMessage) {
-                        lastMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    } else {
-                        scrollToBottom(true);
-                    }
-                }
-            }, 100);
+            // Scroll to make sure assessment is visible
+            setTimeout(() => scrollToBottom(true), 100);
         }
     }, [latestAssessment, typing, isTypingComplete, uiState, scrollToBottom]);
 
@@ -530,9 +466,6 @@ const Chat = () => {
         // Base delay between 1-3 seconds, with diminishing returns for very long messages
         const thinkingDelay = Math.max(1000, Math.min(1000 + (wordCount * 50), 3000));
         
-        // Reset user scroll state when new message is about to appear
-        setUserScrolledUp(false);
-        
         // Show typing indicator for the calculated delay, then show full message at once
         setTimeout(() => {
             // Add the full message immediately (no character-by-character typing)
@@ -556,14 +489,8 @@ const Chat = () => {
             setTyping(false);
             setIsTypingComplete(true);
             
-            // Wait for React to finish rendering the new message
-            requestAnimationFrame(() => {
-                // Then scroll to bottom once with force=true
-                scrollToBottom(true);
-                
-                // Add a single backup scroll after a short delay to handle any post-render adjustments
-                setTimeout(() => scrollToBottom(true), 100);
-            });
+            // Aggressive scrolling to ensure message is visible
+            scrollToBottom(true);
             
             // Focus input after message is complete
             forceFocus();
@@ -603,7 +530,6 @@ const Chat = () => {
             setLoadingOneTime(false);
             setLatestAssessment(null); // Reset the latest assessment
             setUiState(UI_STATES.DEFAULT); // Reset UI state
-            setUserScrolledUp(false); // Reset user scroll state
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
             
             // Focus the input after reset
@@ -625,7 +551,6 @@ const Chat = () => {
             setLoadingOneTime(false);
             setLatestAssessment(null); // Reset the latest assessment
             setUiState(UI_STATES.DEFAULT); // Reset UI state
-            setUserScrolledUp(false); // Reset user scroll state
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
         } finally {
             setResetting(false);
@@ -650,12 +575,33 @@ const Chat = () => {
 
         // Handle free tier message limit
         if (newMessageCount >= CONFIG.MAX_FREE_MESSAGES && uiState === UI_STATES.DEFAULT) {
-            setUiState(UI_STATES.UPGRADE_PROMPT);
+            // First add the user's message
+            setMessages(prev => [...prev, {
+                sender: 'user',
+                text: messageToSend.trim(),
+                confidence: null,
+                careRecommendation: null,
+                isAssessment: false
+            }]);
+            
+            if (!retryMessage) setUserInput('');
+            
+            // Then add a bot message explaining the upgrade
+            setTimeout(() => {
+                typeMessage(
+                    "Based on your symptoms, I've identified a condition that may require further evaluation. To get more insights, you can choose between Premium Access for unlimited symptom checks or a one-time Consultation Report for your current symptoms.",
+                    false
+                );
+                
+                // Show upgrade prompt after the explanation
+                setTimeout(() => {
+                    setUiState(UI_STATES.UPGRADE_PROMPT);
+                    scrollToBottom(true);
+                }, 1000);
+            }, 1000);
+            
             return;
         }
-
-        // Reset user scroll state when sending a new message
-        setUserScrolledUp(false);
 
         // Add user message to chat
         setMessages(prev => [...prev, {
@@ -693,8 +639,7 @@ const Chat = () => {
                 }]);
                 
                 // Scroll to make the message visible
-                setTimeout(() => scrollToBottom(true), 0);
-                setTimeout(() => scrollToBottom(true), 100);
+                scrollToBottom(true);
             }, 1000);
         }
         
@@ -707,8 +652,7 @@ const Chat = () => {
         forceFocus();
 
         // Scroll to bottom after adding user message
-        setTimeout(() => scrollToBottom(true), 0);
-        setTimeout(() => scrollToBottom(true), 100);
+        scrollToBottom(true);
 
         // Cancel any pending requests
         if (abortControllerRef.current) {
@@ -794,8 +738,19 @@ const Chat = () => {
                                 null // Don't include care recommendation in the message
                             );
                             
-                            // Show both assessment and upgrade
-                            setUiState(UI_STATES.ASSESSMENT_WITH_UPGRADE);
+                            // Add a bot message explaining the upgrade
+                            setTimeout(() => {
+                                typeMessage(
+                                    "I've identified a condition that may require further evaluation. To get more insights, you can choose between Premium Access for unlimited symptom checks or a one-time Consultation Report for your current symptoms.",
+                                    false
+                                );
+                                
+                                // Show both assessment and upgrade
+                                setTimeout(() => {
+                                    setUiState(UI_STATES.ASSESSMENT_WITH_UPGRADE);
+                                    scrollToBottom(true);
+                                }, 1000);
+                            }, 2000);
                         } else {
                             // Regular assessment without upgrade
                             formattedMessage += 'Based on your symptoms, here are some possible conditions:\n\n';
@@ -843,8 +798,19 @@ const Chat = () => {
                                 null // Don't include care recommendation in the message
                             );
                             
-                            // Show both assessment and upgrade
-                            setUiState(UI_STATES.ASSESSMENT_WITH_UPGRADE);
+                            // Add a bot message explaining the upgrade
+                            setTimeout(() => {
+                                typeMessage(
+                                    "I've identified a condition that may require further evaluation. To get more insights, you can choose between Premium Access for unlimited symptom checks or a one-time Consultation Report for your current symptoms.",
+                                    false
+                                );
+                                
+                                // Show both assessment and upgrade
+                                setTimeout(() => {
+                                    setUiState(UI_STATES.ASSESSMENT_WITH_UPGRADE);
+                                    scrollToBottom(true);
+                                }, 1000);
+                            }, 2000);
                         } else {
                             // For non-upgrade assessments, show the full assessment
                             typeMessage(
@@ -942,111 +908,109 @@ const Chat = () => {
                     </div>
                 </div>
 
-                <div className="chat-content-wrapper">
-                    <div 
-                        className="messages-container" 
-                        role="log" 
-                        aria-live="polite"
-                        ref={messagesContainerRef}
-                    >
-                        {messages.map((msg, index) => (
-                            <Message
-                                key={index}
-                                message={msg}
-                                onRetry={handleRetry}
-                                index={index}
-                                hideAssessmentDetails={(uiState === UI_STATES.ASSESSMENT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) && msg.isAssessment}
-                            />
-                        ))}
-                        
-                        {/* Show typing indicator */}
-                        {typing && (
-                            <div className="message-row">
-                                <div className="avatar-container">
-                                    <img src="/doctor-avatar.png" alt="AI Assistant" />
-                                </div>
-                                <div className="typing-indicator">
-                                    <span></span>
-                                    <span></span>
-                                    <span></span>
-                                </div>
+                <div 
+                    className="messages-container" 
+                    role="log" 
+                    aria-live="polite"
+                    ref={messagesContainerRef}
+                >
+                    {messages.map((msg, index) => (
+                        <Message
+                            key={index}
+                            message={msg}
+                            onRetry={handleRetry}
+                            index={index}
+                            hideAssessmentDetails={(uiState === UI_STATES.ASSESSMENT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) && msg.isAssessment}
+                        />
+                    ))}
+                    
+                    {/* Show typing indicator */}
+                    {typing && (
+                        <div className="message-row">
+                            <div className="avatar-container">
+                                <img src="/doctor-avatar.png" alt="AI Assistant" />
                             </div>
-                        )}
-                        
-                        {/* Add loading indicator */}
-                        {loading && !typing && (
-                            <div className="loading-indicator" aria-live="polite">
-                                <div className="loading-spinner"></div>
-                                <span>Analyzing your symptoms...</span>
-                            </div>
-                        )}
-                        
-                        {error && (
-                            <div className="error-message" role="alert">
-                                {error}
-                            </div>
-                        )}
-                        <div ref={messagesEndRef} />
-                    </div>
-
-                    {/* Add the sticky assessment summary here */}
-                    {(uiState === UI_STATES.ASSESSMENT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) && latestAssessment && (
-                        <AssessmentSummary assessment={latestAssessment} />
-                    )}
-
-                    {/* Show upgrade prompt immediately after assessment summary */}
-                    {(uiState === UI_STATES.UPGRADE_PROMPT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) && (
-                        <div className="upgrade-options" ref={upgradeOptionsRef}>
-                            <button 
-                                className="close-upgrade" 
-                                onClick={() => {
-                                    setUiState(uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE ? UI_STATES.ASSESSMENT : UI_STATES.DEFAULT);
-                                    forceFocus();
-                                }}
-                                aria-label="Dismiss upgrade prompt"
-                            >
-                                ✖
-                            </button>
-                            <div className="upgrade-message">
-                                <h3>Based on your symptoms, I've identified a condition that may require further evaluation.</h3>
-                                <p>💡 To get more insights, you can choose one of these options:</p>
-                                <ul>
-                                    <li>🔹 Premium Access ($9.99/month): Unlimited symptom checks, detailed assessments, and personalized health monitoring.</li>
-                                    <li>🔹 One-time Consultation Report ($4.99): Get a comprehensive analysis of your current symptoms.</li>
-                                </ul>
-                                <p>Would you like to continue with one of these options?</p>
-                            </div>
-                            <div className="upgrade-buttons">
-                                <button 
-                                    className={`upgrade-button subscription ${loadingSubscription ? 'loading' : ''}`}
-                                    onClick={() => {
-                                        if (loadingSubscription || loadingOneTime) return;
-                                        setLoadingSubscription(true);
-                                        setTimeout(() => {
-                                            window.location.href = '/subscribe';
-                                        }, 300);
-                                    }}
-                                    disabled={loadingSubscription || loadingOneTime}
-                                >
-                                    {loadingSubscription ? 'Processing...' : '🩺 Get Premium Access ($9.99/month)'}
-                                </button>
-                                <button 
-                                    className={`upgrade-button one-time ${loadingOneTime ? 'loading' : ''}`}
-                                    onClick={() => {
-                                        if (loadingSubscription || loadingOneTime) return;
-                                        setLoadingOneTime(true);
-                                        setTimeout(() => {
-                                            window.location.href = '/one-time-report';
-                                        }, 300);
-                                    }}
-                                    disabled={loadingSubscription || loadingOneTime}
-                                >
-                                    {loadingOneTime ? 'Processing...' : '📄 Get Consultation Report ($4.99)'}
-                                </button>
+                            <div className="typing-indicator">
+                                <span></span>
+                                <span></span>
+                                <span></span>
                             </div>
                         </div>
                     )}
+                    
+                    {/* Add loading indicator */}
+                    {loading && !typing && (
+                        <div className="loading-indicator" aria-live="polite">
+                            <div className="loading-spinner"></div>
+                            <span>Analyzing your symptoms...</span>
+                        </div>
+                    )}
+                    
+                    {error && (
+                        <div className="error-message" role="alert">
+                            {error}
+                        </div>
+                    )}
+                    <div ref={messagesEndRef} />
                 </div>
+
+                {/* Add the sticky assessment summary here */}
+                {(uiState === UI_STATES.ASSESSMENT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) && latestAssessment && (
+                    <AssessmentSummary assessment={latestAssessment} />
+                )}
+
+                {/* Show upgrade prompt if in UPGRADE_PROMPT or ASSESSMENT_WITH_UPGRADE state */}
+                {(uiState === UI_STATES.UPGRADE_PROMPT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) && (
+                    <div className="upgrade-options" ref={upgradeOptionsRef}>
+                        <button 
+                            className="close-upgrade" 
+                            onClick={() => {
+                                setUiState(uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE ? UI_STATES.ASSESSMENT : UI_STATES.DEFAULT);
+                                forceFocus();
+                            }}
+                            aria-label="Dismiss upgrade prompt"
+                        >
+                            ✖
+                        </button>
+                        <div className="upgrade-message">
+                            <h3>Based on your symptoms, I've identified a condition that may require further evaluation.</h3>
+                            <p>💡 To get more insights, you can choose one of these options:</p>
+                            <ul>
+                                <li>🔹 Premium Access ($9.99/month): Unlimited symptom checks, detailed assessments, and personalized health monitoring.</li>
+                                <li>🔹 One-time Consultation Report ($4.99): Get a comprehensive analysis of your current symptoms.</li>
+                            </ul>
+                            <p>Would you like to continue with one of these options?</p>
+                        </div>
+                        <div className="upgrade-buttons">
+                            <button 
+                                className={`upgrade-button subscription ${loadingSubscription ? 'loading' : ''}`}
+                                onClick={() => {
+                                    if (loadingSubscription || loadingOneTime) return;
+                                    setLoadingSubscription(true);
+                                    setTimeout(() => {
+                                        window.location.href = '/subscribe';
+                                    }, 300);
+                                }}
+                                disabled={loadingSubscription || loadingOneTime}
+                            >
+                                {loadingSubscription ? 'Processing...' : '🩺 Get Premium Access ($9.99/month)'}
+                            </button>
+                            <button 
+                                className={`upgrade-button one-time ${loadingOneTime ? 'loading' : ''}`}
+                                onClick={() => {
+                                    if (loadingSubscription || loadingOneTime) return;
+                                    setLoadingOneTime(true);
+                                    setTimeout(() => {
+                                        window.location.href = '/one-time-report';
+                                    }, 300);
+                                }}
+                                disabled={loadingSubscription || loadingOneTime}
+                            >
+                                {loadingOneTime ? 'Processing...' : '📄 Get Consultation Report ($4.99)'}
+                            </button>
+                        </div>
+                    </div>
+                )}
 
                 <div className="chat-input-container">
                     <div className="chat-input-wrapper">

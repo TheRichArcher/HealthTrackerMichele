@@ -76,20 +76,11 @@
   cursor: not-allowed;
 }
 
-/* New wrapper for better layout control */
-.chat-content-wrapper {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  position: relative;
-}
-
 .messages-container {
   flex: 1;
   overflow-y: auto;
   padding: 20px;
-  padding-bottom: 100px; /* Increased from 80px to accommodate input area (~60-70px) and buffer */
+  padding-bottom: 150px; /* Increased from 100px to ensure more space for content */
   display: flex;
   flex-direction: column;
   gap: 15px;
@@ -401,30 +392,13 @@
 }
 
 /* Ensure upgrade options are visible in assessment_with_upgrade state */
-.assessment-with-upgrade .chat-content-wrapper {
-  display: flex;
-  flex-direction: column;
-}
-
-.assessment-with-upgrade .messages-container {
-  order: 1;
-}
-
 .assessment-with-upgrade .assessment-summary {
-  order: 2;
-  position: relative;
-  bottom: auto;
   margin-bottom: 0;
 }
 
 .assessment-with-upgrade .upgrade-options {
-  order: 3;
   margin-top: 10px;
   margin-bottom: 20px;
-}
-
-.assessment-with-upgrade .chat-input-container {
-  order: 4;
 }
 
 .close-upgrade {
