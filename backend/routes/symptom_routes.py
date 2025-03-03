@@ -198,7 +198,9 @@ def analyze_symptoms():
                 'possible_conditions': "Please describe your symptoms.",
                 'care_recommendation': "Consider seeing a doctor soon.",
                 'confidence': None,
-                'is_assessment': False
+                'is_assessment': False,
+                'is_question': True,
+                'requires_upgrade': False
             }), 400
 
         # Log the incoming request
@@ -210,7 +212,10 @@ def analyze_symptoms():
         api_key = os.getenv('OPENAI_API_KEY')
         if not api_key:
             current_app.logger.error("OpenAI API key not found in environment variables")
-            return jsonify({'error': 'AI service configuration error.'}), 500
+            return jsonify({
+                'error': 'AI service configuration error.',
+                'requires_upgrade': False
+            }), 500
         
         # Log partial API key for debugging (first 4 chars only for security)
         current_app.logger.info(f"Using API key starting with: {api_key[:4]}...")
@@ -265,11 +270,34 @@ def analyze_symptoms():
                     else:
                         confidence = 80  # Default confidence for assessments
                 
-                # ✅ NEW: Override requires_upgrade if confidence is too low
+                # ✅ Override requires_upgrade if confidence is too low
                 is_confident = confidence is not None and confidence >= MIN_CONFIDENCE_THRESHOLD
                 if requires_upgrade and not is_confident:
                     requires_upgrade = False
                     current_app.logger.info(f"Overriding requires_upgrade to False due to low confidence ({confidence})")
+                
+                # ✅ NEW: Ensure we always have a follow-up question for low confidence
+                if is_assessment and not is_confident:
+                    # Generate a follow-up question for low confidence assessments
+                    follow_up_questions = [
+                        "I need more details to be certain. Can you describe when the pain started?",
+                        "To better understand your condition, can you tell me if anything makes the symptoms better or worse?",
+                        "I'd like to get a clearer picture. Have you noticed any other symptoms along with this?",
+                        "To help narrow down the possibilities, can you describe the exact location and nature of your discomfort?",
+                        "I need a bit more information. Have you tried any treatments or medications for this issue?"
+                    ]
+                    # Pick a question that hasn't been asked yet, or use the first one as fallback
+                    follow_up_question = follow_up_questions[0]
+                    for question in follow_up_questions:
+                        if question not in [msg.get("message", "") for msg in conversation_history if msg.get("isBot", False)]:
+                            follow_up_question = question
+                            break
+                    
+                    # Override the response to be a question instead of an assessment
+                    is_assessment = False
+                    is_question = True
+                    ai_response = follow_up_question
+                    current_app.logger.info(f"Generated follow-up question for low confidence: {follow_up_question}")
                 
                 current_app.logger.info(f"Final requires_upgrade={requires_upgrade}, confidence={confidence}, is_confident={is_confident}")
                 
@@ -367,12 +395,19 @@ def analyze_symptoms():
                     # Explicitly set requires_upgrade to False to override any previous setting
                     result['requires_upgrade'] = False
                 
+                # Ensure we always have a question field for the frontend
+                if is_question and 'question' not in result:
+                    result['question'] = ai_response
+                
                 return jsonify(result)
                 
             except openai.RateLimitError as e:
                 current_app.logger.error(f"OpenAI rate limit exceeded (attempt {attempt + 1}): {e}")
                 if attempt == MAX_RETRIES - 1:
-                    return jsonify({'error': 'AI service is temporarily busy. Please try again later.'}), 429
+                    return jsonify({
+                        'error': 'AI service is temporarily busy. Please try again later.',
+                        'requires_upgrade': False  # Ensure we don't trigger upgrade on error
+                    }), 429
                 # Exponential backoff: 2^attempt * RETRY_DELAY seconds (2, 4, 8...)
                 backoff_time = (2 ** attempt) * RETRY_DELAY
                 current_app.logger.info(f"Backing off for {backoff_time} seconds")
@@ -381,38 +416,56 @@ def analyze_symptoms():
             except openai.APIConnectionError as e:
                 current_app.logger.error(f"OpenAI API connection error (attempt {attempt + 1}): {e}")
                 if attempt == MAX_RETRIES - 1:
-                    return jsonify({'error': 'Unable to connect to AI service. Please try again later.'}), 503
+                    return jsonify({
+                        'error': 'Unable to connect to AI service. Please try again later.',
+                        'requires_upgrade': False  # Ensure we don't trigger upgrade on error
+                    }), 503
                 backoff_time = (2 ** attempt) * RETRY_DELAY
                 time.sleep(backoff_time)
 
             except openai.APIError as e:
                 current_app.logger.error(f"OpenAI API error (attempt {attempt + 1}): {e}")
                 if attempt == MAX_RETRIES - 1:
-                    return jsonify({'error': 'AI service error. Please try again later.'}), 500
+                    return jsonify({
+                        'error': 'AI service error. Please try again later.',
+                        'requires_upgrade': False  # Ensure we don't trigger upgrade on error
+                    }), 500
                 backoff_time = (2 ** attempt) * RETRY_DELAY
                 time.sleep(backoff_time)
 
             except openai.AuthenticationError as e:
                 current_app.logger.error(f"OpenAI authentication error: {e}")
-                return jsonify({'error': 'AI service authentication error. Please check your API key.'}), 500
+                return jsonify({
+                    'error': 'AI service authentication error. Please check your API key.',
+                    'requires_upgrade': False  # Ensure we don't trigger upgrade on error
+                }), 500
 
             except openai.InvalidRequestError as e:
                 current_app.logger.error(f"OpenAI invalid request error: {e}")
-                return jsonify({'error': 'Invalid request to AI service.'}), 400
+                return jsonify({
+                    'error': 'Invalid request to AI service.',
+                    'requires_upgrade': False  # Ensure we don't trigger upgrade on error
+                }), 400
                 
             except Exception as e:
                 current_app.logger.error(f"Unexpected error (attempt {attempt + 1}): {e}", exc_info=True)
                 if attempt == MAX_RETRIES - 1:
-                    return jsonify({'error': 'Unable to process your request.'}), 500
+                    return jsonify({
+                        'error': 'Unable to process your request.',
+                        'requires_upgrade': False  # Ensure we don't trigger upgrade on error
+                    }), 500
                 backoff_time = (2 ** attempt) * RETRY_DELAY
                 time.sleep(backoff_time)
 
     except Exception as e:
         current_app.logger.error(f'Error analyzing symptoms: {e}', exc_info=True)
         return jsonify({
+            'error': "I'm having trouble connecting to my medical database. Please check your internet connection and try again.",
             'possible_conditions': "I apologize, but I'm having trouble processing your request right now. Please try again or seek medical attention if you're concerned about your symptoms.",
             'care_recommendation': "Consider seeing a doctor soon.",
-            'confidence': None
+            'confidence': None,
+            'requires_upgrade': False,  # Explicitly set to False to avoid upgrade prompts on errors
+            'is_question': False
         }), 500
 
 def extract_mini_win(ai_response):

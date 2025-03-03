@@ -84,12 +84,24 @@ const Message = memo(({ message, onRetry, index, hideAssessmentDetails }) => {
         <img src="/user-avatar.png" alt="User" />
     );
 
+    // Determine confidence class
+    let confidenceClass = '';
+    if (confidence) {
+        if (confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD) {
+            confidenceClass = 'confidence-high';
+        } else if (confidence >= 70) {
+            confidenceClass = 'confidence-medium';
+        } else {
+            confidenceClass = 'confidence-low';
+        }
+    }
+
     return (
         <div className={`message-row ${sender === 'user' ? 'user' : ''}`}>
             <div className="avatar-container">
                 {avatarContent}
             </div>
-            <div className={`message ${sender}`}>
+            <div className={`message ${sender} ${text.includes('?') && sender === 'bot' ? 'follow-up-question' : ''}`}>
                 {isAssessment && !hideAssessmentDetails && (
                     <div className="assessment-indicator">Assessment</div>
                 )}
@@ -103,7 +115,7 @@ const Message = memo(({ message, onRetry, index, hideAssessmentDetails }) => {
                     <div className="assessment-info">
                         {confidence && (
                             <div 
-                                className="assessment-item confidence"
+                                className={`assessment-item confidence ${confidenceClass}`}
                                 title="Confidence indicates how likely this condition matches your symptoms based on available information"
                             >
                                 Confidence: {confidence}%
@@ -155,6 +167,18 @@ Message.propTypes = {
 const AssessmentSummary = memo(({ assessment }) => {
     if (!assessment) return null;
     
+    // Determine confidence class
+    let confidenceClass = '';
+    if (assessment.confidence) {
+        if (assessment.confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD) {
+            confidenceClass = 'confidence-high';
+        } else if (assessment.confidence >= 70) {
+            confidenceClass = 'confidence-medium';
+        } else {
+            confidenceClass = 'confidence-low';
+        }
+    }
+    
     return (
         <div 
             className="assessment-summary" 
@@ -165,7 +189,7 @@ const AssessmentSummary = memo(({ assessment }) => {
             <div className="assessment-condition">
                 <strong>Condition:</strong> {assessment.condition}
                 {assessment.confidence && (
-                    <span> - {assessment.confidence}% confidence</span>
+                    <span className={confidenceClass}> - {assessment.confidence}% confidence</span>
                 )}
             </div>
             {assessment.recommendation && (
@@ -638,8 +662,16 @@ const Chat = () => {
                         requiresUpgrade,
                         confidence,
                         isConfidentAssessment,
-                        conditionName
+                        conditionName,
+                        responseData: response.data
                     });
+                }
+                
+                // If we have a response but no question or assessment, generate a follow-up
+                if (!response.data.question && !isAssessment && !response.data.error) {
+                    const followUpMessage = "I need more details to be certain. Can you tell me more about your symptoms?";
+                    addBotMessage(followUpMessage, false);
+                    return;
                 }
                 
                 if (isConfidentAssessment) {
@@ -761,9 +793,14 @@ const Chat = () => {
                     // It's an assessment but confidence is too low - ALWAYS ask more questions
                     // regardless of whether the server says upgrade is required
                     
-                    // Generate a unique follow-up question
-                    const followUpMessage = generateUniqueFollowUpQuestion(response, conditionName);
-                    addBotMessage(followUpMessage, false);
+                    // Check if the response contains a follow-up question
+                    if (response.data.question) {
+                        addBotMessage(response.data.question, false);
+                    } else {
+                        // Generate a unique follow-up question
+                        const followUpMessage = generateUniqueFollowUpQuestion(response, conditionName);
+                        addBotMessage(followUpMessage, false);
+                    }
                     
                     // Log this situation for debugging
                     if (CONFIG.DEBUG_MODE && requiresUpgrade) {
@@ -790,6 +827,35 @@ const Chat = () => {
                 let errorMessage = "I apologize, but I'm having trouble processing your request.";
                 
                 if (error.response) {
+                    // Check if this is actually a valid response with requires_upgrade=false
+                    // that was incorrectly caught as an error
+                    if (error.response.data && error.response.status === 200) {
+                        // This is actually a valid response, not an error
+                        // Process it normally
+                        const response = error.response;
+                        
+                        // Log the response for debugging
+                        if (CONFIG.DEBUG_MODE) {
+                            console.log("Valid response caught in error handler:", response.data);
+                        }
+                        
+                        // Process the response as normal
+                        setTimeout(() => {
+                            // Re-use the same processing logic as the success path
+                            const isAssessment = response.data.is_assessment === true;
+                            const requiresUpgrade = response.data.requires_upgrade === true;
+                            const confidence = response.data.confidence || 
+                                             (response.data.assessment?.conditions && 
+                                              response.data.assessment.conditions[0]?.confidence) || 0;
+                            const isConfidentAssessment = isAssessment && confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD;
+                            
+                            // For now, just add a simple follow-up question
+                            addBotMessage(response.data.possible_conditions || "Could you tell me more about your symptoms?", false);
+                        }, CONFIG.THINKING_DELAY);
+                        
+                        return;
+                    }
+                    
                     // The request was made and the server responded with a status code
                     // that falls out of the range of 2xx
                     if (error.response.status === 429) {
