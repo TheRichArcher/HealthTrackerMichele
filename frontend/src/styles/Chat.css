@@ -372,12 +372,12 @@
 
 /* Enhanced upgrade options styling */
 .upgrade-options {
-  position: relative;
+  position: relative; /* Changed from absolute to relative */
   background-color: #f0f8ff;
   border: 1px solid #b8daff;
   border-radius: 8px;
   padding: 16px;
-  margin: 15px 15px 100px 15px; /* Add horizontal margins and increase bottom margin */
+  margin: 15px 15px 100px 15px; /* Added horizontal margins and increased bottom margin */
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
   z-index: 20;
   max-height: none; /* Remove max-height restriction */

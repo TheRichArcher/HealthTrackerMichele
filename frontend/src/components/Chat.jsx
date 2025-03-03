@@ -323,13 +323,16 @@ const Chat = () => {
                     });
                 }
                 
-                // Backup scroll for rendering delays
-                setTimeout(() => {
-                    if (container) {
-                        container.scrollTop = container.scrollHeight - (assessmentSummaryHeight > 0 || upgradeBoxHeight > 0 ? 
-                            (assessmentSummaryHeight + upgradeBoxHeight + extraPadding) : 0);
-                    }
-                }, 100);
+                // Staggered backup scrolls to handle rendering delays
+                const timeouts = [50, 150, 300, 600];
+                timeouts.forEach(delay => {
+                    setTimeout(() => {
+                        if (container) {
+                            container.scrollTop = container.scrollHeight - (assessmentSummaryHeight > 0 || upgradeBoxHeight > 0 ? 
+                                (assessmentSummaryHeight + upgradeBoxHeight + extraPadding) : 0);
+                        }
+                    }, delay);
+                });
             }
             
             if (CONFIG.DEBUG_MODE) {
@@ -459,9 +462,9 @@ const Chat = () => {
             if (index < message.length) {
                 setCurrentBotMessage(prev => message.slice(0, index + 1));
 
-                // Only scroll when a new line is added or at the last character
+                // Only scroll when a new line is added or every 20 characters
                 // This prevents the bouncing effect during typing
-                if (message[index] === '\n' || index === message.length - 1) {
+                if (message[index] === '\n' || index % 20 === 0 || index === message.length - 1) {
                     scrollToBottom(true);
                 }
 
@@ -485,7 +488,7 @@ const Chat = () => {
                     className: isAssessment ? 'assessment-message' : ''
                 }]);
 
-                // MOVED: Clear the current bot message AFTER setting messages
+                // Clear the current bot message AFTER setting messages
                 setCurrentBotMessage('');
                 setTyping(false);
                 setIsTypingComplete(true);
