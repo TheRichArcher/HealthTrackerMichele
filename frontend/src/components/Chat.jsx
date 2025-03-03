@@ -68,7 +68,7 @@ class ChatErrorBoundary extends React.Component {
 }
 
 const Message = memo(({ message, onRetry, index, hideAssessmentDetails }) => {
-    const { sender, text, confidence, careRecommendation, isAssessment, triageLevel, className } = message;
+    const { sender, text, confidence, careRecommendation, isAssessment, triageLevel, className, style, preSized } = message;
 
     const getCareRecommendation = useCallback((level) => {
         switch(level?.toLowerCase()) {
@@ -91,7 +91,10 @@ const Message = memo(({ message, onRetry, index, hideAssessmentDetails }) => {
             <div className="avatar-container">
                 {avatarContent}
             </div>
-            <div className={`message ${sender} ${className || ''}`}>
+            <div 
+                className={`message ${sender} ${className || ''} ${preSized ? 'pre-sized' : ''}`}
+                style={style}
+            >
                 {isAssessment && !hideAssessmentDetails && (
                     <div className="assessment-indicator">Assessment</div>
                 )}
@@ -144,7 +147,9 @@ Message.propTypes = {
         careRecommendation: PropTypes.string,
         isAssessment: PropTypes.bool,
         triageLevel: PropTypes.string,
-        className: PropTypes.string
+        className: PropTypes.string,
+        style: PropTypes.object,
+        preSized: PropTypes.bool
     }).isRequired,
     onRetry: PropTypes.func.isRequired,
     index: PropTypes.number.isRequired,
@@ -205,7 +210,6 @@ const Chat = () => {
     const [error, setError] = useState(null);
     const [inputError, setInputError] = useState(null);
     const [resetting, setResetting] = useState(false);
-    const [currentBotMessage, setCurrentBotMessage] = useState('');
     const [isTypingComplete, setIsTypingComplete] = useState(true);
     
     // Add a counter for bot messages to track question number
@@ -232,6 +236,31 @@ const Chat = () => {
     const inputRef = useRef(null);
     const messagesContainerRef = useRef(null);
     const upgradeOptionsRef = useRef(null);
+    const hiddenMeasureRef = useRef(null);
+
+    // Create a persistent hidden div for message height calculations
+    useEffect(() => {
+        if (!hiddenMeasureRef.current) {
+            const hiddenDiv = document.createElement('div');
+            hiddenDiv.className = 'message bot hidden-measure';
+            hiddenDiv.style.position = 'absolute';
+            hiddenDiv.style.visibility = 'hidden';
+            hiddenDiv.style.height = 'auto';
+            hiddenDiv.style.width = '70%'; // Same as max-width for messages
+            hiddenDiv.style.left = '-9999px';
+            hiddenDiv.style.top = '-9999px';
+            document.body.appendChild(hiddenDiv);
+            hiddenMeasureRef.current = hiddenDiv;
+        }
+        
+        // Clean up on unmount
+        return () => {
+            if (hiddenMeasureRef.current) {
+                document.body.removeChild(hiddenMeasureRef.current);
+                hiddenMeasureRef.current = null;
+            }
+        };
+    }, []);
 
     // Debug mode toggle (only in development)
     useEffect(() => {
@@ -252,13 +281,11 @@ const Chat = () => {
         }
     }, [uiState, latestAssessment, messageCount, botMessageCount, messages]);
 
-    // Force focus on input field - more aggressive approach
+    // Simplified force focus with a single timeout
     const forceFocus = useCallback(() => {
         if (inputRef.current) {
-            // Try multiple times with increasing delays
-            setTimeout(() => inputRef.current?.focus(), 0);
-            setTimeout(() => inputRef.current?.focus(), 100);
-            setTimeout(() => inputRef.current?.focus(), 500);
+            // Single timeout with sufficient delay to ensure focus works after state updates
+            setTimeout(() => inputRef.current?.focus(), 300);
         }
     }, []);
 
@@ -323,16 +350,13 @@ const Chat = () => {
                     });
                 }
                 
-                // Staggered backup scrolls to handle rendering delays
-                const timeouts = [50, 150, 300, 600];
-                timeouts.forEach(delay => {
-                    setTimeout(() => {
-                        if (container) {
-                            container.scrollTop = container.scrollHeight - (assessmentSummaryHeight > 0 || upgradeBoxHeight > 0 ? 
-                                (assessmentSummaryHeight + upgradeBoxHeight + extraPadding) : 0);
-                        }
-                    }, delay);
-                });
+                // Backup scroll for rendering delays
+                setTimeout(() => {
+                    if (container) {
+                        container.scrollTop = container.scrollHeight - (assessmentSummaryHeight > 0 || upgradeBoxHeight > 0 ? 
+                            (assessmentSummaryHeight + upgradeBoxHeight + extraPadding) : 0);
+                    }
+                }, 100);
             }
             
             if (CONFIG.DEBUG_MODE) {
@@ -448,65 +472,84 @@ const Chat = () => {
         return null;
     }, []);
 
-    // Improved typeMessage with better scroll timing
+    // Optimized function that reuses the hidden div for message height calculation
+    const calculateMessageHeight = useCallback((text) => {
+        const hiddenDiv = hiddenMeasureRef.current;
+        if (!hiddenDiv) return 0; // Safety check
+        
+        // Clear previous content
+        hiddenDiv.innerHTML = '';
+        
+        // Add the content
+        const content = document.createElement('div');
+        content.className = 'message-content';
+        text.split('\n').forEach(line => {
+            const p = document.createElement('p');
+            p.textContent = line;
+            content.appendChild(p);
+        });
+        hiddenDiv.appendChild(content);
+        
+        // Measure height
+        const height = hiddenDiv.offsetHeight;
+        
+        return height;
+    }, []);
+
+    // Simplified typeMessage function with pre-calculation of message height
     const typeMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null) => {
         if (isAssessment && (uiState === UI_STATES.ASSESSMENT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE)) {
             message = "Based on your symptoms, I've completed an assessment. Please see the summary below.";
         }
         
-        let index = 0;
         setIsTypingComplete(false);
-        setCurrentBotMessage('');
-
-        const interval = setInterval(() => {
-            if (index < message.length) {
-                setCurrentBotMessage(prev => message.slice(0, index + 1));
-
-                // Only scroll when a new line is added or every 20 characters
-                // This prevents the bouncing effect during typing
-                if (message[index] === '\n' || index % 20 === 0 || index === message.length - 1) {
-                    scrollToBottom(true);
-                }
-
-                index++;
-            } else {
-                clearInterval(interval);
-
-                // Increment bot message counter for non-assessment messages
-                if (!isAssessment) {
-                    setBotMessageCount(prev => prev + 1);
-                }
-
-                // Add the full message once typing is complete
-                setMessages(prev => [...prev, {
-                    sender: 'bot',
-                    text: message,
-                    isAssessment,
-                    confidence,
-                    triageLevel,
-                    careRecommendation,
-                    className: isAssessment ? 'assessment-message' : ''
-                }]);
-
-                // Clear the current bot message AFTER setting messages
-                setCurrentBotMessage('');
-                setTyping(false);
-                setIsTypingComplete(true);
-
-                // Perform final scrolling adjustments
-                scrollToBottom(true);
-                
-                // Add staggered backup scrolls to handle any rendering delays
-                setTimeout(() => scrollToBottom(true), 50);
-                setTimeout(() => scrollToBottom(true), 150);
-                setTimeout(() => scrollToBottom(true), 300);
-                setTimeout(() => scrollToBottom(true), 600);
-
-                // Ensure input is focused again
-                forceFocus();
+        setTyping(true);
+        
+        // Pre-calculate the message height
+        const messageHeight = calculateMessageHeight(message);
+        
+        // Calculate a realistic typing delay based on message length
+        const wordCount = message.split(/\s+/).length;
+        const typingDelay = Math.max(1000, Math.min(wordCount * 120, 3000)); // Between 1-3 seconds
+        
+        // Show typing indicator for the calculated delay
+        setTimeout(() => {
+            // Add the full message with pre-calculated height
+            setMessages(prev => [...prev, {
+                sender: 'bot',
+                text: message,
+                isAssessment,
+                confidence,
+                triageLevel,
+                careRecommendation,
+                className: isAssessment ? 'assessment-message' : '',
+                style: { '--message-height': `${messageHeight}px` },
+                preSized: true
+            }]);
+            
+            // Increment bot message counter for non-assessment messages
+            if (!isAssessment) {
+                setBotMessageCount(prev => prev + 1);
             }
-        }, CONFIG.TYPING_SPEED);
-    }, [scrollToBottom, forceFocus, uiState, botMessageCount]);
+            
+            setTyping(false);
+            setIsTypingComplete(true);
+            
+            // Scroll to bottom after message is added with multiple attempts
+            scrollToBottom(true);
+            setTimeout(() => scrollToBottom(true), 50);
+            setTimeout(() => scrollToBottom(true), 150);
+            setTimeout(() => scrollToBottom(true), 300);
+            
+            // Focus input after message is complete
+            forceFocus();
+        }, typingDelay);
+        
+        return () => {
+            // Cleanup function if component unmounts during typing
+            setTyping(false);
+        };
+    }, [scrollToBottom, forceFocus, uiState, botMessageCount, calculateMessageHeight]);
 
     const handleRetry = useCallback(async (messageIndex) => {
         const originalMessage = messages[messageIndex - 1];
@@ -531,7 +574,6 @@ const Chat = () => {
             setBotMessageCount(0); // Reset bot message counter
             setError(null);
             setInputError(null);
-            setCurrentBotMessage('');
             setIsTypingComplete(true);
             setLoadingSubscription(false);
             setLoadingOneTime(false);
@@ -553,7 +595,6 @@ const Chat = () => {
             setMessages([WELCOME_MESSAGE]);
             setMessageCount(0);
             setBotMessageCount(0); // Reset bot message counter
-            setCurrentBotMessage('');
             setIsTypingComplete(true);
             setLoadingSubscription(false);
             setLoadingOneTime(false);
@@ -888,27 +929,17 @@ const Chat = () => {
                         />
                     ))}
                     
-                    {/* Show typing indicator with current bot message */}
+                    {/* Show typing indicator */}
                     {typing && (
                         <div className="message-row">
                             <div className="avatar-container">
                                 <img src="/doctor-avatar.png" alt="AI Assistant" />
                             </div>
-                            {currentBotMessage ? (
-                                <div className="message bot">
-                                    <div className="message-content">
-                                        {currentBotMessage.split('\n').map((line, i) => (
-                                            <p key={i}>{line}</p>
-                                        ))}
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="typing-indicator">
-                                    <span></span>
-                                    <span></span>
-                                    <span></span>
-                                </div>
-                            )}
+                            <div className="typing-indicator">
+                                <span></span>
+                                <span></span>
+                                <span></span>
+                            </div>
                         </div>
                     )}
                     

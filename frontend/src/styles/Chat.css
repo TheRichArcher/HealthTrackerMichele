@@ -86,6 +86,7 @@
   gap: 15px;
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch; /* Improves scrolling on iOS */
+  min-height: 1px; /* Prevents collapsing before content loads */
 }
 
 .message-row {
@@ -119,6 +120,7 @@
   border-radius: 18px;
   position: relative;
   word-wrap: break-word;
+  word-break: break-word; /* Added for better handling of long words */
 }
 
 .message.bot {
@@ -131,6 +133,11 @@
   background-color: #0084ff;
   color: white;
   border-top-right-radius: 4px;
+}
+
+.message.bot.pre-sized {
+  height: var(--message-height);
+  transition: height 0.3s ease;
 }
 
 .message-content p {
@@ -538,6 +545,17 @@
 .assessment-with-upgrade .assessment-summary {
   bottom: 300px; /* Adjust based on the height of your upgrade prompt */
   z-index: 15; /* Lower than upgrade prompt but higher than other elements */
+}
+
+/* Hidden measurement div for pre-calculating message heights */
+.hidden-measure {
+  position: absolute;
+  visibility: hidden;
+  height: auto;
+  width: 70%;
+  left: -9999px;
+  top: -9999px;
+  overflow: hidden;
 }
 
 /* Mobile optimizations */
