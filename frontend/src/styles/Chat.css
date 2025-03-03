@@ -76,6 +76,15 @@
   cursor: not-allowed;
 }
 
+/* New wrapper for better layout control */
+.chat-content-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
 .messages-container {
   flex: 1;
   overflow-y: auto;
@@ -384,7 +393,7 @@
   border: 1px solid #b8daff;
   border-radius: 8px;
   padding: 16px;
-  margin: 15px 15px 100px 15px; /* Added horizontal margins and increased bottom margin */
+  margin: 15px 15px 20px 15px; /* Reduced bottom margin */
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
   z-index: 20;
   max-height: none; /* Remove max-height restriction */
@@ -392,18 +401,30 @@
 }
 
 /* Ensure upgrade options are visible in assessment_with_upgrade state */
-.assessment-with-upgrade .upgrade-options {
-  margin-top: 20px;
-  margin-bottom: 100px; /* Increase bottom margin */
+.assessment-with-upgrade .chat-content-wrapper {
+  display: flex;
+  flex-direction: column;
 }
 
-/* Adjust assessment summary position in assessment_with_upgrade state */
+.assessment-with-upgrade .messages-container {
+  order: 1;
+}
+
 .assessment-with-upgrade .assessment-summary {
-  position: sticky;
+  order: 2;
+  position: relative;
   bottom: auto;
-  top: 10px;
+  margin-bottom: 0;
+}
+
+.assessment-with-upgrade .upgrade-options {
+  order: 3;
+  margin-top: 10px;
   margin-bottom: 20px;
-  z-index: 15;
+}
+
+.assessment-with-upgrade .chat-input-container {
+  order: 4;
 }
 
 .close-upgrade {
@@ -420,8 +441,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 40px; /* Increased from 30px for better touch target */
+  height: 40px; /* Increased from 30px for better touch target */
   transition: background-color 0.2s;
 }
 
@@ -541,12 +562,6 @@
   to { transform: rotate(360deg); }
 }
 
-/* Positioning for assessment summary when shown with upgrade prompt */
-.assessment-with-upgrade .assessment-summary {
-  bottom: 300px; /* Adjust based on the height of your upgrade prompt */
-  z-index: 15; /* Lower than upgrade prompt but higher than other elements */
-}
-
 /* Hidden measurement div for pre-calculating message heights */
 .hidden-measure {
   position: absolute;
@@ -629,7 +644,7 @@
   
   .upgrade-options {
     padding: 12px;
-    margin: 10px 15px 100px 15px;
+    margin: 10px 15px 20px 15px;
   }
   
   .upgrade-message h3 {
