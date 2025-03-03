@@ -4,15 +4,15 @@ import PropTypes from 'prop-types';
 import { debounce } from 'lodash';
 import '../styles/Chat.css';
 
-// Import the ChatOnboarding component
-import ChatOnboarding from './ChatOnboarding';
+// Import the ChatOnboarding component if it exists
+// import ChatOnboarding from './ChatOnboarding';
 
 // Define UI state enum
 const UI_STATES = {
   DEFAULT: 'default',
   ASSESSMENT: 'assessment',
   UPGRADE_PROMPT: 'upgrade_prompt',
-  ASSESSMENT_WITH_UPGRADE: 'assessment_with_upgrade', // New state
+  ASSESSMENT_WITH_UPGRADE: 'assessment_with_upgrade',
   SECONDARY_PROMPT: 'secondary_prompt'
 };
 
@@ -68,7 +68,7 @@ class ChatErrorBoundary extends React.Component {
 }
 
 const Message = memo(({ message, onRetry, index, hideAssessmentDetails }) => {
-    const { sender, text, confidence, careRecommendation, isAssessment, triageLevel, className, style, preSized } = message;
+    const { sender, text, confidence, careRecommendation, isAssessment, triageLevel } = message;
 
     const getCareRecommendation = useCallback((level) => {
         switch(level?.toLowerCase()) {
@@ -91,10 +91,7 @@ const Message = memo(({ message, onRetry, index, hideAssessmentDetails }) => {
             <div className="avatar-container">
                 {avatarContent}
             </div>
-            <div 
-                className={`message ${sender} ${className || ''} ${preSized ? 'pre-sized' : ''}`}
-                style={style}
-            >
+            <div className={`message ${sender}`}>
                 {isAssessment && !hideAssessmentDetails && (
                     <div className="assessment-indicator">Assessment</div>
                 )}
@@ -146,10 +143,7 @@ Message.propTypes = {
         confidence: PropTypes.number,
         careRecommendation: PropTypes.string,
         isAssessment: PropTypes.bool,
-        triageLevel: PropTypes.string,
-        className: PropTypes.string,
-        style: PropTypes.object,
-        preSized: PropTypes.bool
+        triageLevel: PropTypes.string
     }).isRequired,
     onRetry: PropTypes.func.isRequired,
     index: PropTypes.number.isRequired,
@@ -226,97 +220,26 @@ const Chat = () => {
     const [latestAssessment, setLatestAssessment] = useState(null);
     
     // Add state for showing the onboarding component
-    const [showChatOnboarding, setShowChatOnboarding] = useState(() => {
-        return !localStorage.getItem('healthtracker_chat_onboarding_complete');
-    });
+    const [showChatOnboarding, setShowChatOnboarding] = useState(false);
 
     const messagesEndRef = useRef(null);
     const abortControllerRef = useRef(null);
     const chatContainerRef = useRef(null);
     const inputRef = useRef(null);
     const messagesContainerRef = useRef(null);
-    const upgradeOptionsRef = useRef(null);
-    const hiddenMeasureRef = useRef(null);
-
-    // Create a persistent hidden div for message height calculations
-    useEffect(() => {
-        if (!hiddenMeasureRef.current) {
-            const hiddenDiv = document.createElement('div');
-            hiddenDiv.className = 'message bot hidden-measure';
-            hiddenDiv.style.position = 'absolute';
-            hiddenDiv.style.visibility = 'hidden';
-            hiddenDiv.style.height = 'auto';
-            hiddenDiv.style.width = '70%'; // Same as max-width for messages
-            hiddenDiv.style.left = '-9999px';
-            hiddenDiv.style.top = '-9999px';
-            document.body.appendChild(hiddenDiv);
-            hiddenMeasureRef.current = hiddenDiv;
-        }
-        
-        // Clean up on unmount
-        return () => {
-            if (hiddenMeasureRef.current) {
-                document.body.removeChild(hiddenMeasureRef.current);
-                hiddenMeasureRef.current = null;
-            }
-        };
-    }, []);
-
-    // Debug mode toggle (only in development)
-    useEffect(() => {
-        if (CONFIG.DEBUG_MODE) {
-            const handleKeyPress = (e) => {
-                // Press Ctrl+Shift+D to toggle debug info
-                if (e.ctrlKey && e.shiftKey && e.key === 'D') {
-                    console.log('Current UI State:', uiState);
-                    console.log('Latest Assessment:', latestAssessment);
-                    console.log('Message Count:', messageCount);
-                    console.log('Bot Message Count:', botMessageCount);
-                    console.log('Current Messages:', messages);
-                }
-            };
-            
-            window.addEventListener('keydown', handleKeyPress);
-            return () => window.removeEventListener('keydown', handleKeyPress);
-        }
-    }, [uiState, latestAssessment, messageCount, botMessageCount, messages]);
-
-    // Simplified force focus with a single timeout
-    const forceFocus = useCallback(() => {
-        if (inputRef.current) {
-            // Single timeout with sufficient delay to ensure focus works after state updates
-            setTimeout(() => inputRef.current?.focus(), 300);
-        }
-    }, []);
 
     // Auto-focus when component mounts
     useEffect(() => {
-        forceFocus();
-        // Also add a click handler to the container to focus input when clicked
-        const container = chatContainerRef.current;
-        if (container) {
-            const handleContainerClick = (e) => {
-                // Only focus if we're not clicking on another interactive element
-                if (
-                    e.target.tagName !== 'BUTTON' && 
-                    e.target.tagName !== 'A' && 
-                    e.target.tagName !== 'INPUT' && 
-                    e.target.tagName !== 'TEXTAREA'
-                ) {
-                    inputRef.current?.focus();
-                }
-            };
-            
-            container.addEventListener('click', handleContainerClick);
-            return () => container.removeEventListener('click', handleContainerClick);
+        if (inputRef.current) {
+            inputRef.current.focus();
         }
-    }, [forceFocus]);
+    }, []);
 
     // Save messages to localStorage when they change
     useEffect(() => {
         try {
             // Only save if we have meaningful messages to save
-            if (messages.length > 0 && isTypingComplete) {
+            if (messages.length > 0 && !typing) {
                 localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify(messages));
             }
         } catch (error) {
@@ -324,89 +247,24 @@ const Chat = () => {
                 console.error('Error saving messages:', error);
             }
         }
-    }, [messages, isTypingComplete]);
+    }, [messages, typing]);
 
-    // Aggressive scrollToBottom function that always works
-    const scrollToBottom = useCallback((force = false) => {
-        // Use multiple approaches to ensure scrolling works
-        if (!messagesContainerRef.current) return;
-        
-        // Immediate scroll attempt
-        const scrollNow = () => {
-            const container = messagesContainerRef.current;
-            if (!container) return;
-            
-            // Force scroll to the very bottom
-            container.scrollTop = container.scrollHeight;
-            
-            if (messagesEndRef.current) {
-                messagesEndRef.current.scrollIntoView({ behavior: "auto", block: "end" });
-            }
-        };
-        
-        // Execute immediate scroll
-        scrollNow();
-        
-        // Schedule multiple delayed scrolls to handle any rendering delays
-        const timeouts = [50, 100, 300, 500, 1000].map(delay => 
-            setTimeout(scrollNow, delay)
-        );
-        
-        return () => timeouts.forEach(clearTimeout);
+    // Simple and effective scrolling mechanism
+    const scrollToBottom = useCallback(() => {
+        if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+        }
     }, []);
-
-    // Setup MutationObserver to watch for DOM changes and scroll accordingly
-    useEffect(() => {
-        if (!messagesContainerRef.current) return;
-        
-        const observer = new MutationObserver((mutations) => {
-            let shouldScroll = false;
-            
-            // Check if any mutations involve adding nodes or changing text
-            for (const mutation of mutations) {
-                if (mutation.addedNodes.length > 0 || mutation.type === 'characterData') {
-                    shouldScroll = true;
-                    break;
-                }
-            }
-            
-            if (shouldScroll) {
-                scrollToBottom(true);
-            }
-        });
-        
-        // Observe both direct children and text changes
-        observer.observe(messagesContainerRef.current, { 
-            childList: true, 
-            subtree: true, 
-            characterData: true 
-        });
-        
-        return () => observer.disconnect();
-    }, [scrollToBottom]);
 
     // Scroll when messages change
     useEffect(() => {
-        if (messages.length > 0) {
-            scrollToBottom(true);
-        }
+        scrollToBottom();
     }, [messages, scrollToBottom]);
 
-    // Scroll when UI state changes
+    // Scroll when typing state changes
     useEffect(() => {
-        scrollToBottom(true);
-    }, [uiState, scrollToBottom]);
-
-    // Effect to show assessment UI state after assessment is complete
-    useEffect(() => {
-        if (latestAssessment && !typing && isTypingComplete && uiState === UI_STATES.DEFAULT) {
-            // Show the assessment UI state
-            setUiState(UI_STATES.ASSESSMENT);
-            
-            // Scroll to make sure assessment is visible
-            setTimeout(() => scrollToBottom(true), 100);
-        }
-    }, [latestAssessment, typing, isTypingComplete, uiState, scrollToBottom]);
+        scrollToBottom();
+    }, [typing, scrollToBottom]);
 
     useEffect(() => {
         return () => {
@@ -418,89 +276,56 @@ const Chat = () => {
 
     const validateInput = useCallback((input) => {
         if (!input.trim()) return "Please enter a message";
-        // Removed minimum length check to allow short responses like "no" or "8"
         if (input.length > CONFIG.MAX_MESSAGE_LENGTH) {
             return "Message is too long";
         }
         return null;
     }, []);
 
-    // Optimized function that reuses the hidden div for message height calculation
-    const calculateMessageHeight = useCallback((text) => {
-        const hiddenDiv = hiddenMeasureRef.current;
-        if (!hiddenDiv) return 0; // Safety check
-        
-        // Clear previous content
-        hiddenDiv.innerHTML = '';
-        
-        // Add the content
-        const content = document.createElement('div');
-        content.className = 'message-content';
-        text.split('\n').forEach(line => {
-            const p = document.createElement('p');
-            p.textContent = line;
-            content.appendChild(p);
-        });
-        hiddenDiv.appendChild(content);
-        
-        // Measure height
-        const height = hiddenDiv.offsetHeight;
-        
-        return height;
-    }, []);
-
-    // Completely simplified typeMessage function with improved delay calculation
     const typeMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null) => {
-        if (isAssessment && (uiState === UI_STATES.ASSESSMENT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE)) {
-            message = "Based on your symptoms, I've completed an assessment. Please see the summary below.";
-        }
-        
-        setIsTypingComplete(false);
+        let index = 0;
         setTyping(true);
+        setIsTypingComplete(false);
         
-        // Pre-calculate the message height
-        const messageHeight = calculateMessageHeight(message);
-        
-        // Calculate a realistic thinking delay based on message length with a reasonable cap
-        const wordCount = message.split(/\s+/).length;
-        // Base delay between 1-3 seconds, with diminishing returns for very long messages
-        const thinkingDelay = Math.max(1000, Math.min(1000 + (wordCount * 50), 3000));
-        
-        // Show typing indicator for the calculated delay, then show full message at once
-        setTimeout(() => {
-            // Add the full message immediately (no character-by-character typing)
-            setMessages(prev => [...prev, {
-                sender: 'bot',
-                text: message,
-                isAssessment,
-                confidence,
-                triageLevel,
-                careRecommendation,
-                className: isAssessment ? 'assessment-message' : '',
-                style: { '--message-height': `${messageHeight}px` },
-                preSized: true
-            }]);
+        setMessages(prev => [...prev, {
+            sender: 'bot',
+            text: "",
+            isAssessment,
+            confidence,
+            triageLevel,
+            careRecommendation
+        }]);
+
+        const interval = setInterval(() => {
+            setMessages(prev => {
+                const updatedMessages = [...prev];
+                const lastMessageIndex = updatedMessages.length - 1;
+                if (lastMessageIndex >= 0 && index < message.length) {
+                    updatedMessages[lastMessageIndex].text = message.slice(0, index + 1);
+                }
+                return updatedMessages;
+            });
             
-            // Increment bot message counter for non-assessment messages
-            if (!isAssessment) {
-                setBotMessageCount(prev => prev + 1);
+            // Scroll every 20 characters to reduce bouncing
+            if (index % 20 === 0) {
+                scrollToBottom();
             }
             
-            setTyping(false);
-            setIsTypingComplete(true);
+            index++;
             
-            // Aggressive scrolling to ensure message is visible
-            scrollToBottom(true);
-            
-            // Focus input after message is complete
-            forceFocus();
-        }, thinkingDelay);
+            if (index >= message.length) {
+                clearInterval(interval);
+                setTyping(false);
+                setIsTypingComplete(true);
+                
+                // Final scroll to ensure message is visible
+                setTimeout(scrollToBottom, 50);
+                setTimeout(scrollToBottom, 150);
+            }
+        }, CONFIG.TYPING_SPEED);
         
-        return () => {
-            // Cleanup function if component unmounts during typing
-            setTyping(false);
-        };
-    }, [scrollToBottom, forceFocus, uiState, botMessageCount, calculateMessageHeight]);
+        return () => clearInterval(interval);
+    }, [scrollToBottom]);
 
     const handleRetry = useCallback(async (messageIndex) => {
         const originalMessage = messages[messageIndex - 1];
@@ -533,7 +358,9 @@ const Chat = () => {
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
             
             // Focus the input after reset
-            forceFocus();
+            if (inputRef.current) {
+                inputRef.current.focus();
+            }
             
             if (CONFIG.DEBUG_MODE) {
                 console.log("Conversation reset successfully");
@@ -596,7 +423,7 @@ const Chat = () => {
                 // Show upgrade prompt after the explanation
                 setTimeout(() => {
                     setUiState(UI_STATES.UPGRADE_PROMPT);
-                    scrollToBottom(true);
+                    scrollToBottom();
                 }, 1000);
             }, 1000);
             
@@ -639,7 +466,7 @@ const Chat = () => {
                 }]);
                 
                 // Scroll to make the message visible
-                scrollToBottom(true);
+                scrollToBottom();
             }, 1000);
         }
         
@@ -649,10 +476,12 @@ const Chat = () => {
         setTyping(true);
         
         // Force focus on input after sending
-        forceFocus();
+        if (inputRef.current) {
+            inputRef.current.focus();
+        }
 
         // Scroll to bottom after adding user message
-        scrollToBottom(true);
+        scrollToBottom();
 
         // Cancel any pending requests
         if (abortControllerRef.current) {
@@ -673,7 +502,7 @@ const Chat = () => {
             const enhancedRequest = {
                 symptom: messageToSend,
                 conversation_history: conversationHistory,
-                context_notes: "Pay close attention to timing details the user has already mentioned, such as when symptoms started or how long they've been present. Avoid asking redundant questions about information already provided."
+                context_notes: "Pay close attention to timing details the user has already mentioned, such as when symptoms started or how long they've been present. Avoid asking redundant questions about information already provided. Ask only ONE question at a time to avoid confusion."
             };
 
             if (CONFIG.DEBUG_MODE) {
@@ -748,7 +577,7 @@ const Chat = () => {
                                 // Show both assessment and upgrade
                                 setTimeout(() => {
                                     setUiState(UI_STATES.ASSESSMENT_WITH_UPGRADE);
-                                    scrollToBottom(true);
+                                    scrollToBottom();
                                 }, 1000);
                             }, 2000);
                         } else {
@@ -808,7 +637,7 @@ const Chat = () => {
                                 // Show both assessment and upgrade
                                 setTimeout(() => {
                                     setUiState(UI_STATES.ASSESSMENT_WITH_UPGRADE);
-                                    scrollToBottom(true);
+                                    scrollToBottom();
                                 }, 1000);
                             }, 2000);
                         } else {
@@ -961,12 +790,14 @@ const Chat = () => {
 
                 {/* Show upgrade prompt if in UPGRADE_PROMPT or ASSESSMENT_WITH_UPGRADE state */}
                 {(uiState === UI_STATES.UPGRADE_PROMPT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) && (
-                    <div className="upgrade-options" ref={upgradeOptionsRef}>
+                    <div className="upgrade-options">
                         <button 
                             className="close-upgrade" 
                             onClick={() => {
                                 setUiState(uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE ? UI_STATES.ASSESSMENT : UI_STATES.DEFAULT);
-                                forceFocus();
+                                if (inputRef.current) {
+                                    inputRef.current.focus();
+                                }
                             }}
                             aria-label="Dismiss upgrade prompt"
                         >
@@ -1057,9 +888,13 @@ const Chat = () => {
                     )}
                 </div>
                 
-                {/* Add the ChatOnboarding component */}
+                {/* Add the ChatOnboarding component if it exists */}
                 {showChatOnboarding && (
-                    <ChatOnboarding onComplete={() => setShowChatOnboarding(false)} />
+                    <div className="chat-onboarding">
+                        <h3>Welcome to HealthTracker AI</h3>
+                        <p>Describe your symptoms and I'll help you understand what might be going on.</p>
+                        <button onClick={() => setShowChatOnboarding(false)}>Got it</button>
+                    </div>
                 )}
             </div>
         </ChatErrorBoundary>

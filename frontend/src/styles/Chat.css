@@ -80,13 +80,12 @@
   flex: 1;
   overflow-y: auto;
   padding: 20px;
-  padding-bottom: 150px; /* Increased from 100px to ensure more space for content */
+  padding-bottom: 150px; /* Increased padding to ensure content is visible */
   display: flex;
   flex-direction: column;
   gap: 15px;
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch; /* Improves scrolling on iOS */
-  min-height: 1px; /* Prevents collapsing before content loads */
 }
 
 .message-row {
@@ -133,11 +132,6 @@
   background-color: #0084ff;
   color: white;
   border-top-right-radius: 4px;
-}
-
-.message.bot.pre-sized {
-  height: var(--message-height);
-  transition: height 0.3s ease;
 }
 
 .message-content p {
@@ -379,12 +373,12 @@
 
 /* Enhanced upgrade options styling */
 .upgrade-options {
-  position: relative; /* Changed from absolute to relative */
+  position: relative;
   background-color: #f0f8ff;
   border: 1px solid #b8daff;
   border-radius: 8px;
   padding: 16px;
-  margin: 15px 15px 20px 15px; /* Reduced bottom margin */
+  margin: 15px 15px 20px 15px;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
   z-index: 20;
   max-height: none; /* Remove max-height restriction */
@@ -536,15 +530,48 @@
   to { transform: rotate(360deg); }
 }
 
-/* Hidden measurement div for pre-calculating message heights */
-.hidden-measure {
+/* Chat onboarding styles */
+.chat-onboarding {
   position: absolute;
-  visibility: hidden;
-  height: auto;
-  width: 70%;
-  left: -9999px;
-  top: -9999px;
-  overflow: hidden;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  color: white;
+  text-align: center;
+  padding: 20px;
+}
+
+.chat-onboarding h3 {
+  font-size: 24px;
+  margin-bottom: 20px;
+}
+
+.chat-onboarding p {
+  font-size: 16px;
+  max-width: 500px;
+  margin-bottom: 30px;
+}
+
+.chat-onboarding button {
+  background-color: #0084ff;
+  color: white;
+  border: none;
+  border-radius: 20px;
+  padding: 10px 20px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.chat-onboarding button:hover {
+  background-color: #0073e6;
 }
 
 /* Mobile optimizations */
