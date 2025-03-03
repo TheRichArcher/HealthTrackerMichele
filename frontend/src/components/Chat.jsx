@@ -287,44 +287,55 @@ const Chat = () => {
         setTyping(true);
         setIsTypingComplete(false);
         
-        setMessages(prev => [...prev, {
-            sender: 'bot',
-            text: "",
-            isAssessment,
-            confidence,
-            triageLevel,
-            careRecommendation
-        }]);
+        // Start typing after a short delay to ensure typing indicator is visible
+        setTimeout(() => {
+            setMessages(prev => [...prev, {
+                sender: 'bot',
+                text: "",
+                isAssessment,
+                confidence,
+                triageLevel,
+                careRecommendation
+            }]);
 
-        const interval = setInterval(() => {
-            setMessages(prev => {
-                const updatedMessages = [...prev];
-                const lastMessageIndex = updatedMessages.length - 1;
-                if (lastMessageIndex >= 0 && index < message.length) {
-                    updatedMessages[lastMessageIndex].text = message.slice(0, index + 1);
-                }
-                return updatedMessages;
-            });
-            
-            // Scroll every 20 characters to reduce bouncing
-            if (index % 20 === 0) {
-                scrollToBottom();
-            }
-            
-            index++;
-            
-            if (index >= message.length) {
-                clearInterval(interval);
-                setTyping(false);
-                setIsTypingComplete(true);
+            const interval = setInterval(() => {
+                setMessages(prev => {
+                    const updatedMessages = [...prev];
+                    const lastMessageIndex = updatedMessages.length - 1;
+                    if (lastMessageIndex >= 0 && index < message.length) {
+                        updatedMessages[lastMessageIndex].text = message.slice(0, index + 1);
+                    }
+                    return updatedMessages;
+                });
                 
-                // Final scroll to ensure message is visible
-                setTimeout(scrollToBottom, 50);
-                setTimeout(scrollToBottom, 150);
-            }
-        }, CONFIG.TYPING_SPEED);
+                // Scroll every 20 characters to reduce bouncing
+                if (index % 20 === 0) {
+                    scrollToBottom();
+                }
+                
+                index++;
+                
+                if (index >= message.length) {
+                    clearInterval(interval);
+                    
+                    // Important: Add a delay before setting typing to false
+                    // This ensures the message is fully displayed before typing indicator disappears
+                    setTimeout(() => {
+                        setTyping(false);
+                        setIsTypingComplete(true);
+                        
+                        // Final scroll to ensure message is visible
+                        scrollToBottom();
+                        setTimeout(scrollToBottom, 100);
+                    }, 500); // 500ms delay before clearing typing state
+                }
+            }, CONFIG.TYPING_SPEED);
+        }, 300); // 300ms delay before starting to type
         
-        return () => clearInterval(interval);
+        return () => {
+            // Cleanup function if component unmounts during typing
+            setTyping(false);
+        };
     }, [scrollToBottom]);
 
     const handleRetry = useCallback(async (messageIndex) => {
@@ -424,7 +435,7 @@ const Chat = () => {
                 setTimeout(() => {
                     setUiState(UI_STATES.UPGRADE_PROMPT);
                     scrollToBottom();
-                }, 1000);
+                }, 2000);
             }, 1000);
             
             return;
@@ -567,19 +578,19 @@ const Chat = () => {
                                 null // Don't include care recommendation in the message
                             );
                             
-                            // Add a bot message explaining the upgrade
+                            // Add a bot message explaining the upgrade with INCREASED DELAY
                             setTimeout(() => {
                                 typeMessage(
                                     "I've identified a condition that may require further evaluation. To get more insights, you can choose between Premium Access for unlimited symptom checks or a one-time Consultation Report for your current symptoms.",
                                     false
                                 );
                                 
-                                // Show both assessment and upgrade
+                                // Show both assessment and upgrade with INCREASED DELAY
                                 setTimeout(() => {
                                     setUiState(UI_STATES.ASSESSMENT_WITH_UPGRADE);
                                     scrollToBottom();
-                                }, 1000);
-                            }, 2000);
+                                }, 2000); // Increased from 1000ms to 2000ms
+                            }, 3000); // Increased from 2000ms to 3000ms
                         } else {
                             // Regular assessment without upgrade
                             formattedMessage += 'Based on your symptoms, here are some possible conditions:\n\n';
@@ -627,19 +638,19 @@ const Chat = () => {
                                 null // Don't include care recommendation in the message
                             );
                             
-                            // Add a bot message explaining the upgrade
+                            // Add a bot message explaining the upgrade with INCREASED DELAY
                             setTimeout(() => {
                                 typeMessage(
                                     "I've identified a condition that may require further evaluation. To get more insights, you can choose between Premium Access for unlimited symptom checks or a one-time Consultation Report for your current symptoms.",
                                     false
                                 );
                                 
-                                // Show both assessment and upgrade
+                                // Show both assessment and upgrade with INCREASED DELAY
                                 setTimeout(() => {
                                     setUiState(UI_STATES.ASSESSMENT_WITH_UPGRADE);
                                     scrollToBottom();
-                                }, 1000);
-                            }, 2000);
+                                }, 2000); // Increased from 1000ms to 2000ms
+                            }, 3000); // Increased from 2000ms to 3000ms
                         } else {
                             // For non-upgrade assessments, show the full assessment
                             typeMessage(
