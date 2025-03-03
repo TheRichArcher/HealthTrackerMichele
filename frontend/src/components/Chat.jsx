@@ -299,27 +299,52 @@ const Chat = () => {
         }
     }, [messages, isTypingComplete]);
 
-    // Optimized scroll function for both user & bot messages
-    const scrollToBottom = useCallback(() => {
+    // Enhanced scroll function with better handling of sticky elements and user position
+    const scrollToBottom = useCallback((force = false) => {
         requestAnimationFrame(() => {
             const container = messagesContainerRef.current;
             if (!container) return;
 
-            // Check if user is already near the bottom (avoid unwanted jumps)
-            const isNearBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 50;
+            // Account for sticky elements
+            const stickyHeight = document.querySelector('.assessment-summary')?.offsetHeight || 0;
+            const isNearBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 100;
             
-            if (isNearBottom || !typing) {
+            if (force || isNearBottom || !typing) {
+                // Fallback scroll
                 container.scrollTop = container.scrollHeight;
                 
+                // Scroll the end ref into view
                 if (messagesEndRef.current) {
                     messagesEndRef.current.scrollIntoView({ 
                         behavior: "auto", 
                         block: "end" 
                     });
                 }
+                
+                // Backup scroll for rendering delays
+                setTimeout(() => {
+                    if (container) container.scrollTop = container.scrollHeight;
+                }, 100);
+            }
+            
+            if (CONFIG.DEBUG_MODE) {
+                console.log({ 
+                    scrollTop: container.scrollTop, 
+                    scrollHeight: container.scrollHeight, 
+                    clientHeight: container.clientHeight,
+                    isNearBottom,
+                    stickyHeight
+                });
             }
         });
     }, [typing]);
+
+    // Add effect to scroll when currentBotMessage changes during typing
+    useEffect(() => {
+        if (typing && currentBotMessage) {
+            scrollToBottom();
+        }
+    }, [currentBotMessage, typing, scrollToBottom]);
 
     // Improved MutationObserver that only scrolls when needed
     useEffect(() => {
@@ -343,12 +368,12 @@ const Chat = () => {
     useEffect(() => {
         if (messages.length > 0) {
             // Immediate scroll
-            scrollToBottom();
+            scrollToBottom(true);
             
             // Add a delayed scroll to ensure content is rendered
             const timeouts = [
-                setTimeout(() => scrollToBottom(), 100),
-                setTimeout(() => scrollToBottom(), 500)
+                setTimeout(() => scrollToBottom(true), 100),
+                setTimeout(() => scrollToBottom(true), 500)
             ];
             
             return () => timeouts.forEach(clearTimeout);
@@ -359,12 +384,12 @@ const Chat = () => {
     useEffect(() => {
         if (uiState === UI_STATES.UPGRADE_PROMPT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) {
             // Immediate scroll to bottom to ensure upgrade options are in view
-            scrollToBottom();
+            scrollToBottom(true);
             
             // Add a delayed scroll to ensure content is rendered
             const timeouts = [
                 setTimeout(() => {
-                    scrollToBottom();
+                    scrollToBottom(true);
                     
                     // Find the upgrade options element and scroll it into view
                     if (upgradeOptionsRef.current) {
@@ -374,7 +399,7 @@ const Chat = () => {
                         });
                     }
                 }, 300),
-                setTimeout(() => scrollToBottom(), 800)
+                setTimeout(() => scrollToBottom(true), 800)
             ];
             
             return () => timeouts.forEach(clearTimeout);
@@ -396,7 +421,7 @@ const Chat = () => {
                     if (lastMessage) {
                         lastMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     } else {
-                        scrollToBottom();
+                        scrollToBottom(true);
                     }
                 }
             }, 100);
@@ -420,7 +445,7 @@ const Chat = () => {
         return null;
     }, []);
 
-    // Improved typeMessage with better scroll timing
+    // Improved typeMessage with better scroll timing and frequency
     const typeMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null) => {
         if (isAssessment && (uiState === UI_STATES.ASSESSMENT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE)) {
             message = "Based on your symptoms, I've completed an assessment. Please see the summary below.";
@@ -434,9 +459,9 @@ const Chat = () => {
             if (index < message.length) {
                 setCurrentBotMessage(prev => message.slice(0, index + 1));
 
-                // Scroll every 15 characters to maintain visibility but prevent bouncing
+                // Scroll every 5 characters to maintain visibility but prevent bouncing
                 // Also scroll on the last character to ensure complete visibility
-                if (index % 15 === 0 || index === message.length - 1) {
+                if (index % 5 === 0 || index === message.length - 1) {
                     scrollToBottom();
                 }
 
@@ -465,10 +490,14 @@ const Chat = () => {
                 setTyping(false);
                 setIsTypingComplete(true);
 
-                // Multiple final scrolls to ensure proper alignment
-                scrollToBottom();
-                setTimeout(scrollToBottom, 100);
-                setTimeout(scrollToBottom, 300);
+                // Enhanced final scrolling with multiple attempts
+                scrollToBottom(true); // Force immediate scroll
+                
+                // Staggered backup scrolls to handle rendering delays
+                setTimeout(() => scrollToBottom(true), 50);
+                setTimeout(() => scrollToBottom(true), 150);
+                setTimeout(() => scrollToBottom(true), 300);
+                setTimeout(() => scrollToBottom(true), 600);
 
                 // Ensure input is focused again
                 forceFocus();
@@ -591,8 +620,8 @@ const Chat = () => {
                 }]);
                 
                 // Scroll to make the message visible
-                setTimeout(() => scrollToBottom(), 0);
-                setTimeout(() => scrollToBottom(), 100);
+                setTimeout(() => scrollToBottom(true), 0);
+                setTimeout(() => scrollToBottom(true), 100);
             }, 1000);
         }
         
@@ -605,8 +634,8 @@ const Chat = () => {
         forceFocus();
 
         // Scroll to bottom after adding user message
-        setTimeout(() => scrollToBottom(), 0);
-        setTimeout(() => scrollToBottom(), 100);
+        setTimeout(() => scrollToBottom(true), 0);
+        setTimeout(() => scrollToBottom(true), 100);
 
         // Cancel any pending requests
         if (abortControllerRef.current) {

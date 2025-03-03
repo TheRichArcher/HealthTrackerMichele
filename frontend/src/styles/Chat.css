@@ -80,7 +80,7 @@
   flex: 1;
   overflow-y: auto;
   padding: 20px;
-  padding-bottom: 80px; /* Add extra padding at bottom to prevent messages being hidden */
+  padding-bottom: 100px; /* Increased from 80px to accommodate input area (~60-70px) and buffer */
   display: flex;
   flex-direction: column;
   gap: 15px;
