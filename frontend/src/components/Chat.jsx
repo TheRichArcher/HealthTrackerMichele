@@ -1,3 +1,4 @@
+// Chat.jsx
 import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import axios from 'axios';
 import PropTypes from 'prop-types';
@@ -65,7 +66,66 @@ class ChatErrorBoundary extends React.Component {
     }
 }
 
-const Message = memo(({ message, onRetry, index, hideAssessmentDetails }) => {
+const Message = memo(({ message, onRetry, index }) => {
+    // Handle special message types
+    if (message.isAssessmentSummary) {
+        return (
+            <div className="assessment-summary-inline">
+                <h4>Assessment Summary</h4>
+                <div className="assessment-condition">
+                    <strong>Condition:</strong> {message.condition}
+                    {message.confidence && (
+                        <span className={message.confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD ? 'confidence-high' : 'confidence-medium'}> - {message.confidence}% confidence</span>
+                    )}
+                </div>
+                {message.recommendation && (
+                    <div className="assessment-recommendation">
+                        <strong>Recommendation:</strong> {message.recommendation}
+                    </div>
+                )}
+            </div>
+        );
+    }
+    
+    if (message.isUpgradePrompt) {
+        return (
+            <div className="upgrade-options-inline">
+                <h3>
+                    Based on your symptoms, I've identified {message.condition} as a possible condition that may require further evaluation.
+                </h3>
+                <p>💡 To get more insights, you can choose one of these options:</p>
+                <ul>
+                    <li>🔹 Premium Access ($9.99/month): Unlimited symptom checks, detailed assessments, and personalized health monitoring.</li>
+                    <li>🔹 One-time Consultation Report ($4.99): Get a comprehensive analysis of your current symptoms.</li>
+                </ul>
+                <p>Would you like to continue with one of these options?</p>
+                <div className="upgrade-buttons">
+                    <button 
+                        className="upgrade-button subscription"
+                        onClick={() => {
+                            setTimeout(() => {
+                                window.location.href = '/subscribe';
+                            }, 300);
+                        }}
+                    >
+                        🩺 Get Premium Access ($9.99/month)
+                    </button>
+                    <button 
+                        className="upgrade-button one-time"
+                        onClick={() => {
+                            setTimeout(() => {
+                                window.location.href = '/one-time-report';
+                            }, 300);
+                        }}
+                    >
+                        📄 Get Consultation Report ($4.99)
+                    </button>
+                </div>
+            </div>
+        );
+    }
+    
+    // Regular message handling
     const { sender, text, confidence, careRecommendation, isAssessment, triageLevel } = message;
 
     const getCareRecommendation = useCallback((level) => {
@@ -102,7 +162,7 @@ const Message = memo(({ message, onRetry, index, hideAssessmentDetails }) => {
                 {avatarContent}
             </div>
             <div className={`message ${sender} ${text.includes('?') && sender === 'bot' ? 'follow-up-question' : ''}`}>
-                {isAssessment && !hideAssessmentDetails && (
+                {isAssessment && (
                     <div className="assessment-indicator">Assessment</div>
                 )}
                 <div className="message-content">
@@ -110,8 +170,8 @@ const Message = memo(({ message, onRetry, index, hideAssessmentDetails }) => {
                         <p key={i}>{line}</p>
                     ))}
                 </div>
-                {/* Only show metrics if this is an assessment AND we're not hiding assessment details */}
-                {sender === 'bot' && isAssessment && !hideAssessmentDetails && (confidence || careRecommendation || triageLevel) && (
+                {/* Show metrics if this is an assessment */}
+                {sender === 'bot' && isAssessment && (confidence || careRecommendation || triageLevel) && (
                     <div className="assessment-info">
                         {confidence && (
                             <div 
@@ -151,63 +211,19 @@ const Message = memo(({ message, onRetry, index, hideAssessmentDetails }) => {
 Message.displayName = 'Message';
 Message.propTypes = {
     message: PropTypes.shape({
-        sender: PropTypes.string.isRequired,
-        text: PropTypes.string.isRequired,
+        sender: PropTypes.string,
+        text: PropTypes.string,
         confidence: PropTypes.number,
         careRecommendation: PropTypes.string,
         isAssessment: PropTypes.bool,
-        triageLevel: PropTypes.string
+        triageLevel: PropTypes.string,
+        isAssessmentSummary: PropTypes.bool,
+        isUpgradePrompt: PropTypes.bool,
+        condition: PropTypes.string,
+        recommendation: PropTypes.string
     }).isRequired,
     onRetry: PropTypes.func.isRequired,
-    index: PropTypes.number.isRequired,
-    hideAssessmentDetails: PropTypes.bool
-};
-
-// New Assessment Summary component to keep assessment visible
-const AssessmentSummary = memo(({ assessment }) => {
-    if (!assessment) return null;
-    
-    // Determine confidence class
-    let confidenceClass = '';
-    if (assessment.confidence) {
-        if (assessment.confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD) {
-            confidenceClass = 'confidence-high';
-        } else if (assessment.confidence >= 70) {
-            confidenceClass = 'confidence-medium';
-        } else {
-            confidenceClass = 'confidence-low';
-        }
-    }
-    
-    return (
-        <div 
-            className="assessment-summary" 
-            role="region" 
-            aria-label="Assessment summary"
-        >
-            <h4>Assessment Summary</h4>
-            <div className="assessment-condition">
-                <strong>Condition:</strong> {assessment.condition}
-                {assessment.confidence && (
-                    <span className={confidenceClass}> - {assessment.confidence}% confidence</span>
-                )}
-            </div>
-            {assessment.recommendation && (
-                <div className="assessment-recommendation">
-                    <strong>Recommendation:</strong> {assessment.recommendation}
-                </div>
-            )}
-        </div>
-    );
-});
-
-AssessmentSummary.displayName = 'AssessmentSummary';
-AssessmentSummary.propTypes = {
-    assessment: PropTypes.shape({
-        condition: PropTypes.string,
-        confidence: PropTypes.number,
-        recommendation: PropTypes.string
-    })
+    index: PropTypes.number.isRequired
 };
 
 const Chat = () => {
@@ -491,43 +507,6 @@ const Chat = () => {
         return `I have some possible insights about your condition${conditionName ? ` (possibly ${conditionName})` : ""}, but I need a bit more information to be certain. ${followUpQuestion}`;
     }, [askedQuestions]);
 
-    // Enhanced scrollToAssessment function to ensure the assessment is visible
-    const scrollToAssessment = useCallback(() => {
-        if (messagesContainerRef.current) {
-            // Find all assessment message elements
-            const messageElements = messagesContainerRef.current.querySelectorAll('.message.bot');
-            
-            // Find the element containing the assessment (looking for the one with condition name)
-            let targetElement = null;
-            for (let i = messageElements.length - 1; i >= 0; i--) {
-                if (messageElements[i].textContent.includes("most likely condition") || 
-                    messageElements[i].textContent.includes("Urinary Tract Infection") ||
-                    messageElements[i].textContent.includes("completed an assessment")) {
-                    targetElement = messageElements[i];
-                    break;
-                }
-            }
-            
-            // If we found the target element, scroll to it
-            if (targetElement) {
-                targetElement.scrollIntoView({
-                    behavior: 'smooth',
-                    block: 'start'
-                });
-            } else {
-                // Fallback: scroll to a position that shows the assessment summary
-                const scrollHeight = messagesContainerRef.current.scrollHeight;
-                const clientHeight = messagesContainerRef.current.clientHeight;
-                const scrollPosition = Math.max(0, scrollHeight - clientHeight - 300);
-                
-                messagesContainerRef.current.scrollTo({
-                    top: scrollPosition,
-                    behavior: 'smooth'
-                });
-            }
-        }
-    }, []);
-
     const handleSendMessage = async (retryMessage = null) => {
         const messageToSend = retryMessage || userInput;
         const validationError = validateInput(messageToSend);
@@ -640,7 +619,7 @@ const Chat = () => {
         try {
             // Prepare conversation history with proper formatting
             const conversationHistory = messages
-                .filter(msg => msg.text.trim() !== "") // Filter out empty messages
+                .filter(msg => msg.text && msg.text.trim() !== "") // Filter out empty messages and special messages
                 .map(msg => ({
                     message: msg.text,
                     isBot: msg.sender === 'bot'
@@ -723,7 +702,7 @@ const Chat = () => {
                         careRecommendation = response.data.assessment.care_recommendation || response.data.care_recommendation;
                         const disclaimer = response.data.assessment.disclaimer || "This assessment is for informational purposes only and does not replace professional medical advice.";
                         
-                        // Update the latest assessment for the sticky summary
+                        // Update the latest assessment for reference
                         if (conditions.length > 0) {
                             setLatestAssessment({
                                 condition: conditions[0].name,
@@ -734,14 +713,9 @@ const Chat = () => {
                         
                         // Only now check if upgrade is required - AFTER confirming high confidence
                         if (requiresUpgrade) {
-                            // Add sequential messages for a smoother experience
+                            // Step 1: Add the assessment messages to the chat
                             addSequentialBotMessages([
                                 {
-                                    message: "Based on your symptoms, I've completed an assessment.",
-                                    isAssessment: true
-                                },
-                                {
-                                    // Add the actual assessment with condition name and confidence BEFORE the upgrade message
                                     message: `The most likely condition is ${conditions[0].name} (${conditions[0].confidence}% confidence).`,
                                     isAssessment: true,
                                     confidence: conditions[0].confidence
@@ -758,23 +732,34 @@ const Chat = () => {
                                 }
                             ]);
                             
-                            // Show both assessment and upgrade after a delay
+                            // Step 2: After a delay, add the assessment summary and upgrade prompt as special message types
                             setTimeout(() => {
-                                setUiState(UI_STATES.ASSESSMENT_WITH_UPGRADE);
+                                // Add assessment summary as a special message
+                                setMessages(prev => [...prev, {
+                                    sender: 'system',
+                                    isAssessmentSummary: true,
+                                    condition: conditions[0].name,
+                                    confidence: conditions[0].confidence,
+                                    recommendation: careRecommendation
+                                }]);
                                 
-                                // Schedule multiple attempts to scroll to the right position
-                                const scrollTimes = [100, 300, 600, 1000, 1500];
-                                scrollTimes.forEach(time => {
-                                    setTimeout(scrollToAssessment, time);
-                                });
-                            }, 4000); // Increased delay to account for sequential messages
+                                // Add upgrade options as a special message
+                                setMessages(prev => [...prev, {
+                                    sender: 'system',
+                                    isUpgradePrompt: true,
+                                    condition: conditions[0].name
+                                }]);
+                                
+                                // Simple scroll to bottom to show everything
+                                setTimeout(() => {
+                                    if (messagesEndRef.current) {
+                                        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+                                    }
+                                }, 100);
+                            }, 3000);
                         } else {
-                            // Regular assessment without upgrade - split into sequential messages
+                            // Regular assessment without upgrade - just add the messages
                             addSequentialBotMessages([
-                                {
-                                    message: "Based on your symptoms, I've completed an assessment.",
-                                    isAssessment: true
-                                },
                                 {
                                     message: `The most likely condition is ${conditions[0].name} (${conditions[0].confidence}% confidence).`,
                                     isAssessment: true,
@@ -792,16 +777,23 @@ const Chat = () => {
                                 }
                             ]);
                             
-                            // Set UI state to ASSESSMENT
+                            // Add assessment summary as a special message after a delay
                             setTimeout(() => {
-                                setUiState(UI_STATES.ASSESSMENT);
+                                setMessages(prev => [...prev, {
+                                    sender: 'system',
+                                    isAssessmentSummary: true,
+                                    condition: conditions[0].name,
+                                    confidence: conditions[0].confidence,
+                                    recommendation: careRecommendation
+                                }]);
                                 
-                                // Schedule multiple attempts to scroll to the right position
-                                const scrollTimes = [100, 300, 600, 1000];
-                                scrollTimes.forEach(time => {
-                                    setTimeout(scrollToAssessment, time);
-                                });
-                            }, 1000);
+                                // Simple scroll to bottom to show everything
+                                setTimeout(() => {
+                                    if (messagesEndRef.current) {
+                                        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+                                    }
+                                }, 100);
+                            }, 3000);
                         }
                     } else {
                         // Unstructured assessment
@@ -821,10 +813,6 @@ const Chat = () => {
                             // Add sequential messages for a smoother experience
                             addSequentialBotMessages([
                                 {
-                                    message: "Based on your symptoms, I've completed an assessment.",
-                                    isAssessment: true
-                                },
-                                {
                                     // Add assessment details before upgrade prompt
                                     message: formattedMessage,
                                     isAssessment: true,
@@ -838,16 +826,31 @@ const Chat = () => {
                                 }
                             ]);
                             
-                            // Show both assessment and upgrade after a delay
+                            // Add assessment summary and upgrade prompt as special messages after a delay
                             setTimeout(() => {
-                                setUiState(UI_STATES.ASSESSMENT_WITH_UPGRADE);
+                                // Add assessment summary
+                                setMessages(prev => [...prev, {
+                                    sender: 'system',
+                                    isAssessmentSummary: true,
+                                    condition: "Assessment",
+                                    confidence: confidence,
+                                    recommendation: careRecommendation
+                                }]);
                                 
-                                // Schedule multiple attempts to scroll to the right position
-                                const scrollTimes = [100, 300, 600, 1000, 1500];
-                                scrollTimes.forEach(time => {
-                                    setTimeout(scrollToAssessment, time);
-                                });
-                            }, 4000); // Increased delay to account for sequential messages
+                                // Add upgrade options
+                                setMessages(prev => [...prev, {
+                                    sender: 'system',
+                                    isUpgradePrompt: true,
+                                    condition: "this condition"
+                                }]);
+                                
+                                // Simple scroll to bottom to show everything
+                                setTimeout(() => {
+                                    if (messagesEndRef.current) {
+                                        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+                                    }
+                                }, 100);
+                            }, 2000);
                         } else {
                             // For non-upgrade assessments, show the full assessment
                             addBotMessage(
@@ -858,16 +861,23 @@ const Chat = () => {
                                 careRecommendation
                             );
                             
-                            // Set UI state to ASSESSMENT
-                            setUiState(UI_STATES.ASSESSMENT);
-                            
-                            // Schedule multiple attempts to scroll to the right position
+                            // Add assessment summary as a special message after a delay
                             setTimeout(() => {
-                                const scrollTimes = [100, 300, 600, 1000];
-                                scrollTimes.forEach(time => {
-                                    setTimeout(scrollToAssessment, time);
-                                });
-                            }, 1000);
+                                setMessages(prev => [...prev, {
+                                    sender: 'system',
+                                    isAssessmentSummary: true,
+                                    condition: "Assessment",
+                                    confidence: confidence,
+                                    recommendation: careRecommendation
+                                }]);
+                                
+                                // Simple scroll to bottom to show everything
+                                setTimeout(() => {
+                                    if (messagesEndRef.current) {
+                                        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+                                    }
+                                }, 100);
+                            }, 2000);
                         }
                     }
                 } else if (isAssessment) {
@@ -970,7 +980,7 @@ const Chat = () => {
     return (
         <ChatErrorBoundary>
             <div 
-                className={`chat-container ${uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE ? 'assessment-with-upgrade' : ''}`} 
+                className="chat-container" 
                 ref={chatContainerRef} 
                 role="main" 
                 aria-label="Chat interface"
@@ -1016,7 +1026,6 @@ const Chat = () => {
                             message={msg}
                             onRetry={handleRetry}
                             index={index}
-                            hideAssessmentDetails={(uiState === UI_STATES.ASSESSMENT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) && msg.isAssessment}
                         />
                     ))}
                     
@@ -1048,72 +1057,6 @@ const Chat = () => {
                         </div>
                     )}
                     
-                    {/* Add the sticky assessment summary here - INSIDE the messages container */}
-                    {(uiState === UI_STATES.ASSESSMENT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) && latestAssessment && (
-                        <AssessmentSummary assessment={latestAssessment} />
-                    )}
-                    
-                    {/* Show upgrade prompt if in UPGRADE_PROMPT or ASSESSMENT_WITH_UPGRADE state - INSIDE the messages container */}
-                    {(uiState === UI_STATES.UPGRADE_PROMPT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) && (
-                        <div className="upgrade-options">
-                            <button 
-                                className="close-upgrade" 
-                                onClick={() => {
-                                    setUiState(uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE ? UI_STATES.ASSESSMENT : UI_STATES.DEFAULT);
-                                    setHasDeclinedUpgrade(true); // Track that user has declined upgrade
-                                    if (inputRef.current) {
-                                        inputRef.current.focus();
-                                    }
-                                }}
-                                aria-label="Dismiss upgrade prompt"
-                            >
-                                ✖
-                            </button>
-                            <div className="upgrade-message">
-                                <h3>
-                                    Based on your symptoms, 
-                                    {latestAssessment ? 
-                                        ` I've identified ${latestAssessment.condition} as a possible condition that may require further evaluation.` : 
-                                        ` I've identified a condition that may require further evaluation.`}
-                                </h3>
-                                <p>💡 To get more insights, you can choose one of these options:</p>
-                                <ul>
-                                    <li>🔹 Premium Access ($9.99/month): Unlimited symptom checks, detailed assessments, and personalized health monitoring.</li>
-                                    <li>🔹 One-time Consultation Report ($4.99): Get a comprehensive analysis of your current symptoms.</li>
-                                </ul>
-                                <p>Would you like to continue with one of these options?</p>
-                            </div>
-                            <div className="upgrade-buttons">
-                                <button 
-                                    className={`upgrade-button subscription ${loadingSubscription ? 'loading' : ''}`}
-                                    onClick={() => {
-                                        if (loadingSubscription || loadingOneTime) return;
-                                        setLoadingSubscription(true);
-                                        setTimeout(() => {
-                                            window.location.href = '/subscribe';
-                                        }, 300);
-                                    }}
-                                    disabled={loadingSubscription || loadingOneTime}
-                                >
-                                    {loadingSubscription ? 'Processing...' : '🩺 Get Premium Access ($9.99/month)'}
-                                </button>
-                                <button 
-                                    className={`upgrade-button one-time ${loadingOneTime ? 'loading' : ''}`}
-                                    onClick={() => {
-                                        if (loadingSubscription || loadingOneTime) return;
-                                        setLoadingOneTime(true);
-                                        setTimeout(() => {
-                                            window.location.href = '/one-time-report';
-                                        }, 300);
-                                    }}
-                                    disabled={loadingSubscription || loadingOneTime}
-                                >
-                                    {loadingOneTime ? 'Processing...' : '📄 Get Consultation Report ($4.99)'}
-                                </button>
-                            </div>
-                        </div>
-                    )}
-                    
                     <div ref={messagesEndRef} />
                 </div>
 
@@ -1129,7 +1072,7 @@ const Chat = () => {
                             }}
                             onKeyDown={handleKeyDown}
                             placeholder="Describe your symptoms in detail..."
-                            disabled={loading || (uiState === UI_STATES.UPGRADE_PROMPT && uiState !== UI_STATES.ASSESSMENT_WITH_UPGRADE) || resetting}
+                            disabled={loading || resetting}
                             maxLength={CONFIG.MAX_MESSAGE_LENGTH}
                             aria-label="Symptom description input"
                             aria-invalid={!!inputError}
@@ -1149,7 +1092,7 @@ const Chat = () => {
                         <button
                             className="send-button"
                             onClick={() => handleSendMessage()}
-                            disabled={loading || (uiState === UI_STATES.UPGRADE_PROMPT && uiState !== UI_STATES.ASSESSMENT_WITH_UPGRADE) || resetting || !userInput.trim()}
+                            disabled={loading || resetting || !userInput.trim()}
                             aria-label="Send message"
                         >
                             Send
