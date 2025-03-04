@@ -704,7 +704,19 @@ const Chat = () => {
                                     isAssessment: true
                                 },
                                 {
-                                    message: "I've identified a condition that may require further evaluation. To get more insights, you can choose between Premium Access for unlimited symptom checks or a one-time Consultation Report for your current symptoms.",
+                                    // Add the actual assessment with condition name and confidence BEFORE the upgrade message
+                                    message: `The most likely condition is ${conditions[0].name} (${conditions[0].confidence}% confidence).`,
+                                    isAssessment: true,
+                                    confidence: conditions[0].confidence
+                                },
+                                {
+                                    message: careRecommendation || "Consider consulting with a healthcare provider for proper evaluation.",
+                                    isAssessment: true,
+                                    triageLevel: triageLevel,
+                                    careRecommendation: careRecommendation
+                                },
+                                {
+                                    message: "To get more detailed insights, you can choose between Premium Access for unlimited symptom checks or a one-time Consultation Report for your current symptoms.",
                                     isAssessment: false
                                 }
                             ]);
@@ -713,7 +725,7 @@ const Chat = () => {
                             setTimeout(() => {
                                 setUiState(UI_STATES.ASSESSMENT_WITH_UPGRADE);
                                 debouncedScrollToBottom();
-                            }, 3000); // Increased delay to account for sequential messages
+                            }, 4000); // Increased delay to account for sequential messages
                         } else {
                             // Regular assessment without upgrade - split into sequential messages
                             addSequentialBotMessages([
@@ -765,7 +777,15 @@ const Chat = () => {
                                     isAssessment: true
                                 },
                                 {
-                                    message: "I've identified a condition that may require further evaluation. To get more insights, you can choose between Premium Access for unlimited symptom checks or a one-time Consultation Report for your current symptoms.",
+                                    // Add assessment details before upgrade prompt
+                                    message: formattedMessage,
+                                    isAssessment: true,
+                                    confidence: confidence,
+                                    triageLevel: triageLevel,
+                                    careRecommendation: careRecommendation
+                                },
+                                {
+                                    message: "To get more detailed insights, you can choose between Premium Access for unlimited symptom checks or a one-time Consultation Report for your current symptoms.",
                                     isAssessment: false
                                 }
                             ]);
@@ -774,7 +794,7 @@ const Chat = () => {
                             setTimeout(() => {
                                 setUiState(UI_STATES.ASSESSMENT_WITH_UPGRADE);
                                 debouncedScrollToBottom();
-                            }, 3000); // Increased delay to account for sequential messages
+                            }, 4000); // Increased delay to account for sequential messages
                         } else {
                             // For non-upgrade assessments, show the full assessment
                             addBotMessage(
