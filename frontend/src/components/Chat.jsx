@@ -1,6 +1,5 @@
 // Chat.jsx
 import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
-import axios from 'axios';
 import PropTypes from 'prop-types';
 import { debounce } from 'lodash';
 import '../styles/Chat.css';
@@ -415,7 +414,9 @@ const Chat = () => {
         setResetting(true);
         try {
             // Call the reset endpoint
-            await axios.post(CONFIG.RESET_URL);
+            await fetch(CONFIG.RESET_URL, {
+                method: 'POST'
+            });
             
             // Reset local state
             setMessages([WELCOME_MESSAGE]);
@@ -613,11 +614,9 @@ const Chat = () => {
         // Scroll to bottom after adding user message
         scrollToBottomImmediate();
 
-        // Cancel any pending requests
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-        }
-        abortControllerRef.current = new AbortController();
+        // Create an AbortController for fetch
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
 
         try {
             // Prepare conversation history with proper formatting
@@ -639,39 +638,48 @@ const Chat = () => {
                 console.log("Sending request with conversation history:", enhancedRequest);
             }
 
-            const response = await axios.post(
-                CONFIG.API_URL,
-                enhancedRequest,
-                {
-                    signal: abortControllerRef.current.signal,
-                    timeout: CONFIG.API_TIMEOUT
-                }
-            );
+            // Use fetch API instead of axios
+            const response = await fetch(CONFIG.API_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(enhancedRequest),
+                signal: controller.signal
+            });
+
+            // Check if the response is ok
+            if (!response.ok) {
+                throw new Error(`API returned status code ${response.status}`);
+            }
+
+            // Parse the response
+            const responseData = await response.json();
 
             // Debug logging
             if (CONFIG.DEBUG_MODE) {
-                console.log("Raw API response:", response.data);
-                console.log("Requires upgrade:", response.data.requires_upgrade);
-                console.log("Is assessment:", response.data.is_assessment);
+                console.log("Raw API response:", responseData);
+                console.log("Requires upgrade:", responseData.requires_upgrade);
+                console.log("Is assessment:", responseData.is_assessment);
             }
 
             setTimeout(() => {
                 // Check if this is a question or assessment
-                const isAssessment = response.data.is_assessment === true;
-                const requiresUpgrade = response.data.requires_upgrade === true;
+                const isAssessment = responseData.is_assessment === true;
+                const requiresUpgrade = responseData.requires_upgrade === true;
                 
                 // Get confidence level
-                const confidence = response.data.confidence || 
-                                  (response.data.assessment?.conditions && 
-                                   response.data.assessment.conditions[0]?.confidence) || 0;
+                const confidence = responseData.confidence || 
+                                  (responseData.assessment?.conditions && 
+                                   responseData.assessment.conditions[0]?.confidence) || 0;
                 
                 // Only treat as assessment if confidence is high enough
                 const isConfidentAssessment = isAssessment && confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD;
                 
                 // Get condition name for context in follow-up questions
                 let conditionName = "";
-                if (response.data.assessment?.conditions && response.data.assessment.conditions.length > 0) {
-                    conditionName = response.data.assessment.conditions[0].name;
+                if (responseData.assessment?.conditions && responseData.assessment.conditions.length > 0) {
+                    conditionName = responseData.assessment.conditions[0].name;
                 }
                 
                 // Add detailed logging
@@ -682,12 +690,12 @@ const Chat = () => {
                         confidence,
                         isConfidentAssessment,
                         conditionName,
-                        responseData: response.data
+                        responseData
                     });
                 }
                 
                 // If we have a response but no question or assessment, generate a follow-up
-                if (!response.data.question && !isAssessment && !response.data.error) {
+                if (!responseData.question && !isAssessment && !responseData.error) {
                     const followUpMessage = "I need more details to be certain. Can you tell me more about your symptoms?";
                     addBotMessage(followUpMessage, false);
                     return;
@@ -699,11 +707,11 @@ const Chat = () => {
                     let careRecommendation = null;
                     
                     // Check if we have a structured JSON response
-                    if (response.data.assessment?.conditions) {
-                        const conditions = response.data.assessment.conditions;
-                        triageLevel = response.data.assessment.triage_level || 'UNKNOWN';
-                        careRecommendation = response.data.assessment.care_recommendation || response.data.care_recommendation;
-                        const disclaimer = response.data.assessment.disclaimer || "This assessment is for informational purposes only and does not replace professional medical advice.";
+                    if (responseData.assessment?.conditions) {
+                        const conditions = responseData.assessment.conditions;
+                        triageLevel = responseData.assessment.triage_level || 'UNKNOWN';
+                        careRecommendation = responseData.assessment.care_recommendation || responseData.care_recommendation;
+                        const disclaimer = responseData.assessment.disclaimer || "This assessment is for informational purposes only and does not replace professional medical advice.";
                         
                         // Update the latest assessment for reference
                         if (conditions.length > 0) {
@@ -763,9 +771,9 @@ const Chat = () => {
                         }
                     } else {
                         // Unstructured assessment
-                        const formattedMessage = response.data.possible_conditions || "Based on your symptoms, I can provide an assessment.";
-                        triageLevel = response.data.triage_level;
-                        careRecommendation = response.data.care_recommendation;
+                        const formattedMessage = responseData.possible_conditions || "Based on your symptoms, I can provide an assessment.";
+                        triageLevel = responseData.triage_level;
+                        careRecommendation = responseData.care_recommendation;
                         
                         // Update the latest assessment for the sticky summary
                         setLatestAssessment({
@@ -827,11 +835,11 @@ const Chat = () => {
                     // regardless of whether the server says upgrade is required
                     
                     // Check if the response contains a follow-up question
-                    if (response.data.question) {
-                        addBotMessage(response.data.question, false);
+                    if (responseData.question) {
+                        addBotMessage(responseData.question, false);
                     } else {
                         // Generate a unique follow-up question
-                        const followUpMessage = generateUniqueFollowUpQuestion(response, conditionName);
+                        const followUpMessage = generateUniqueFollowUpQuestion({data: responseData}, conditionName);
                         addBotMessage(followUpMessage, false);
                     }
                     
@@ -841,175 +849,31 @@ const Chat = () => {
                     }
                 } else {
                     // It's a follow-up question or other response
-                    const responseText = response.data.question || response.data.possible_conditions || "Could you tell me more about your symptoms?";
+                    const responseText = responseData.question || responseData.possible_conditions || "Could you tell me more about your symptoms?";
                     addBotMessage(responseText, false);
                     
                     // Add this question to asked questions to avoid repetition
-                    if (response.data.question) {
-                        setAskedQuestions(prev => [...prev, response.data.question]);
+                    if (responseData.question) {
+                        setAskedQuestions(prev => [...prev, responseData.question]);
                     }
                 }
             }, CONFIG.THINKING_DELAY);
 
         } catch (error) {
-            if (!axios.isCancel(error)) {
+            if (error.name !== 'AbortError') {
                 if (CONFIG.DEBUG_MODE) {
                     console.error("API error details:", error);
                 }
                 
                 let errorMessage = "I apologize, but I'm having trouble processing your request.";
                 
-                if (error.response) {
-                    // Check if this is actually a valid response with requires_upgrade=true
-                    // that was incorrectly caught as an error
-                    if (error.response.data) {
-                        // This might be a valid response, not an error
-                        const response = error.response;
-                        
-                        // Log the response for debugging
-                        if (CONFIG.DEBUG_MODE) {
-                            console.log("Response caught in error handler:", response.data);
-                        }
-                        
-                        // Check if this is a valid assessment response with requires_upgrade=true
-                        const isAssessment = response.data.is_assessment === true;
-                        const requiresUpgrade = response.data.requires_upgrade === true;
-                        const confidence = response.data.confidence || 
-                                         (response.data.assessment?.conditions && 
-                                          response.data.assessment.conditions[0]?.confidence) || 0;
-                        const isConfidentAssessment = isAssessment && confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD;
-                        
-                        // If this is a valid assessment with high confidence that requires upgrade
-                        if (isConfidentAssessment && requiresUpgrade) {
-                            // Process the response as normal
-                            setTimeout(() => {
-                                let triageLevel = null;
-                                let careRecommendation = null;
-                                let conditionName = "this condition";
-                                
-                                // Check if we have a structured JSON response
-                                if (response.data.assessment?.conditions) {
-                                    const conditions = response.data.assessment.conditions;
-                                    triageLevel = response.data.assessment.triage_level || 'UNKNOWN';
-                                    careRecommendation = response.data.assessment.care_recommendation || response.data.care_recommendation;
-                                    
-                                    // Update the latest assessment for reference
-                                    if (conditions.length > 0) {
-                                        conditionName = conditions[0].name;
-                                        setLatestAssessment({
-                                            condition: conditions[0].name,
-                                            confidence: conditions[0].confidence,
-                                            recommendation: careRecommendation
-                                        });
-                                    }
-                                    
-                                    // FIRST: Add the assessment message
-                                    addBotMessage(
-                                        `The most likely condition is ${conditions[0].name} (${conditions[0].confidence}% confidence).`,
-                                        true,
-                                        conditions[0].confidence,
-                                        triageLevel,
-                                        careRecommendation
-                                    );
-                                    
-                                    // SECOND: Add the assessment summary after a delay
-                                    setTimeout(() => {
-                                        setMessages(prev => [...prev, {
-                                            sender: 'system',
-                                            isAssessmentSummary: true,
-                                            condition: conditions[0].name,
-                                            confidence: conditions[0].confidence,
-                                            recommendation: careRecommendation
-                                        }]);
-                                        
-                                        // THIRD: Add the upgrade prompt after another delay
-                                        setTimeout(() => {
-                                            setMessages(prev => [...prev, {
-                                                sender: 'system',
-                                                isUpgradePrompt: true,
-                                                condition: conditions[0].name
-                                            }]);
-                                            
-                                            // Ensure everything is visible
-                                            setTimeout(() => {
-                                                if (messagesEndRef.current) {
-                                                    messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-                                                }
-                                            }, 100);
-                                        }, 500);
-                                    }, 500);
-                                } else {
-                                    // Unstructured assessment
-                                    const formattedMessage = response.data.possible_conditions || "Based on your symptoms, I can provide an assessment.";
-                                    triageLevel = response.data.triage_level;
-                                    careRecommendation = response.data.care_recommendation;
-                                    
-                                    // Update the latest assessment for the sticky summary
-                                    setLatestAssessment({
-                                        condition: "Assessment",
-                                        confidence: confidence,
-                                        recommendation: careRecommendation
-                                    });
-                                    
-                                    // FIRST: Add the assessment message
-                                    addBotMessage(
-                                        formattedMessage,
-                                        true,
-                                        confidence,
-                                        triageLevel,
-                                        careRecommendation
-                                    );
-                                    
-                                    // SECOND: Add the assessment summary after a delay
-                                    setTimeout(() => {
-                                        setMessages(prev => [...prev, {
-                                            sender: 'system',
-                                            isAssessmentSummary: true,
-                                            condition: "Assessment",
-                                            confidence: confidence,
-                                            recommendation: careRecommendation
-                                        }]);
-                                        
-                                        // THIRD: Add the upgrade prompt after another delay
-                                        setTimeout(() => {
-                                            setMessages(prev => [...prev, {
-                                                sender: 'system',
-                                                isUpgradePrompt: true,
-                                                condition: "this condition"
-                                            }]);
-                                            
-                                            // Ensure everything is visible
-                                            setTimeout(() => {
-                                                if (messagesEndRef.current) {
-                                                    messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-                                                }
-                                            }, 100);
-                                        }, 500);
-                                    }, 500);
-                                }
-                            }, CONFIG.THINKING_DELAY);
-                            
-                            return;
-                        } else if (isAssessment || response.data.question) {
-                            // For other valid responses, just show the response
-                            setTimeout(() => {
-                                const responseText = response.data.question || response.data.possible_conditions || "Could you tell me more about your symptoms?";
-                                addBotMessage(responseText, false);
-                            }, CONFIG.THINKING_DELAY);
-                            
-                            return;
-                        }
-                    }
-                    
-                    // The request was made and the server responded with a status code
-                    // that falls out of the range of 2xx
-                    if (error.response.status === 429) {
+                if (error.message.includes('status code')) {
+                    if (error.message.includes('429')) {
                         errorMessage = "I'm receiving too many requests right now. Please try again in a moment.";
-                    } else if (error.response.status >= 500) {
+                    } else if (error.message.includes('5')) {
                         errorMessage = "I'm having trouble connecting to my medical knowledge. Please try again shortly.";
                     }
-                } else if (error.request) {
-                    // The request was made but no response was received
+                } else {
                     errorMessage = "I'm having trouble connecting to my medical database. Please check your internet connection and try again.";
                 }
                 
