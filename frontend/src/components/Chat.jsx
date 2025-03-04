@@ -725,22 +725,32 @@ const Chat = () => {
                                 careRecommendation
                             );
                             
-                            // THEN: After a short delay, add the upgrade prompt
+                            // SECOND: Add the assessment summary after a delay
                             setTimeout(() => {
-                                // Add upgrade options
                                 setMessages(prev => [...prev, {
                                     sender: 'system',
-                                    isUpgradePrompt: true,
-                                    condition: conditions[0].name
+                                    isAssessmentSummary: true,
+                                    condition: conditions[0].name,
+                                    confidence: conditions[0].confidence,
+                                    recommendation: careRecommendation
                                 }]);
                                 
-                                // Ensure everything is visible
+                                // THIRD: Add the upgrade prompt after another delay
                                 setTimeout(() => {
-                                    if (messagesEndRef.current) {
-                                        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-                                    }
-                                }, 100);
-                            }, 1000);
+                                    setMessages(prev => [...prev, {
+                                        sender: 'system',
+                                        isUpgradePrompt: true,
+                                        condition: conditions[0].name
+                                    }]);
+                                    
+                                    // Ensure everything is visible
+                                    setTimeout(() => {
+                                        if (messagesEndRef.current) {
+                                            messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+                                        }
+                                    }, 100);
+                                }, 500);
+                            }, 500);
                         } else {
                             // Regular assessment without upgrade
                             addBotMessage(
@@ -775,22 +785,32 @@ const Chat = () => {
                                 careRecommendation
                             );
                             
-                            // THEN: After a short delay, add the upgrade prompt
+                            // SECOND: Add the assessment summary after a delay
                             setTimeout(() => {
-                                // Add upgrade options
                                 setMessages(prev => [...prev, {
                                     sender: 'system',
-                                    isUpgradePrompt: true,
-                                    condition: "this condition"
+                                    isAssessmentSummary: true,
+                                    condition: "Assessment",
+                                    confidence: confidence,
+                                    recommendation: careRecommendation
                                 }]);
                                 
-                                // Ensure everything is visible
+                                // THIRD: Add the upgrade prompt after another delay
                                 setTimeout(() => {
-                                    if (messagesEndRef.current) {
-                                        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-                                    }
-                                }, 100);
-                            }, 1000);
+                                    setMessages(prev => [...prev, {
+                                        sender: 'system',
+                                        isUpgradePrompt: true,
+                                        condition: "this condition"
+                                    }]);
+                                    
+                                    // Ensure everything is visible
+                                    setTimeout(() => {
+                                        if (messagesEndRef.current) {
+                                            messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+                                        }
+                                    }, 100);
+                                }, 500);
+                            }, 500);
                         } else {
                             // For non-upgrade assessments, show the full assessment
                             addBotMessage(
