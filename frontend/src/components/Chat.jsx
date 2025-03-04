@@ -705,52 +705,47 @@ const Chat = () => {
                     // It's a final assessment with conditions and high confidence
                     let triageLevel = null;
                     let careRecommendation = null;
-                    
-                    // Check if we have a structured JSON response
+
                     if (responseData.assessment?.conditions) {
                         const conditions = responseData.assessment.conditions;
                         triageLevel = responseData.assessment.triage_level || 'UNKNOWN';
                         careRecommendation = responseData.assessment.care_recommendation || responseData.care_recommendation;
-                        const disclaimer = responseData.assessment.disclaimer || "This assessment is for informational purposes only and does not replace professional medical advice.";
-                        
-                        // Update the latest assessment for reference
-                        if (conditions.length > 0) {
-                            setLatestAssessment({
+
+                        // FIRST: Add the assessment message from the bot as part of normal conversation
+                        // With improved formatting for better readability
+                        addBotMessage(
+                            `🩺 The most likely condition is **${conditions[0].name}** (**${conditions[0].confidence}% confidence**).\n\n${careRecommendation ? careRecommendation : ""}`,
+                            true,
+                            conditions[0].confidence,
+                            triageLevel,
+                            careRecommendation
+                        );
+
+                        // SECOND: Add the structured assessment summary **after** the bot message
+                        setTimeout(() => {
+                            setMessages(prev => [...prev, {
+                                sender: 'system',
+                                isAssessmentSummary: true,
                                 condition: conditions[0].name,
                                 confidence: conditions[0].confidence,
                                 recommendation: careRecommendation
-                            });
-                        }
-                        
-                        // Only now check if upgrade is required - AFTER confirming high confidence
-                        if (requiresUpgrade) {
-                            // FIRST: Add the assessment message
-                            addBotMessage(
-                                `The most likely condition is ${conditions[0].name} (${conditions[0].confidence}% confidence).`,
-                                true,
-                                conditions[0].confidence,
-                                triageLevel,
-                                careRecommendation
-                            );
-                            
-                            // SECOND: Add the assessment summary after a delay
+                            }]);
+
+                            // THIRD: Add the sales pitch explaining why the user should upgrade with clear differentiation
                             setTimeout(() => {
-                                setMessages(prev => [...prev, {
-                                    sender: 'system',
-                                    isAssessmentSummary: true,
-                                    condition: conditions[0].name,
-                                    confidence: conditions[0].confidence,
-                                    recommendation: careRecommendation
-                                }]);
-                                
-                                // THIRD: Add the upgrade prompt after another delay
+                                addBotMessage(
+                                    `🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?`,
+                                    false
+                                );
+
+                                // FOURTH: Add the actual upgrade options AFTER the explanation
                                 setTimeout(() => {
                                     setMessages(prev => [...prev, {
                                         sender: 'system',
                                         isUpgradePrompt: true,
                                         condition: conditions[0].name
                                     }]);
-                                    
+
                                     // Ensure everything is visible
                                     setTimeout(() => {
                                         if (messagesEndRef.current) {
@@ -759,16 +754,7 @@ const Chat = () => {
                                     }, 100);
                                 }, 500);
                             }, 500);
-                        } else {
-                            // Regular assessment without upgrade
-                            addBotMessage(
-                                `The most likely condition is ${conditions[0].name} (${conditions[0].confidence}% confidence).`,
-                                true,
-                                conditions[0].confidence,
-                                triageLevel,
-                                careRecommendation
-                            );
-                        }
+                        }, 500);
                     } else {
                         // Unstructured assessment
                         const formattedMessage = responseData.possible_conditions || "Based on your symptoms, I can provide an assessment.";
@@ -784,9 +770,9 @@ const Chat = () => {
                         
                         // Only now check if upgrade is required - AFTER confirming high confidence
                         if (requiresUpgrade) {
-                            // FIRST: Add the assessment message
+                            // FIRST: Add the assessment message with improved formatting
                             addBotMessage(
-                                formattedMessage,
+                                `🩺 Based on your symptoms, I can provide an assessment (**${confidence}% confidence**).\n\n${careRecommendation ? careRecommendation : ""}`,
                                 true,
                                 confidence,
                                 triageLevel,
@@ -803,26 +789,34 @@ const Chat = () => {
                                     recommendation: careRecommendation
                                 }]);
                                 
-                                // THIRD: Add the upgrade prompt after another delay
+                                // THIRD: Add the sales pitch explaining why the user should upgrade
                                 setTimeout(() => {
-                                    setMessages(prev => [...prev, {
-                                        sender: 'system',
-                                        isUpgradePrompt: true,
-                                        condition: "this condition"
-                                    }]);
+                                    addBotMessage(
+                                        `🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?`,
+                                        false
+                                    );
                                     
-                                    // Ensure everything is visible
+                                    // FOURTH: Add the upgrade prompt after another delay
                                     setTimeout(() => {
-                                        if (messagesEndRef.current) {
-                                            messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-                                        }
-                                    }, 100);
+                                        setMessages(prev => [...prev, {
+                                            sender: 'system',
+                                            isUpgradePrompt: true,
+                                            condition: "this condition"
+                                        }]);
+                                        
+                                        // Ensure everything is visible
+                                        setTimeout(() => {
+                                            if (messagesEndRef.current) {
+                                                messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+                                            }
+                                        }, 100);
+                                    }, 500);
                                 }, 500);
                             }, 500);
                         } else {
                             // For non-upgrade assessments, show the full assessment
                             addBotMessage(
-                                formattedMessage,
+                                `🩺 ${formattedMessage} (**${confidence}% confidence**).\n\n${careRecommendation ? careRecommendation : ""}`,
                                 true,
                                 confidence,
                                 triageLevel,
