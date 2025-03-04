@@ -713,26 +713,16 @@ const Chat = () => {
                         
                         // Only now check if upgrade is required - AFTER confirming high confidence
                         if (requiresUpgrade) {
-                            // Step 1: Add the assessment messages to the chat
-                            addSequentialBotMessages([
-                                {
-                                    message: `The most likely condition is ${conditions[0].name} (${conditions[0].confidence}% confidence).`,
-                                    isAssessment: true,
-                                    confidence: conditions[0].confidence
-                                },
-                                {
-                                    message: careRecommendation || "Consider consulting with a healthcare provider for proper evaluation.",
-                                    isAssessment: true,
-                                    triageLevel: triageLevel,
-                                    careRecommendation: careRecommendation
-                                },
-                                {
-                                    message: "To get more detailed insights, you can choose between Premium Access for unlimited symptom checks or a one-time Consultation Report for your current symptoms.",
-                                    isAssessment: false
-                                }
-                            ]);
+                            // Step 1: Add the assessment messages to the chat with minimal delay between them
+                            addBotMessage(
+                                `The most likely condition is ${conditions[0].name} (${conditions[0].confidence}% confidence).`,
+                                true,
+                                conditions[0].confidence,
+                                triageLevel,
+                                careRecommendation
+                            );
                             
-                            // Step 2: After a delay, add the assessment summary and upgrade prompt as special message types
+                            // Step 2: After a short delay, add the assessment summary
                             setTimeout(() => {
                                 // Add assessment summary as a special message
                                 setMessages(prev => [...prev, {
@@ -743,41 +733,32 @@ const Chat = () => {
                                     recommendation: careRecommendation
                                 }]);
                                 
-                                // Add upgrade options as a special message
+                                // Step 3: Immediately after adding the summary, add the upgrade prompt
+                                // with no delay to ensure they appear together
                                 setMessages(prev => [...prev, {
                                     sender: 'system',
                                     isUpgradePrompt: true,
                                     condition: conditions[0].name
                                 }]);
                                 
-                                // Simple scroll to bottom to show everything
+                                // Ensure everything is visible
                                 setTimeout(() => {
                                     if (messagesEndRef.current) {
                                         messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
                                     }
                                 }, 100);
-                            }, 3000);
+                            }, 1000); // Reduced delay to keep things tight
                         } else {
-                            // Regular assessment without upgrade - just add the messages
-                            addSequentialBotMessages([
-                                {
-                                    message: `The most likely condition is ${conditions[0].name} (${conditions[0].confidence}% confidence).`,
-                                    isAssessment: true,
-                                    confidence: conditions[0].confidence
-                                },
-                                {
-                                    message: careRecommendation,
-                                    isAssessment: true,
-                                    triageLevel: triageLevel,
-                                    careRecommendation: careRecommendation
-                                },
-                                {
-                                    message: disclaimer,
-                                    isAssessment: true
-                                }
-                            ]);
+                            // Regular assessment without upgrade - similar approach but without upgrade prompt
+                            addBotMessage(
+                                `The most likely condition is ${conditions[0].name} (${conditions[0].confidence}% confidence).`,
+                                true,
+                                conditions[0].confidence,
+                                triageLevel,
+                                careRecommendation
+                            );
                             
-                            // Add assessment summary as a special message after a delay
+                            // Add assessment summary as a special message after a short delay
                             setTimeout(() => {
                                 setMessages(prev => [...prev, {
                                     sender: 'system',
@@ -787,13 +768,13 @@ const Chat = () => {
                                     recommendation: careRecommendation
                                 }]);
                                 
-                                // Simple scroll to bottom to show everything
+                                // Ensure everything is visible
                                 setTimeout(() => {
                                     if (messagesEndRef.current) {
                                         messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
                                     }
                                 }, 100);
-                            }, 3000);
+                            }, 1000);
                         }
                     } else {
                         // Unstructured assessment
@@ -810,21 +791,14 @@ const Chat = () => {
                         
                         // Only now check if upgrade is required - AFTER confirming high confidence
                         if (requiresUpgrade) {
-                            // Add sequential messages for a smoother experience
-                            addSequentialBotMessages([
-                                {
-                                    // Add assessment details before upgrade prompt
-                                    message: formattedMessage,
-                                    isAssessment: true,
-                                    confidence: confidence,
-                                    triageLevel: triageLevel,
-                                    careRecommendation: careRecommendation
-                                },
-                                {
-                                    message: "To get more detailed insights, you can choose between Premium Access for unlimited symptom checks or a one-time Consultation Report for your current symptoms.",
-                                    isAssessment: false
-                                }
-                            ]);
+                            // Add assessment message
+                            addBotMessage(
+                                formattedMessage,
+                                true,
+                                confidence,
+                                triageLevel,
+                                careRecommendation
+                            );
                             
                             // Add assessment summary and upgrade prompt as special messages after a delay
                             setTimeout(() => {
@@ -850,7 +824,7 @@ const Chat = () => {
                                         messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
                                     }
                                 }, 100);
-                            }, 2000);
+                            }, 1000);
                         } else {
                             // For non-upgrade assessments, show the full assessment
                             addBotMessage(
@@ -877,7 +851,7 @@ const Chat = () => {
                                         messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
                                     }
                                 }, 100);
-                            }, 2000);
+                            }, 1000);
                         }
                     }
                 } else if (isAssessment) {
