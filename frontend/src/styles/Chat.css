@@ -383,7 +383,7 @@
   margin-bottom: 0; /* Remove bottom margin */
 }
 
-/* Make upgrade prompt more compact */
+/* Make upgrade prompt more compact and match screenshot */
 .upgrade-options-inline {
   background-color: #f0f8ff;
   border: 1px solid #b8daff;
