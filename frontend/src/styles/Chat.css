@@ -80,7 +80,7 @@
   flex: 1;
   overflow-y: auto;
   padding: 20px;
-  padding-bottom: 180px; /* Increased padding to ensure content is visible with sticky elements */
+  padding-bottom: 200px; /* Increased padding to ensure content is visible with sticky elements */
   display: flex;
   flex-direction: column;
   gap: 15px;

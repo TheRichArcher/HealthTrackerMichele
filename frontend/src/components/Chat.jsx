@@ -491,6 +491,43 @@ const Chat = () => {
         return `I have some possible insights about your condition${conditionName ? ` (possibly ${conditionName})` : ""}, but I need a bit more information to be certain. ${followUpQuestion}`;
     }, [askedQuestions]);
 
+    // Enhanced scrollToAssessment function to ensure the assessment is visible
+    const scrollToAssessment = useCallback(() => {
+        if (messagesContainerRef.current) {
+            // Find all assessment message elements
+            const messageElements = messagesContainerRef.current.querySelectorAll('.message.bot');
+            
+            // Find the element containing the assessment (looking for the one with condition name)
+            let targetElement = null;
+            for (let i = messageElements.length - 1; i >= 0; i--) {
+                if (messageElements[i].textContent.includes("most likely condition") || 
+                    messageElements[i].textContent.includes("Urinary Tract Infection") ||
+                    messageElements[i].textContent.includes("completed an assessment")) {
+                    targetElement = messageElements[i];
+                    break;
+                }
+            }
+            
+            // If we found the target element, scroll to it
+            if (targetElement) {
+                targetElement.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'start'
+                });
+            } else {
+                // Fallback: scroll to a position that shows the assessment summary
+                const scrollHeight = messagesContainerRef.current.scrollHeight;
+                const clientHeight = messagesContainerRef.current.clientHeight;
+                const scrollPosition = Math.max(0, scrollHeight - clientHeight - 300);
+                
+                messagesContainerRef.current.scrollTo({
+                    top: scrollPosition,
+                    behavior: 'smooth'
+                });
+            }
+        }
+    }, []);
+
     const handleSendMessage = async (retryMessage = null) => {
         const messageToSend = retryMessage || userInput;
         const validationError = validateInput(messageToSend);
@@ -724,7 +761,12 @@ const Chat = () => {
                             // Show both assessment and upgrade after a delay
                             setTimeout(() => {
                                 setUiState(UI_STATES.ASSESSMENT_WITH_UPGRADE);
-                                debouncedScrollToBottom();
+                                
+                                // Schedule multiple attempts to scroll to the right position
+                                const scrollTimes = [100, 300, 600, 1000, 1500];
+                                scrollTimes.forEach(time => {
+                                    setTimeout(scrollToAssessment, time);
+                                });
                             }, 4000); // Increased delay to account for sequential messages
                         } else {
                             // Regular assessment without upgrade - split into sequential messages
@@ -753,6 +795,12 @@ const Chat = () => {
                             // Set UI state to ASSESSMENT
                             setTimeout(() => {
                                 setUiState(UI_STATES.ASSESSMENT);
+                                
+                                // Schedule multiple attempts to scroll to the right position
+                                const scrollTimes = [100, 300, 600, 1000];
+                                scrollTimes.forEach(time => {
+                                    setTimeout(scrollToAssessment, time);
+                                });
                             }, 1000);
                         }
                     } else {
@@ -793,7 +841,12 @@ const Chat = () => {
                             // Show both assessment and upgrade after a delay
                             setTimeout(() => {
                                 setUiState(UI_STATES.ASSESSMENT_WITH_UPGRADE);
-                                debouncedScrollToBottom();
+                                
+                                // Schedule multiple attempts to scroll to the right position
+                                const scrollTimes = [100, 300, 600, 1000, 1500];
+                                scrollTimes.forEach(time => {
+                                    setTimeout(scrollToAssessment, time);
+                                });
                             }, 4000); // Increased delay to account for sequential messages
                         } else {
                             // For non-upgrade assessments, show the full assessment
@@ -807,6 +860,14 @@ const Chat = () => {
                             
                             // Set UI state to ASSESSMENT
                             setUiState(UI_STATES.ASSESSMENT);
+                            
+                            // Schedule multiple attempts to scroll to the right position
+                            setTimeout(() => {
+                                const scrollTimes = [100, 300, 600, 1000];
+                                scrollTimes.forEach(time => {
+                                    setTimeout(scrollToAssessment, time);
+                                });
+                            }, 1000);
                         }
                     }
                 } else if (isAssessment) {
@@ -986,74 +1047,75 @@ const Chat = () => {
                             {error}
                         </div>
                     )}
+                    
+                    {/* Add the sticky assessment summary here - INSIDE the messages container */}
+                    {(uiState === UI_STATES.ASSESSMENT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) && latestAssessment && (
+                        <AssessmentSummary assessment={latestAssessment} />
+                    )}
+                    
+                    {/* Show upgrade prompt if in UPGRADE_PROMPT or ASSESSMENT_WITH_UPGRADE state - INSIDE the messages container */}
+                    {(uiState === UI_STATES.UPGRADE_PROMPT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) && (
+                        <div className="upgrade-options">
+                            <button 
+                                className="close-upgrade" 
+                                onClick={() => {
+                                    setUiState(uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE ? UI_STATES.ASSESSMENT : UI_STATES.DEFAULT);
+                                    setHasDeclinedUpgrade(true); // Track that user has declined upgrade
+                                    if (inputRef.current) {
+                                        inputRef.current.focus();
+                                    }
+                                }}
+                                aria-label="Dismiss upgrade prompt"
+                            >
+                                ✖
+                            </button>
+                            <div className="upgrade-message">
+                                <h3>
+                                    Based on your symptoms, 
+                                    {latestAssessment ? 
+                                        ` I've identified ${latestAssessment.condition} as a possible condition that may require further evaluation.` : 
+                                        ` I've identified a condition that may require further evaluation.`}
+                                </h3>
+                                <p>💡 To get more insights, you can choose one of these options:</p>
+                                <ul>
+                                    <li>🔹 Premium Access ($9.99/month): Unlimited symptom checks, detailed assessments, and personalized health monitoring.</li>
+                                    <li>🔹 One-time Consultation Report ($4.99): Get a comprehensive analysis of your current symptoms.</li>
+                                </ul>
+                                <p>Would you like to continue with one of these options?</p>
+                            </div>
+                            <div className="upgrade-buttons">
+                                <button 
+                                    className={`upgrade-button subscription ${loadingSubscription ? 'loading' : ''}`}
+                                    onClick={() => {
+                                        if (loadingSubscription || loadingOneTime) return;
+                                        setLoadingSubscription(true);
+                                        setTimeout(() => {
+                                            window.location.href = '/subscribe';
+                                        }, 300);
+                                    }}
+                                    disabled={loadingSubscription || loadingOneTime}
+                                >
+                                    {loadingSubscription ? 'Processing...' : '🩺 Get Premium Access ($9.99/month)'}
+                                </button>
+                                <button 
+                                    className={`upgrade-button one-time ${loadingOneTime ? 'loading' : ''}`}
+                                    onClick={() => {
+                                        if (loadingSubscription || loadingOneTime) return;
+                                        setLoadingOneTime(true);
+                                        setTimeout(() => {
+                                            window.location.href = '/one-time-report';
+                                        }, 300);
+                                    }}
+                                    disabled={loadingSubscription || loadingOneTime}
+                                >
+                                    {loadingOneTime ? 'Processing...' : '📄 Get Consultation Report ($4.99)'}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                    
                     <div ref={messagesEndRef} />
                 </div>
-
-                {/* Add the sticky assessment summary here */}
-                {(uiState === UI_STATES.ASSESSMENT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) && latestAssessment && (
-                    <AssessmentSummary assessment={latestAssessment} />
-                )}
-
-                {/* Show upgrade prompt if in UPGRADE_PROMPT or ASSESSMENT_WITH_UPGRADE state */}
-                {(uiState === UI_STATES.UPGRADE_PROMPT || uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE) && (
-                    <div className="upgrade-options">
-                        <button 
-                            className="close-upgrade" 
-                            onClick={() => {
-                                setUiState(uiState === UI_STATES.ASSESSMENT_WITH_UPGRADE ? UI_STATES.ASSESSMENT : UI_STATES.DEFAULT);
-                                setHasDeclinedUpgrade(true); // Track that user has declined upgrade
-                                if (inputRef.current) {
-                                    inputRef.current.focus();
-                                }
-                            }}
-                            aria-label="Dismiss upgrade prompt"
-                        >
-                            ✖
-                        </button>
-                        <div className="upgrade-message">
-                            <h3>
-                                Based on your symptoms, 
-                                {latestAssessment ? 
-                                    ` I've identified ${latestAssessment.condition} as a possible condition that may require further evaluation.` : 
-                                    ` I've identified a condition that may require further evaluation.`}
-                            </h3>
-                            <p>💡 To get more insights, you can choose one of these options:</p>
-                            <ul>
-                                <li>🔹 Premium Access ($9.99/month): Unlimited symptom checks, detailed assessments, and personalized health monitoring.</li>
-                                <li>🔹 One-time Consultation Report ($4.99): Get a comprehensive analysis of your current symptoms.</li>
-                            </ul>
-                            <p>Would you like to continue with one of these options?</p>
-                        </div>
-                        <div className="upgrade-buttons">
-                            <button 
-                                className={`upgrade-button subscription ${loadingSubscription ? 'loading' : ''}`}
-                                onClick={() => {
-                                    if (loadingSubscription || loadingOneTime) return;
-                                    setLoadingSubscription(true);
-                                    setTimeout(() => {
-                                        window.location.href = '/subscribe';
-                                    }, 300);
-                                }}
-                                disabled={loadingSubscription || loadingOneTime}
-                            >
-                                {loadingSubscription ? 'Processing...' : '🩺 Get Premium Access ($9.99/month)'}
-                            </button>
-                            <button 
-                                className={`upgrade-button one-time ${loadingOneTime ? 'loading' : ''}`}
-                                onClick={() => {
-                                    if (loadingSubscription || loadingOneTime) return;
-                                    setLoadingOneTime(true);
-                                    setTimeout(() => {
-                                        window.location.href = '/one-time-report';
-                                    }, 300);
-                                }}
-                                disabled={loadingSubscription || loadingOneTime}
-                            >
-                                {loadingOneTime ? 'Processing...' : '📄 Get Consultation Report ($4.99)'}
-                            </button>
-                        </div>
-                    </div>
-                )}
 
                 <div className="chat-input-container">
                     <div className="chat-input-wrapper">
