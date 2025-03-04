@@ -5,6 +5,9 @@ import PropTypes from 'prop-types';
 import { debounce } from 'lodash';
 import '../styles/Chat.css';
 
+// Add this at the top of Chat.jsx, right after the imports
+console.log("CHAT.JSX EDITED AT", new Date().toISOString());
+
 // Define UI state enum
 const UI_STATES = {
   DEFAULT: 'default',
