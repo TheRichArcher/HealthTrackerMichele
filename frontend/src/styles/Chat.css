@@ -669,3 +669,38 @@
     font-size: 13px;
   }
 }
+
+/* AGGRESSIVE FIX FOR EMPTY SPACE - ADD THESE AT THE END */
+/* Target that specific empty div */
+.messages-container > div:empty {
+  display: none !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Ensure no margins between elements */
+.upgrade-options-inline + * {
+  display: none !important;
+}
+
+/* Force the chat input container to be directly below the upgrade options */
+.upgrade-options-inline {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.chat-input-container {
+  margin-top: 0 !important;
+  padding-top: 10px !important;
+}
+
+/* Remove any dividers */
+hr, .divider, div[role="separator"] {
+  display: none !important;
+}
+
+/* Reduce the bottom padding of the messages container */
+.messages-container {
+  padding-bottom: 60px !important;
+}
