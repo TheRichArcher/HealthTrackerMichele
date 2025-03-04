@@ -109,22 +109,7 @@ const Message = memo(({ message, onRetry, index }) => {
     }
     
     if (message.isAssessmentSummary) {
-        return (
-            <div className="assessment-summary-inline">
-                <h4>Assessment Summary</h4>
-                <div className="assessment-condition">
-                    <strong>Condition:</strong> {message.condition}
-                    {message.confidence && (
-                        <span className={message.confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD ? 'confidence-high' : 'confidence-medium'}> - {message.confidence}% confidence</span>
-                    )}
-                </div>
-                {message.recommendation && (
-                    <div className="assessment-recommendation">
-                        <strong>Recommendation:</strong> {message.recommendation}
-                    </div>
-                )}
-            </div>
-        );
+        return null; // Don't render assessment summary
     }
     
     // Regular message handling
@@ -734,60 +719,46 @@ const Chat = () => {
                                 careRecommendation
                             );
 
-                            // 🔵 Step 2: Structured assessment summary (slight delay)
+                            // 🟠 Step 2: Upgrade pitch (directly after assessment)
                             setTimeout(() => {
-                                setMessages(prev => [
-                                    ...prev, 
-                                    {
-                                        sender: 'system',
-                                        isAssessmentSummary: true,
-                                        condition: conditions[0].name,
-                                        confidence: conditions[0].confidence,
-                                        recommendation: careRecommendation
-                                    }
-                                ]);
+                                addBotMessage(
+                                    `🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?`,
+                                    false
+                                );
 
-                                // 🟠 Step 3: Upgrade pitch (MUST be a bot message)
+                                // 🔴 Step 3: Show upgrade options AFTER pitch
                                 setTimeout(() => {
-                                    addBotMessage(
-                                        `🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?`,
-                                        false
-                                    );
+                                    // Set UI state before adding the upgrade prompt
+                                    setUiState(UI_STATES.UPGRADE_PROMPT);
+                                    
+                                    setMessages(prev => [
+                                        ...prev, 
+                                        {
+                                            sender: 'system',
+                                            isUpgradePrompt: true,
+                                            condition: conditions[0].name
+                                        }
+                                    ]);
 
-                                    // 🔴 Step 4: Show upgrade options AFTER pitch
+                                    // Ensure everything is visible with multiple scroll attempts
                                     setTimeout(() => {
-                                        // Set UI state before adding the upgrade prompt
-                                        setUiState(UI_STATES.UPGRADE_PROMPT);
-                                        
-                                        setMessages(prev => [
-                                            ...prev, 
-                                            {
-                                                sender: 'system',
-                                                isUpgradePrompt: true,
-                                                condition: conditions[0].name
-                                            }
-                                        ]);
-
-                                        // Ensure everything is visible with multiple scroll attempts
-                                        setTimeout(() => {
-                                            if (messagesEndRef.current) {
-                                                messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-                                            }
-                                        }, 100);
-                                        
-                                        // Backup scroll attempts to ensure visibility
-                                        setTimeout(() => {
-                                            if (messagesEndRef.current) {
-                                                messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-                                            }
-                                        }, 300);
-                                        
-                                        setTimeout(() => {
-                                            if (messagesEndRef.current) {
-                                                messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
-                                            }
-                                        }, 600);
-                                    }, 500);
+                                        if (messagesEndRef.current) {
+                                            messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+                                        }
+                                    }, 100);
+                                    
+                                    // Backup scroll attempts to ensure visibility
+                                    setTimeout(() => {
+                                        if (messagesEndRef.current) {
+                                            messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+                                        }
+                                    }, 300);
+                                    
+                                    setTimeout(() => {
+                                        if (messagesEndRef.current) {
+                                            messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
+                                        }
+                                    }, 600);
                                 }, 500);
                             }, 500);
                         } else {
@@ -824,59 +795,45 @@ const Chat = () => {
                                 careRecommendation
                             );
                             
-                            // 🔵 Step 2: Structured assessment summary
+                            // 🟠 Step 2: Upgrade pitch (directly after assessment)
                             setTimeout(() => {
-                                setMessages(prev => [
-                                    ...prev, 
-                                    {
-                                        sender: 'system',
-                                        isAssessmentSummary: true,
-                                        condition: "Assessment",
-                                        confidence: confidence,
-                                        recommendation: careRecommendation
-                                    }
-                                ]);
+                                addBotMessage(
+                                    `🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?`,
+                                    false
+                                );
                                 
-                                // 🟠 Step 3: Upgrade pitch as bot message
+                                // 🔴 Step 3: Show upgrade options
                                 setTimeout(() => {
-                                    addBotMessage(
-                                        `🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?`,
-                                        false
-                                    );
+                                    // Set UI state before adding the upgrade prompt
+                                    setUiState(UI_STATES.UPGRADE_PROMPT);
                                     
-                                    // 🔴 Step 4: Show upgrade options
+                                    setMessages(prev => [
+                                        ...prev, 
+                                        {
+                                            sender: 'system',
+                                            isUpgradePrompt: true,
+                                            condition: "this condition"
+                                        }
+                                    ]);
+                                    
+                                    // Multiple scroll attempts to ensure visibility
                                     setTimeout(() => {
-                                        // Set UI state before adding the upgrade prompt
-                                        setUiState(UI_STATES.UPGRADE_PROMPT);
-                                        
-                                        setMessages(prev => [
-                                            ...prev, 
-                                            {
-                                                sender: 'system',
-                                                isUpgradePrompt: true,
-                                                condition: "this condition"
-                                            }
-                                        ]);
-                                        
-                                        // Multiple scroll attempts to ensure visibility
-                                        setTimeout(() => {
-                                            if (messagesEndRef.current) {
-                                                messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-                                            }
-                                        }, 100);
-                                        
-                                        setTimeout(() => {
-                                            if (messagesEndRef.current) {
-                                                messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-                                            }
-                                        }, 300);
-                                        
-                                        setTimeout(() => {
-                                            if (messagesEndRef.current) {
-                                                messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
-                                            }
-                                        }, 600);
-                                    }, 500);
+                                        if (messagesEndRef.current) {
+                                            messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+                                        }
+                                    }, 100);
+                                    
+                                    setTimeout(() => {
+                                        if (messagesEndRef.current) {
+                                            messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+                                        }
+                                    }, 300);
+                                    
+                                    setTimeout(() => {
+                                        if (messagesEndRef.current) {
+                                            messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
+                                        }
+                                    }, 600);
                                 }, 500);
                             }, 500);
                         } else {
