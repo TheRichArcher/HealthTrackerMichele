@@ -83,6 +83,7 @@
   padding-bottom: 150px; /* Adjusted to ensure enough space but not too much */
   display: flex;
   flex-direction: column;
+  align-items: flex-start; /* Ensures correct positioning */
   gap: 10px; /* Reduced from 15px */
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch; /* Improves scrolling on iOS */
@@ -92,6 +93,8 @@
   display: flex;
   margin: 6px 0; /* Reduced from 10px */
   position: relative;
+  order: 0; /* Regular messages should appear in DOM order */
+  width: 100%;
 }
 
 .message-row.user {
@@ -355,6 +358,8 @@
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
   width: 100%;
   max-width: 100%; /* Ensure it uses full width */
+  order: 1; /* Must always be above upgrade options */
+  margin-bottom: 12px; /* Add spacing between elements */
 }
 
 .assessment-summary-inline h4 {
@@ -393,6 +398,7 @@
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
   width: 100%;
   max-width: 100%; /* Ensure it uses full width */
+  order: 2; /* Must always be at the bottom */
 }
 
 .upgrade-options-inline h3 {
