@@ -98,10 +98,11 @@
 
 .message-row {
   display: flex;
-  margin: 6px 0; /* Reduced from 10px */
+  margin: 16px 0 6px 0 !important; /* Increased top margin */
   position: relative;
   order: 0; /* Regular messages should appear in DOM order */
   width: 100%;
+  align-items: flex-start !important; /* Ensure proper alignment */
 }
 
 .message-row.user {
@@ -115,6 +116,7 @@
   overflow: hidden;
   margin: 0 10px;
   flex-shrink: 0;
+  margin-top: 5px !important; /* Add some top margin to prevent cropping */
 }
 
 .avatar-container img {
