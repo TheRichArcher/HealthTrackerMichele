@@ -84,7 +84,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start; /* Ensures correct positioning */
-  gap: 10px; /* Reduced from 15px */
+  gap: 10px; /* Keep standard spacing for messages */
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch; /* Improves scrolling on iOS */
 }
@@ -401,7 +401,8 @@
   max-width: 100%; /* Ensure it uses full width */
   order: 2; /* Must always be at the bottom */
   margin-bottom: 0 !important; /* Force no bottom margin */
-  border-bottom: none !important;
+  padding-bottom: 0 !important; /* Prevent padding at bottom */
+  border-bottom: none !important; /* Ensure no border adds space */
 }
 
 .upgrade-options-inline h3 {
@@ -584,6 +585,16 @@
 /* Ensure the last element in messages container has no bottom margin */
 .messages-container > *:last-child {
   margin-bottom: 0 !important;
+}
+
+/* Forcibly hide any empty or unnecessary elements at the bottom */
+.messages-container > div:empty,
+.messages-container > div[style*="height:0"],
+.messages-container > div:not(.message-row):not(.assessment-summary-inline):not(.upgrade-options-inline):last-of-type {
+  display: none !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 /* Mobile optimizations */
