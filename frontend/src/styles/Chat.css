@@ -10,6 +10,15 @@
   position: relative;
 }
 
+/* Reset button container - new style for the header replacement */
+.reset-button-container {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 20px;
+  background-color: #f9f9f9;
+}
+
+/* Original chat header styles - kept for reference but will be replaced by navbar */
 .chat-header {
   display: flex;
   align-items: center;
@@ -58,8 +67,8 @@
 
 .reset-button {
   background-color: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  color: white;
+  border: 1px solid rgba(30, 41, 59, 0.3);
+  color: #1e293b;
   padding: 5px 10px;
   border-radius: 4px;
   cursor: pointer;
@@ -68,7 +77,7 @@
 }
 
 .reset-button:hover {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgba(30, 41, 59, 0.1);
 }
 
 .reset-button:disabled {
@@ -675,5 +684,9 @@
   .upgrade-button {
     padding: 10px;
     font-size: 13px;
+  }
+  
+  .reset-button-container {
+    padding: 8px 12px;
   }
 }

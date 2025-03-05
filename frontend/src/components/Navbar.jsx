@@ -88,9 +88,24 @@ const Navbar = () => {
         <nav className="navbar" role="navigation" aria-label="Main navigation">
             <div className="navbar-container">
                 <div className="navbar-brand">
-                    <Link to="/" className="logo" onClick={closeMenu}>
-                        HealthTracker AI
-                    </Link>
+                    <img 
+                        src="/doctor-avatar.png" 
+                        alt="HealthTracker AI" 
+                        className="navbar-avatar"
+                        onError={(e) => { e.target.onerror = null; e.target.src = '/default-avatar.png'; }}
+                    />
+                    <div className="navbar-title">
+                        <span className="navbar-name">HealthTracker AI</span>
+                        <span className="navbar-role">AI Medical Assistant</span>
+                    </div>
+                    
+                    {/* Add disclaimer for chat pages */}
+                    {location.pathname === '/' && (
+                        <span className="navbar-disclaimer">
+                            For informational purposes only. Not a substitute for professional medical advice.
+                        </span>
+                    )}
+                    
                     <button 
                         className="navbar-burger"
                         aria-label="menu"

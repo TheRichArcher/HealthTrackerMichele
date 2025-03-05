@@ -920,22 +920,8 @@ const Chat = () => {
                 role="main" 
                 aria-label="Chat interface"
             >
-                <div className="chat-header">
-                    <div className="chat-header-left">
-                        <img
-                            src="/doctor-avatar.png"
-                            alt="Dr. Michele"
-                            className="chat-avatar"
-                            onError={(e) => {
-                                e.target.onerror = null;
-                                e.target.src = '/default-avatar.png';
-                            }}
-                        />
-                        <div className="chat-header-title">
-                            <span className="chat-header-name">HealthTracker AI</span>
-                            <span className="chat-header-role">AI Medical Assistant</span>
-                        </div>
-                    </div>
+                {/* Replace the chat header with just the reset button container */}
+                <div className="reset-button-container">
                     <button 
                         className="reset-button"
                         onClick={handleResetConversation}
@@ -944,9 +930,6 @@ const Chat = () => {
                     >
                         {resetting ? 'Resetting...' : 'Reset Conversation'}
                     </button>
-                    <div className="chat-header-disclaimer">
-                        For informational purposes only. Not a substitute for professional medical advice.
-                    </div>
                 </div>
 
                 <div 
