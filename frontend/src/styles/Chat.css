@@ -80,7 +80,7 @@
   flex: 1;
   overflow-y: auto;
   padding: 20px;
-  padding-bottom: 40px !important; /* Allows space for mobile */
+  padding-bottom: 40px !important; /* Ensures space for the input box */
   display: flex;
   flex-direction: column;
   align-items: flex-start; /* Ensures correct positioning */
