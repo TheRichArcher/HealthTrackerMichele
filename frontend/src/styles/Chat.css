@@ -78,14 +78,15 @@
 
 .messages-container {
   flex: 1;
-  overflow-y: auto !important; /* Force overflow to be auto */
+  overflow-y: auto;
   padding: 20px;
   padding-bottom: 40px !important; /* Ensures space for the input box */
   display: flex;
   flex-direction: column;
   align-items: flex-start; /* Ensures correct positioning */
-  gap: 10px; /* Keep standard spacing for messages */
-  height: calc(100vh - 180px) !important; /* Force a fixed height calculation */
+  gap: 10px; /* Reduced from 15px */
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch; /* Improves scrolling on iOS */
 }
 
 .message-row {
@@ -641,7 +642,6 @@
   .messages-container {
     padding: 10px;
     padding-bottom: 40px !important; /* Consistent with desktop */
-    height: calc(100vh - 160px) !important; /* Adjusted for mobile */
   }
   
   .chat-input-container {
