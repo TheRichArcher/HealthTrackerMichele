@@ -649,6 +649,15 @@ const Chat = () => {
                 console.log("Raw API response:", responseData);
                 console.log("Requires upgrade:", responseData.requires_upgrade);
                 console.log("Is assessment:", responseData.is_assessment);
+                console.log("API Response Structure:", {
+                    isAssessment: responseData.is_assessment,
+                    requiresUpgrade: responseData.requires_upgrade,
+                    confidence: responseData.confidence,
+                    hasAssessmentObject: !!responseData.assessment,
+                    hasConditions: !!(responseData.assessment?.conditions),
+                    careRecommendation: responseData.care_recommendation,
+                    possibleConditions: responseData.possible_conditions
+                });
             }
 
             setTimeout(() => {
@@ -690,9 +699,20 @@ const Chat = () => {
                 }
                 
                 if (isConfidentAssessment) {
+                    // Add debug logging to help identify issues
+                    if (CONFIG.DEBUG_MODE) {
+                        console.log("Processing confident assessment:", {
+                            isAssessment,
+                            requiresUpgrade,
+                            confidence,
+                            responseData
+                        });
+                    }
+
                     // It's a final assessment with conditions and high confidence
                     let triageLevel = null;
                     let careRecommendation = null;
+                    let conditionName = "Assessment";
 
                     if (responseData.assessment?.conditions) {
                         const conditions = responseData.assessment.conditions;
@@ -700,9 +720,10 @@ const Chat = () => {
                         careRecommendation = responseData.assessment.care_recommendation || responseData.care_recommendation;
 
                         // Update the latest assessment for reference
-                        if (conditions.length > 0) {
+                        if (conditions && conditions.length > 0) {
+                            conditionName = conditions[0].name;
                             setLatestAssessment({
-                                condition: conditions[0].name,
+                                condition: conditionName,
                                 confidence: conditions[0].confidence,
                                 recommendation: careRecommendation
                             });
@@ -712,9 +733,9 @@ const Chat = () => {
                         if (requiresUpgrade) {
                             // 🟢 Step 1: Bot assessment message (looks natural in chat)
                             addBotMessage(
-                                `🩺 The most likely condition is **${conditions[0].name}** (**${conditions[0].confidence}% confidence**).\n\n${careRecommendation || ""}`,
+                                `🩺 The most likely condition is **${conditionName}** (**${confidence}% confidence**).\n\n${careRecommendation || ""}`,
                                 true,
-                                conditions[0].confidence,
+                                confidence,
                                 triageLevel,
                                 careRecommendation
                             );
@@ -736,7 +757,7 @@ const Chat = () => {
                                         {
                                             sender: 'system',
                                             isUpgradePrompt: true,
-                                            condition: conditions[0].name
+                                            condition: conditionName
                                         }
                                     ]);
 
@@ -762,14 +783,17 @@ const Chat = () => {
                                 }, 500);
                             }, 500);
                         } else {
-                            // Regular assessment without upgrade
+                            // Regular assessment without upgrade - ensure proper rendering
                             addBotMessage(
-                                `🩺 The most likely condition is **${conditions[0].name}** (**${conditions[0].confidence}% confidence**).\n\n${careRecommendation || ""}`,
+                                `🩺 The most likely condition is **${conditionName}** (**${confidence}% confidence**).\n\n${careRecommendation || ""}`,
                                 true,
-                                conditions[0].confidence,
+                                confidence,
                                 triageLevel,
                                 careRecommendation
                             );
+                            
+                            // Set UI state to ASSESSMENT to ensure proper handling
+                            setUiState(UI_STATES.ASSESSMENT);
                         }
                     } else {
                         // Unstructured assessment handling (similar pattern as above)
@@ -837,7 +861,7 @@ const Chat = () => {
                                 }, 500);
                             }, 500);
                         } else {
-                            // Regular assessment without upgrade
+                            // Regular assessment without upgrade - ensure proper rendering
                             addBotMessage(
                                 `🩺 ${formattedMessage} (**${confidence}% confidence**).\n\n${careRecommendation || ""}`,
                                 true,
@@ -845,6 +869,9 @@ const Chat = () => {
                                 triageLevel,
                                 careRecommendation
                             );
+                            
+                            // Set UI state to ASSESSMENT to ensure proper handling
+                            setUiState(UI_STATES.ASSESSMENT);
                         }
                     }
                 } else if (isAssessment) {

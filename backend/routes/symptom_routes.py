@@ -371,9 +371,28 @@ def analyze_symptoms():
                 else:
                     # Use the processed response
                     if is_assessment:
-                        result = processed_response
+                        # Ensure consistent structure for ALL assessments, regardless of upgrade requirement
+                        if "assessment" in processed_response:
+                            result = processed_response
+                        else:
+                            # Create a properly structured assessment response
+                            result = {
+                                'possible_conditions': ai_response,
+                                'assessment': {
+                                    'conditions': [{
+                                        'name': processed_response.get('possible_conditions', 'Assessment'),
+                                        'confidence': confidence
+                                    }],
+                                    'triage_level': processed_response.get('triage_level', 'MODERATE'),
+                                    'care_recommendation': care_recommendation
+                                }
+                            }
+                        
+                        # Ensure these fields are always present
                         result['care_recommendation'] = care_recommendation
                         result['confidence'] = confidence
+                        result['is_assessment'] = True
+                        result['is_question'] = False
                     else:
                         result = {
                             'possible_conditions': ai_response,
