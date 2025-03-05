@@ -98,11 +98,15 @@
 
 .message-row {
   display: flex;
-  margin: 16px 0 6px 0 !important; /* Increased top margin */
+  margin: 24px 0 6px 0 !important; /* Increased top margin even more */
   position: relative;
   order: 0; /* Regular messages should appear in DOM order */
   width: 100%;
   align-items: flex-start !important; /* Ensure proper alignment */
+}
+
+.message-row:first-child {
+  margin-top: 30px !important; /* Extra margin for the first message */
 }
 
 .message-row.user {
@@ -116,13 +120,16 @@
   overflow: hidden;
   margin: 0 10px;
   flex-shrink: 0;
-  margin-top: 5px !important; /* Add some top margin to prevent cropping */
+  position: relative !important; /* Ensure proper positioning */
+  top: -2px !important; /* Shift avatar up slightly to prevent cropping */
 }
 
 .avatar-container img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  position: relative !important;
+  top: 0 !important;
 }
 
 .message {
