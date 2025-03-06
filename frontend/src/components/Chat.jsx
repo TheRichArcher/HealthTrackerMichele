@@ -301,6 +301,7 @@ const Chat = () => {
         setUiState(UI_STATES.DEFAULT);
         setLoading(false);
         setTyping(false);
+        setHasDeclinedUpgrade(true);
         
         // Add a message acknowledging their choice to continue with free version
         if (isMildCase) {
