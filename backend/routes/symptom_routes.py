@@ -270,11 +270,25 @@ def analyze_symptoms():
                     else:
                         confidence = 80  # Default confidence for assessments
                 
+                # Get triage level
+                triage_level = None
+                if is_assessment and "assessment" in processed_response:
+                    triage_level = processed_response["assessment"].get("triage_level", "MODERATE")
+                
                 # ✅ Override requires_upgrade if confidence is too low
                 is_confident = confidence is not None and confidence >= MIN_CONFIDENCE_THRESHOLD
                 if requires_upgrade and not is_confident:
                     requires_upgrade = False
                     current_app.logger.info(f"Overriding requires_upgrade to False due to low confidence ({confidence})")
+                
+                # ✅ NEW: For mild cases (at-home care), set requires_upgrade=False but add upgrade_suggestion=True
+                is_mild_case = triage_level and triage_level.lower() == "mild"
+                upgrade_suggestion = False
+                
+                if is_mild_case and requires_upgrade:
+                    requires_upgrade = False
+                    upgrade_suggestion = True
+                    current_app.logger.info(f"Setting requires_upgrade=False and upgrade_suggestion=True for mild case")
                 
                 # ✅ NEW: Ensure we always have a follow-up question for low confidence
                 if is_assessment and not is_confident:
@@ -299,12 +313,11 @@ def analyze_symptoms():
                     ai_response = follow_up_question
                     current_app.logger.info(f"Generated follow-up question for low confidence: {follow_up_question}")
                 
-                current_app.logger.info(f"Final requires_upgrade={requires_upgrade}, confidence={confidence}, is_confident={is_confident}")
+                current_app.logger.info(f"Final requires_upgrade={requires_upgrade}, upgrade_suggestion={upgrade_suggestion}, confidence={confidence}, is_confident={is_confident}")
                 
                 # Determine care recommendation
                 care_recommendation = "Consider seeing a doctor soon."
                 if is_assessment and "assessment" in processed_response:
-                    triage_level = processed_response["assessment"].get("triage_level", "MODERATE")
                     if triage_level == "SEVERE":
                         care_recommendation = "You should seek urgent care."
                     elif triage_level == "MILD":
@@ -368,6 +381,7 @@ def analyze_symptoms():
                     result['confidence'] = confidence
                     result['is_assessment'] = is_assessment
                     result['is_question'] = is_question
+                    result['triage_level'] = triage_level
                 else:
                     # Use the processed response
                     if is_assessment:
@@ -383,7 +397,7 @@ def analyze_symptoms():
                                         'name': processed_response.get('possible_conditions', 'Assessment'),
                                         'confidence': confidence
                                     }],
-                                    'triage_level': processed_response.get('triage_level', 'MODERATE'),
+                                    'triage_level': triage_level or 'MODERATE',
                                     'care_recommendation': care_recommendation
                                 }
                             }
@@ -393,6 +407,7 @@ def analyze_symptoms():
                         result['confidence'] = confidence
                         result['is_assessment'] = True
                         result['is_question'] = False
+                        result['triage_level'] = triage_level
                     else:
                         result = {
                             'possible_conditions': ai_response,
@@ -400,7 +415,7 @@ def analyze_symptoms():
                             'confidence': confidence if is_assessment else None,
                             'is_assessment': is_assessment,
                             'is_question': is_question,
-                            'triage_level': processed_response.get("assessment", {}).get("triage_level", None) if is_assessment else None
+                            'triage_level': triage_level if is_assessment else None
                         }
                 
                 # Add the requires_upgrade flag from the processed response
@@ -413,6 +428,10 @@ def analyze_symptoms():
                 else:
                     # Explicitly set requires_upgrade to False to override any previous setting
                     result['requires_upgrade'] = False
+                
+                # Add the upgrade_suggestion flag for mild cases
+                if upgrade_suggestion:
+                    result['upgrade_suggestion'] = True
                 
                 # Ensure we always have a question field for the frontend
                 if is_question and 'question' not in result:

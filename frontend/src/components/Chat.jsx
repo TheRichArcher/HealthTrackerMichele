@@ -68,7 +68,7 @@ class ChatErrorBoundary extends React.Component {
     }
 }
 
-const Message = memo(({ message, onRetry, index }) => {
+const Message = memo(({ message, onRetry, index, onContinueFree }) => {
     // Handle special message types
     if (message.isUpgradePrompt) {
         return (
@@ -76,10 +76,27 @@ const Message = memo(({ message, onRetry, index }) => {
                 <h3>
                     Based on your symptoms, I've identified {message.condition} as a possible condition that may require further evaluation.
                 </h3>
+                
+                {/* Add conditional section for mild cases */}
+                {message.isMildCase && (
+                    <p className="mild-case-note">
+                        Since this appears to be a condition you can manage at home, you can continue using the free version. 
+                        However, for more detailed insights and tracking, consider upgrading.
+                    </p>
+                )}
+                
                 <p>To get more insights, you can choose one of these options:</p>
-                <ul>
-                    <li>🔹 Premium Access ($9.99/month): Unlimited symptom checks, detailed assessments, and personalized health monitoring.</li>
-                    <li>🔹 One-time Consultation Report ($4.99): Get a comprehensive analysis of your current symptoms.</li>
+                <ul className="premium-features-list">
+                    <li>
+                        <span className="feature-name">🔹 Premium Access ($9.99/month)</span>
+                        <span className="tooltip-icon" title="Get deeper insights, track symptoms, and receive doctor-ready reports">ⓘ</span>
+                        <span className="feature-description">Unlimited symptom checks, detailed assessments, and personalized health monitoring.</span>
+                    </li>
+                    <li>
+                        <span className="feature-name">🔹 One-time Consultation Report ($4.99)</span>
+                        <span className="tooltip-icon" title="A comprehensive report you can share with your doctor">ⓘ</span>
+                        <span className="feature-description">Get a comprehensive analysis of your current symptoms.</span>
+                    </li>
                 </ul>
                 <p>Would you like to continue with one of these options?</p>
                 <div className="upgrade-buttons">
@@ -102,6 +119,20 @@ const Message = memo(({ message, onRetry, index }) => {
                         }}
                     >
                         📄 Get Consultation Report ($4.99)
+                    </button>
+                    
+                    {/* Add continue button for all cases, but style it differently for mild cases */}
+                    <button 
+                        className={`continue-free-button ${message.isMildCase ? 'prominent' : 'subtle'}`}
+                        onClick={() => {
+                            if (typeof onContinueFree === 'function') {
+                                onContinueFree(message.isMildCase);
+                            }
+                        }}
+                    >
+                        {message.isMildCase 
+                            ? "Continue with Free Version" 
+                            : "Maybe Later"}
                     </button>
                 </div>
             </div>
@@ -207,10 +238,12 @@ Message.propTypes = {
         isAssessmentSummary: PropTypes.bool,
         isUpgradePrompt: PropTypes.bool,
         condition: PropTypes.string,
-        recommendation: PropTypes.string
+        recommendation: PropTypes.string,
+        isMildCase: PropTypes.bool
     }).isRequired,
     onRetry: PropTypes.func.isRequired,
-    index: PropTypes.number.isRequired
+    index: PropTypes.number.isRequired,
+    onContinueFree: PropTypes.func
 };
 
 const Chat = () => {
@@ -261,6 +294,34 @@ const Chat = () => {
     const chatContainerRef = useRef(null);
     const inputRef = useRef(null);
     const messagesContainerRef = useRef(null);
+
+    // Handle continue with free version
+    const handleContinueFree = useCallback((isMildCase) => {
+        // Reset UI state completely
+        setUiState(UI_STATES.DEFAULT);
+        setLoading(false);
+        setTyping(false);
+        
+        // Add a message acknowledging their choice to continue with free version
+        if (isMildCase) {
+            addBotMessage(
+                "You can continue using the free version for this assessment. Feel free to ask me more questions about managing your condition at home.",
+                false
+            );
+        } else {
+            addBotMessage(
+                "You can continue with the free version, but keep in mind that for more serious conditions, a professional medical opinion is recommended.",
+                false
+            );
+        }
+        
+        // Focus on input field after a short delay to ensure the DOM has updated
+        setTimeout(() => {
+            if (inputRef.current) {
+                inputRef.current.focus();
+            }
+        }, 100);
+    }, []);
 
     // Auto-focus when component mounts
     useEffect(() => {
@@ -649,14 +710,17 @@ const Chat = () => {
                 console.log("Raw API response:", responseData);
                 console.log("Requires upgrade:", responseData.requires_upgrade);
                 console.log("Is assessment:", responseData.is_assessment);
+                console.log("Upgrade suggestion:", responseData.upgrade_suggestion);
                 console.log("API Response Structure:", {
                     isAssessment: responseData.is_assessment,
                     requiresUpgrade: responseData.requires_upgrade,
+                    upgradeSuggestion: responseData.upgrade_suggestion,
                     confidence: responseData.confidence,
                     hasAssessmentObject: !!responseData.assessment,
                     hasConditions: !!(responseData.assessment?.conditions),
                     careRecommendation: responseData.care_recommendation,
-                    possibleConditions: responseData.possible_conditions
+                    possibleConditions: responseData.possible_conditions,
+                    triageLevel: responseData.triage_level || responseData.assessment?.triage_level
                 });
             }
 
@@ -664,6 +728,7 @@ const Chat = () => {
                 // Check if this is a question or assessment
                 const isAssessment = responseData.is_assessment === true;
                 const requiresUpgrade = responseData.requires_upgrade === true;
+                const upgradeSuggestion = responseData.upgrade_suggestion === true;
                 
                 // Get confidence level
                 const confidence = responseData.confidence || 
@@ -679,14 +744,25 @@ const Chat = () => {
                     conditionName = responseData.assessment.conditions[0].name;
                 }
                 
+                // Get triage level
+                let triageLevel = responseData.triage_level || 
+                                 (responseData.assessment?.triage_level) || 
+                                 'UNKNOWN';
+                
+                // Check if this is a mild case (at-home care)
+                const isMildCase = triageLevel?.toLowerCase() === 'mild';
+                
                 // Add detailed logging
                 if (CONFIG.DEBUG_MODE) {
                     console.log("API response analysis:", {
                         isAssessment,
                         requiresUpgrade,
+                        upgradeSuggestion,
                         confidence,
                         isConfidentAssessment,
                         conditionName,
+                        triageLevel,
+                        isMildCase,
                         responseData
                     });
                 }
@@ -704,19 +780,19 @@ const Chat = () => {
                         console.log("Processing confident assessment:", {
                             isAssessment,
                             requiresUpgrade,
+                            upgradeSuggestion,
                             confidence,
+                            triageLevel,
+                            isMildCase,
                             responseData
                         });
                     }
 
                     // It's a final assessment with conditions and high confidence
-                    let triageLevel = null;
                     let careRecommendation = null;
-                    let conditionName = "Assessment";
 
                     if (responseData.assessment?.conditions) {
                         const conditions = responseData.assessment.conditions;
-                        triageLevel = responseData.assessment.triage_level || 'UNKNOWN';
                         careRecommendation = responseData.assessment.care_recommendation || responseData.care_recommendation;
 
                         // Update the latest assessment for reference
@@ -729,25 +805,34 @@ const Chat = () => {
                             });
                         }
                         
-                        // Only now check if upgrade is required - AFTER confirming high confidence
-                        if (requiresUpgrade) {
-                            // 🟢 Step 1: Bot assessment message (looks natural in chat)
-                            addBotMessage(
-                                `🩺 The most likely condition is **${conditionName}** (**${confidence}% confidence**).\n\n${careRecommendation || ""}`,
-                                true,
-                                confidence,
-                                triageLevel,
-                                careRecommendation
-                            );
+                        // Step 1: Bot assessment message (looks natural in chat)
+                        addBotMessage(
+                            `🩺 The most likely condition is **${conditionName}** (**${confidence}% confidence**).\n\n${careRecommendation || ""}`,
+                            true,
+                            confidence,
+                            triageLevel,
+                            careRecommendation
+                        );
 
-                            // 🟠 Step 2: Upgrade pitch (directly after assessment)
+                        // Step 2: For mild cases, show optional upgrade prompt
+                        // For moderate/severe cases, show required upgrade prompt
+                        if (requiresUpgrade || upgradeSuggestion) {
+                            // Step 2: Upgrade pitch (directly after assessment)
                             setTimeout(() => {
-                                addBotMessage(
-                                    `🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?`,
-                                    false
-                                );
-
-                                // 🔴 Step 3: Show upgrade options AFTER pitch
+                                // Different messaging for mild vs. moderate/severe cases
+                                if (isMildCase) {
+                                    addBotMessage(
+                                        `🔍 While you can manage this condition at home, Premium Access gives you deeper insights, symptom tracking, and doctor-ready reports if you'd like more detailed information.`,
+                                        false
+                                    );
+                                } else {
+                                    addBotMessage(
+                                        `🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?`,
+                                        false
+                                    );
+                                }
+                                
+                                // Step 3: Show upgrade options
                                 setTimeout(() => {
                                     // Set UI state before adding the upgrade prompt
                                     setUiState(UI_STATES.UPGRADE_PROMPT);
@@ -757,7 +842,8 @@ const Chat = () => {
                                         {
                                             sender: 'system',
                                             isUpgradePrompt: true,
-                                            condition: conditionName
+                                            condition: conditionName,
+                                            isMildCase: isMildCase
                                         }
                                     ]);
 
@@ -784,21 +870,12 @@ const Chat = () => {
                             }, 500);
                         } else {
                             // Regular assessment without upgrade - ensure proper rendering
-                            addBotMessage(
-                                `🩺 The most likely condition is **${conditionName}** (**${confidence}% confidence**).\n\n${careRecommendation || ""}`,
-                                true,
-                                confidence,
-                                triageLevel,
-                                careRecommendation
-                            );
-                            
                             // Set UI state to ASSESSMENT to ensure proper handling
                             setUiState(UI_STATES.ASSESSMENT);
                         }
                     } else {
                         // Unstructured assessment handling (similar pattern as above)
                         const formattedMessage = responseData.possible_conditions || "Based on your symptoms, I can provide an assessment.";
-                        triageLevel = responseData.triage_level;
                         careRecommendation = responseData.care_recommendation;
                         
                         // Update the latest assessment for the sticky summary
@@ -808,25 +885,34 @@ const Chat = () => {
                             recommendation: careRecommendation
                         });
                         
-                        // Only now check if upgrade is required - AFTER confirming high confidence
-                        if (requiresUpgrade) {
-                            // 🟢 Step 1: Bot assessment message
-                            addBotMessage(
-                                `🩺 ${formattedMessage} (**${confidence}% confidence**).\n\n${careRecommendation || ""}`,
-                                true,
-                                confidence,
-                                triageLevel,
-                                careRecommendation
-                            );
-                            
-                            // 🟠 Step 2: Upgrade pitch (directly after assessment)
+                        // Step 1: Bot assessment message
+                        addBotMessage(
+                            `🩺 ${formattedMessage} (**${confidence}% confidence**).\n\n${careRecommendation || ""}`,
+                            true,
+                            confidence,
+                            triageLevel,
+                            careRecommendation
+                        );
+                        
+                        // Step 2: For mild cases, show optional upgrade prompt
+                        // For moderate/severe cases, show required upgrade prompt
+                        if (requiresUpgrade || upgradeSuggestion) {
+                            // Step 2: Upgrade pitch (directly after assessment)
                             setTimeout(() => {
-                                addBotMessage(
-                                    `🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?`,
-                                    false
-                                );
+                                // Different messaging for mild vs. moderate/severe cases
+                                if (isMildCase) {
+                                    addBotMessage(
+                                        `🔍 While you can manage this condition at home, Premium Access gives you deeper insights, symptom tracking, and doctor-ready reports if you'd like more detailed information.`,
+                                        false
+                                    );
+                                } else {
+                                    addBotMessage(
+                                        `🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?`,
+                                        false
+                                    );
+                                }
                                 
-                                // 🔴 Step 3: Show upgrade options
+                                // Step 3: Show upgrade options
                                 setTimeout(() => {
                                     // Set UI state before adding the upgrade prompt
                                     setUiState(UI_STATES.UPGRADE_PROMPT);
@@ -836,7 +922,8 @@ const Chat = () => {
                                         {
                                             sender: 'system',
                                             isUpgradePrompt: true,
-                                            condition: "this condition"
+                                            condition: "this condition",
+                                            isMildCase: isMildCase
                                         }
                                     ]);
                                     
@@ -862,14 +949,6 @@ const Chat = () => {
                             }, 500);
                         } else {
                             // Regular assessment without upgrade - ensure proper rendering
-                            addBotMessage(
-                                `🩺 ${formattedMessage} (**${confidence}% confidence**).\n\n${careRecommendation || ""}`,
-                                true,
-                                confidence,
-                                triageLevel,
-                                careRecommendation
-                            );
-                            
                             // Set UI state to ASSESSMENT to ensure proper handling
                             setUiState(UI_STATES.ASSESSMENT);
                         }
@@ -971,6 +1050,7 @@ const Chat = () => {
                             message={msg}
                             onRetry={handleRetry}
                             index={index}
+                            onContinueFree={handleContinueFree}
                         />
                     ))}
                     
