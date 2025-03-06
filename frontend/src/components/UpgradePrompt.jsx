@@ -1,30 +1,40 @@
 // src/components/UpgradePrompt.jsx
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
-import '../styles/UpgradePrompt.css'; // We'll create this file next
+import '../styles/UpgradePrompt.css';
 
-const UpgradePrompt = ({ onDismiss }) => {
+const UpgradePrompt = ({ condition, isMildCase, onDismiss }) => {
     const [loadingSubscription, setLoadingSubscription] = useState(false);
     const [loadingOneTime, setLoadingOneTime] = useState(false);
 
     return (
-        <div className="upgrade-options">
-            <button 
-                className="close-upgrade" 
-                onClick={onDismiss}
-                aria-label="Dismiss upgrade prompt"
-            >
-                ✖
-            </button>
-            <div className="upgrade-message">
-                <h3>Based on your symptoms, I've identified a condition that may require further evaluation.</h3>
-                <p>💡 To get more insights, you can choose one of these options:</p>
-                <ul>
-                    <li>🔹 PA Mode ($9.99/month): Unlock full symptom tracking, detailed assessments, and AI-driven health monitoring.</li>
-                    <li>🔹 One-time AI Doctor Report ($4.99): Get a comprehensive summary of your case, formatted for medical professionals.</li>
-                </ul>
-                <p>Would you like to continue with one of these options?</p>
-            </div>
+        <div className="upgrade-options-inline">
+            <h3>
+                Based on your symptoms, I've identified {condition} as a possible condition that may require further evaluation.
+            </h3>
+            
+            {/* Add conditional section for mild cases */}
+            {isMildCase && (
+                <p className="mild-case-note">
+                    Since this appears to be a condition you can manage at home, you can continue using the free version. 
+                    However, for more detailed insights and tracking, consider upgrading.
+                </p>
+            )}
+            
+            <p>To get more insights, you can choose one of these options:</p>
+            <ul className="premium-features-list">
+                <li>
+                    <span className="feature-name">🔹 Premium Access ($9.99/month)</span>
+                    <span className="tooltip-icon" title="Get deeper insights, track symptoms, and receive doctor-ready reports">ⓘ</span>
+                    <span className="feature-description">Unlimited symptom checks, detailed assessments, and personalized health monitoring.</span>
+                </li>
+                <li>
+                    <span className="feature-name">🔹 One-time Consultation Report ($4.99)</span>
+                    <span className="tooltip-icon" title="A comprehensive report you can share with your doctor">ⓘ</span>
+                    <span className="feature-description">Get a comprehensive analysis of your current symptoms.</span>
+                </li>
+            </ul>
+            <p>Would you like to continue with one of these options?</p>
             <div className="upgrade-buttons">
                 <button 
                     className={`upgrade-button subscription ${loadingSubscription ? 'loading' : ''}`}
@@ -38,7 +48,7 @@ const UpgradePrompt = ({ onDismiss }) => {
                     }}
                     disabled={loadingSubscription || loadingOneTime}
                 >
-                    {loadingSubscription ? 'Processing...' : '🩺 Unlock Full Health Insights (PA Mode - $9.99/month)'}
+                    {loadingSubscription ? 'Processing...' : '🩺 Get Premium Access ($9.99/month)'}
                 </button>
                 <button 
                     className={`upgrade-button one-time ${loadingOneTime ? 'loading' : ''}`}
@@ -52,14 +62,26 @@ const UpgradePrompt = ({ onDismiss }) => {
                     }}
                     disabled={loadingSubscription || loadingOneTime}
                 >
-                    {loadingOneTime ? 'Processing...' : '📄 Generate AI Doctor\'s Report ($4.99 - One Time)'}
+                    {loadingOneTime ? 'Processing...' : '📄 Get Consultation Report ($4.99)'}
                 </button>
+                
+                {/* Only show "Maybe Later" button for mild cases */}
+                {isMildCase && (
+                    <button 
+                        className="continue-free-button"
+                        onClick={onDismiss}
+                    >
+                        Maybe Later
+                    </button>
+                )}
             </div>
         </div>
     );
 };
 
 UpgradePrompt.propTypes = {
+    condition: PropTypes.string.isRequired,
+    isMildCase: PropTypes.bool.isRequired,
     onDismiss: PropTypes.func.isRequired
 };
 

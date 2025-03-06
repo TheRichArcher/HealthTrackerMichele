@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import PropTypes from 'prop-types';
 import { debounce } from 'lodash';
+import UpgradePrompt from './UpgradePrompt'; // Import the existing component
 import '../styles/Chat.css';
 
 // Add this at the top of Chat.jsx, right after the imports
@@ -68,82 +69,8 @@ class ChatErrorBoundary extends React.Component {
     }
 }
 
-const Message = memo(({ message, onRetry, index, onContinueFree }) => {
-    // Handle special message types
-    if (message.isUpgradePrompt) {
-        return (
-            <div className="upgrade-options-inline">
-                <h3>
-                    Based on your symptoms, I've identified {message.condition} as a possible condition that may require further evaluation.
-                </h3>
-                
-                {/* Add conditional section for mild cases */}
-                {message.isMildCase && (
-                    <p className="mild-case-note">
-                        Since this appears to be a condition you can manage at home, you can continue using the free version. 
-                        However, for more detailed insights and tracking, consider upgrading.
-                    </p>
-                )}
-                
-                <p>To get more insights, you can choose one of these options:</p>
-                <ul className="premium-features-list">
-                    <li>
-                        <span className="feature-name">🔹 Premium Access ($9.99/month)</span>
-                        <span className="tooltip-icon" title="Get deeper insights, track symptoms, and receive doctor-ready reports">ⓘ</span>
-                        <span className="feature-description">Unlimited symptom checks, detailed assessments, and personalized health monitoring.</span>
-                    </li>
-                    <li>
-                        <span className="feature-name">🔹 One-time Consultation Report ($4.99)</span>
-                        <span className="tooltip-icon" title="A comprehensive report you can share with your doctor">ⓘ</span>
-                        <span className="feature-description">Get a comprehensive analysis of your current symptoms.</span>
-                    </li>
-                </ul>
-                <p>Would you like to continue with one of these options?</p>
-                <div className="upgrade-buttons">
-                    <button 
-                        className="upgrade-button subscription"
-                        onClick={() => {
-                            setTimeout(() => {
-                                window.location.href = '/subscribe';
-                            }, 300);
-                        }}
-                    >
-                        🩺 Get Premium Access ($9.99/month)
-                    </button>
-                    <button 
-                        className="upgrade-button one-time"
-                        onClick={() => {
-                            setTimeout(() => {
-                                window.location.href = '/one-time-report';
-                            }, 300);
-                        }}
-                    >
-                        📄 Get Consultation Report ($4.99)
-                    </button>
-                    
-                    {/* Add continue button for all cases, but style it differently for mild cases */}
-                    <button 
-                        className={`continue-free-button ${message.isMildCase ? 'prominent' : 'subtle'}`}
-                        onClick={() => {
-                            if (typeof onContinueFree === 'function') {
-                                onContinueFree(message.isMildCase);
-                            }
-                        }}
-                    >
-                        {message.isMildCase 
-                            ? "Continue with Free Version" 
-                            : "Maybe Later"}
-                    </button>
-                </div>
-            </div>
-        );
-    }
-    
-    if (message.isAssessmentSummary) {
-        return null; // Don't render assessment summary
-    }
-    
-    // Regular message handling
+const Message = memo(({ message, onRetry, index }) => {
+    // Regular message handling (removed upgrade prompt handling as it's now a separate component)
     const { sender, text, confidence, careRecommendation, isAssessment, triageLevel } = message;
 
     const getCareRecommendation = useCallback((level) => {
@@ -235,15 +162,10 @@ Message.propTypes = {
         careRecommendation: PropTypes.string,
         isAssessment: PropTypes.bool,
         triageLevel: PropTypes.string,
-        isAssessmentSummary: PropTypes.bool,
-        isUpgradePrompt: PropTypes.bool,
-        condition: PropTypes.string,
-        recommendation: PropTypes.string,
-        isMildCase: PropTypes.bool
+        isAssessmentSummary: PropTypes.bool
     }).isRequired,
     onRetry: PropTypes.func.isRequired,
-    index: PropTypes.number.isRequired,
-    onContinueFree: PropTypes.func
+    index: PropTypes.number.isRequired
 };
 
 const Chat = () => {
@@ -295,26 +217,19 @@ const Chat = () => {
     const inputRef = useRef(null);
     const messagesContainerRef = useRef(null);
 
-    // Handle continue with free version
-    const handleContinueFree = useCallback((isMildCase) => {
+    // Handle continue with free version - improved as per developer feedback
+    const handleContinueFree = useCallback(() => {
         // Reset UI state completely
         setUiState(UI_STATES.DEFAULT);
         setLoading(false);
         setTyping(false);
-        setHasDeclinedUpgrade(true);
+        setHasDeclinedUpgrade(true); // Prevent immediate re-prompting
         
         // Add a message acknowledging their choice to continue with free version
-        if (isMildCase) {
-            addBotMessage(
-                "You can continue using the free version for this assessment. Feel free to ask me more questions about managing your condition at home.",
-                false
-            );
-        } else {
-            addBotMessage(
-                "You can continue with the free version, but keep in mind that for more serious conditions, a professional medical opinion is recommended.",
-                false
-            );
-        }
+        addBotMessage(
+            "You can continue using the free version for this assessment. Feel free to ask me more questions about managing your condition at home.",
+            false
+        );
         
         // Focus on input field after a short delay to ensure the DOM has updated
         setTimeout(() => {
@@ -802,7 +717,8 @@ const Chat = () => {
                             setLatestAssessment({
                                 condition: conditionName,
                                 confidence: conditions[0].confidence,
-                                recommendation: careRecommendation
+                                recommendation: careRecommendation,
+                                triageLevel: triageLevel
                             });
                         }
                         
@@ -815,65 +731,47 @@ const Chat = () => {
                             careRecommendation
                         );
 
-                        // Step 2: For mild cases, show optional upgrade prompt
-                        // For moderate/severe cases, show required upgrade prompt
-                        if (requiresUpgrade || upgradeSuggestion) {
-                            // Step 2: Upgrade pitch (directly after assessment)
+                        // Step 2: Always show upgrade prompt after assessment
+                        // Different messaging for mild vs. moderate/severe cases
+                        setTimeout(() => {
+                            if (isMildCase) {
+                                addBotMessage(
+                                    `🔍 While you can manage this condition at home, Premium Access gives you deeper insights, symptom tracking, and doctor-ready reports if you'd like more detailed information.`,
+                                    false
+                                );
+                            } else {
+                                addBotMessage(
+                                    `🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?`,
+                                    false
+                                );
+                            }
+                            
+                            // Step 3: ALWAYS set upgrade prompt state after assessment
                             setTimeout(() => {
-                                // Different messaging for mild vs. moderate/severe cases
-                                if (isMildCase) {
-                                    addBotMessage(
-                                        `🔍 While you can manage this condition at home, Premium Access gives you deeper insights, symptom tracking, and doctor-ready reports if you'd like more detailed information.`,
-                                        false
-                                    );
-                                } else {
-                                    addBotMessage(
-                                        `🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?`,
-                                        false
-                                    );
-                                }
+                                // Set UI state to upgrade prompt
+                                setUiState(UI_STATES.UPGRADE_PROMPT);
                                 
-                                // Step 3: Show upgrade options
+                                // Ensure everything is visible with multiple scroll attempts
                                 setTimeout(() => {
-                                    // Set UI state before adding the upgrade prompt
-                                    setUiState(UI_STATES.UPGRADE_PROMPT);
-                                    
-                                    setMessages(prev => [
-                                        ...prev, 
-                                        {
-                                            sender: 'system',
-                                            isUpgradePrompt: true,
-                                            condition: conditionName,
-                                            isMildCase: isMildCase
-                                        }
-                                    ]);
-
-                                    // Ensure everything is visible with multiple scroll attempts
-                                    setTimeout(() => {
-                                        if (messagesEndRef.current) {
-                                            messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-                                        }
-                                    }, 100);
-                                    
-                                    // Backup scroll attempts to ensure visibility
-                                    setTimeout(() => {
-                                        if (messagesEndRef.current) {
-                                            messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-                                        }
-                                    }, 300);
-                                    
-                                    setTimeout(() => {
-                                        if (messagesEndRef.current) {
-                                            messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
-                                        }
-                                    }, 600);
-                                }, 500);
+                                    if (messagesEndRef.current) {
+                                        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+                                    }
+                                }, 100);
+                                
+                                // Backup scroll attempts to ensure visibility
+                                setTimeout(() => {
+                                    if (messagesEndRef.current) {
+                                        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+                                    }
+                                }, 300);
+                                
+                                setTimeout(() => {
+                                    if (messagesEndRef.current) {
+                                        messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
+                                    }
+                                }, 600);
                             }, 500);
-                        } else {
-                            // Regular assessment without upgrade - ensure proper rendering
-                            // Set UI state to ASSESSMENT to ensure proper handling
-                            setUiState(UI_STATES.ASSESSMENT);
-                        }
+                        }, 500);
                     } else {
                         // Unstructured assessment handling (similar pattern as above)
                         const formattedMessage = responseData.possible_conditions || "Based on your symptoms, I can provide an assessment.";
@@ -883,7 +781,8 @@ const Chat = () => {
                         setLatestAssessment({
                             condition: "Assessment",
                             confidence: confidence,
-                            recommendation: careRecommendation
+                            recommendation: careRecommendation,
+                            triageLevel: triageLevel
                         });
                         
                         // Step 1: Bot assessment message
@@ -895,64 +794,46 @@ const Chat = () => {
                             careRecommendation
                         );
                         
-                        // Step 2: For mild cases, show optional upgrade prompt
-                        // For moderate/severe cases, show required upgrade prompt
-                        if (requiresUpgrade || upgradeSuggestion) {
-                            // Step 2: Upgrade pitch (directly after assessment)
+                        // Step 2: Always show upgrade prompt after assessment
+                        setTimeout(() => {
+                            // Different messaging for mild vs. moderate/severe cases
+                            if (isMildCase) {
+                                addBotMessage(
+                                    `🔍 While you can manage this condition at home, Premium Access gives you deeper insights, symptom tracking, and doctor-ready reports if you'd like more detailed information.`,
+                                    false
+                                );
+                            } else {
+                                addBotMessage(
+                                    `🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?`,
+                                    false
+                                );
+                            }
+                            
+                            // Step 3: ALWAYS set upgrade prompt state after assessment
                             setTimeout(() => {
-                                // Different messaging for mild vs. moderate/severe cases
-                                if (isMildCase) {
-                                    addBotMessage(
-                                        `🔍 While you can manage this condition at home, Premium Access gives you deeper insights, symptom tracking, and doctor-ready reports if you'd like more detailed information.`,
-                                        false
-                                    );
-                                } else {
-                                    addBotMessage(
-                                        `🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?`,
-                                        false
-                                    );
-                                }
+                                // Set UI state to upgrade prompt
+                                setUiState(UI_STATES.UPGRADE_PROMPT);
                                 
-                                // Step 3: Show upgrade options
+                                // Multiple scroll attempts to ensure visibility
                                 setTimeout(() => {
-                                    // Set UI state before adding the upgrade prompt
-                                    setUiState(UI_STATES.UPGRADE_PROMPT);
-                                    
-                                    setMessages(prev => [
-                                        ...prev, 
-                                        {
-                                            sender: 'system',
-                                            isUpgradePrompt: true,
-                                            condition: "this condition",
-                                            isMildCase: isMildCase
-                                        }
-                                    ]);
-                                    
-                                    // Multiple scroll attempts to ensure visibility
-                                    setTimeout(() => {
-                                        if (messagesEndRef.current) {
-                                            messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-                                        }
-                                    }, 100);
-                                    
-                                    setTimeout(() => {
-                                        if (messagesEndRef.current) {
-                                            messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-                                        }
-                                    }, 300);
-                                    
-                                    setTimeout(() => {
-                                        if (messagesEndRef.current) {
-                                            messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
-                                        }
-                                    }, 600);
-                                }, 500);
+                                    if (messagesEndRef.current) {
+                                        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+                                    }
+                                }, 100);
+                                
+                                setTimeout(() => {
+                                    if (messagesEndRef.current) {
+                                        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+                                    }
+                                }, 300);
+                                
+                                setTimeout(() => {
+                                    if (messagesEndRef.current) {
+                                        messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
+                                    }
+                                }, 600);
                             }, 500);
-                        } else {
-                            // Regular assessment without upgrade - ensure proper rendering
-                            // Set UI state to ASSESSMENT to ensure proper handling
-                            setUiState(UI_STATES.ASSESSMENT);
-                        }
+                        }, 500);
                     }
                 } else if (isAssessment) {
                     // It's an assessment but confidence is too low - ALWAYS ask more questions
@@ -1051,9 +932,17 @@ const Chat = () => {
                             message={msg}
                             onRetry={handleRetry}
                             index={index}
-                            onContinueFree={handleContinueFree}
                         />
                     ))}
+                    
+                    {/* Show upgrade prompt as a separate component when in upgrade prompt state */}
+                    {uiState === UI_STATES.UPGRADE_PROMPT && latestAssessment && (
+                        <UpgradePrompt 
+                            condition={latestAssessment.condition || "this condition"}
+                            isMildCase={latestAssessment.triageLevel?.toLowerCase() === "mild"}
+                            onDismiss={handleContinueFree}
+                        />
+                    )}
                     
                     {/* Show typing indicator */}
                     {typing && (
@@ -1098,7 +987,7 @@ const Chat = () => {
                             }}
                             onKeyDown={handleKeyDown}
                             placeholder="Describe your symptoms in detail..."
-                            disabled={loading || resetting}
+                            disabled={loading || resetting || (uiState === UI_STATES.UPGRADE_PROMPT && latestAssessment?.triageLevel?.toLowerCase() !== "mild")}
                             maxLength={CONFIG.MAX_MESSAGE_LENGTH}
                             aria-label="Symptom description input"
                             aria-invalid={!!inputError}
@@ -1118,7 +1007,7 @@ const Chat = () => {
                         <button
                             className="send-button"
                             onClick={() => handleSendMessage()}
-                            disabled={loading || resetting || !userInput.trim()}
+                            disabled={loading || resetting || !userInput.trim() || (uiState === UI_STATES.UPGRADE_PROMPT && latestAssessment?.triageLevel?.toLowerCase() !== "mild")}
                             aria-label="Send message"
                         >
                             Send
