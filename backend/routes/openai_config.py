@@ -205,16 +205,14 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
                     if user and hasattr(user, 'subscription_tier') and user.subscription_tier == UserTierEnum.FREE:
                         logger.info("FREE tier user needs upgrade for medical recommendation")
                         requires_upgrade = True
-                        # For free users, hide details except first condition
-                        if "assessment" in assessment_data and "conditions" in assessment_data["assessment"]:
-                            first_condition = assessment_data["assessment"]["conditions"][0]
-                            assessment_data["assessment"]["conditions"] = [first_condition]
-                            logger.info("Limited conditions to first one for FREE tier user")
+                        # FIXED: Don't hide condition names for free users
+                        # Instead, just mark that an upgrade is required to see more details
+                        logger.info("Free user can see condition names but needs upgrade for detailed insights")
                     else:
                         logger.info("User has appropriate subscription tier or is not authenticated")
                 else:
                     if not is_confident:
-                        logger.info(f"Not requiring upgrade due to low confidence ({confidence})")
+                        logger.info(f"Not requiring upgrade due to low confidence in assessment ({confidence})")
                     else:
                         logger.info("Not requiring upgrade as no medical recommendation detected")
                 
@@ -262,7 +260,7 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
         "is_question": is_question,
         "is_assessment": not is_question,
         "possible_conditions": response_text,
-        "triage_level": "MODERATE" if requires_upgrade or needs_medical_attention else "MILD",
+        "triage_level": "SEVERE" if is_emergency else ("MODERATE" if requires_upgrade or needs_medical_attention else "MILD"),
         "requires_upgrade": requires_upgrade,
         "confidence": confidence if 'confidence' in locals() else None
     }
