@@ -16,6 +16,24 @@ MAX_CONFIDENCE = 95  # Preventing overconfidence
 DEFAULT_CONFIDENCE = 75
 MIN_CONFIDENCE_THRESHOLD = 85  # Minimum confidence required for upgrade prompts - match frontend threshold
 
+# Lists for condition severity validation
+MILD_CONDITION_PHRASES = [
+    "common cold", "seasonal allergy", "mild", "minor", "viral infection",
+    "common nasal", "seasonal", "tension headache", "simple", "routine",
+    "non-serious", "benign", "uncomplicated", "self-limiting", "transient"
+]
+
+SEVERE_CONDITION_PHRASES = [
+    "heart attack", "stroke", "severe", "emergency", "critical", "urgent",
+    "life-threatening", "dangerous", "acute", "serious", "immediate attention",
+    "anaphylaxis", "pulmonary embolism", "meningitis", "appendicitis", "sepsis"
+]
+
+EMERGENCY_RECOMMENDATION_PHRASES = [
+    "emergency", "immediate", "urgent", "911", "call ambulance", 
+    "seek immediate", "go to hospital", "emergency room", "er", "call 911"
+]
+
 # Using a different approach to represent the JSON example
 SYSTEM_PROMPT = """You are Michele, an AI medical assistant trained to have conversations like a doctor's visit.
 Your goal is to understand the user's symptoms through a conversation before providing any potential diagnosis.
@@ -98,6 +116,8 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
     Now includes subscription tier and confidence threshold enforcement.
     """
     # Log user information for debugging
+    is_production = current_app.config.get("ENV") == "production" if current_app else False
+    
     if user:
         logger.info(f"Processing response for user with tier: {user.subscription_tier if hasattr(user, 'subscription_tier') else 'Unknown'}")
     else:
@@ -108,6 +128,9 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
         return create_default_response()
     
     logger.info(f"Processing AI response: {response_text[:100]}...")
+
+    # Initialize confidence with default value to ensure it always exists
+    confidence = DEFAULT_CONFIDENCE
 
     # ✅ Check for emergency recommendations
     emergency_phrases = [
@@ -167,21 +190,124 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
                 assessment_data["is_question"] = False
                 
                 # ✅ Get confidence level
-                confidence = None
                 if "assessment" in assessment_data and "conditions" in assessment_data["assessment"]:
                     conditions = assessment_data["assessment"]["conditions"]
                     if conditions and len(conditions) > 0:
-                        confidence = conditions[0].get("confidence", 0)
+                        confidence = conditions[0].get("confidence", DEFAULT_CONFIDENCE)
+                
+                # ✅ NEW: Validate and correct triage level and care recommendation
+                if "assessment" in assessment_data and "conditions" in assessment_data["assessment"]:
+                    conditions = assessment_data["assessment"]["conditions"]
+                    if conditions and len(conditions) > 0:
+                        primary_condition = conditions[0]
+                        primary_condition_name = primary_condition["name"].lower()
+                        primary_confidence = primary_condition.get("confidence", DEFAULT_CONFIDENCE)
+                        
+                        triage_level = assessment_data["assessment"].get("triage_level", "MODERATE")
+                        care_recommendation = assessment_data["assessment"].get("care_recommendation", "")
+                        
+                        # Store original values for logging
+                        original_triage = triage_level
+                        original_recommendation = care_recommendation
+                        
+                        # Check for mismatches between condition severity and recommendations
+                        is_mild_condition = any(phrase in primary_condition_name for phrase in MILD_CONDITION_PHRASES)
+                        is_severe_condition = any(phrase in primary_condition_name for phrase in SEVERE_CONDITION_PHRASES)
+                        is_emergency_recommendation = any(phrase in care_recommendation.lower() for phrase in EMERGENCY_RECOMMENDATION_PHRASES)
+                        
+                        correction_made = False
+                        
+                        # Case 1: Mild condition with emergency recommendation
+                        if is_mild_condition and is_emergency_recommendation:
+                            logger.warning(
+                                f"CORRECTING: Mild condition '{primary_condition['name']}' "
+                                f"incorrectly marked with emergency recommendation. "
+                                f"Original triage={original_triage}, Original recommendation='{original_recommendation[:30]}...'"
+                            )
+                            assessment_data["assessment"]["triage_level"] = "MILD"
+                            assessment_data["assessment"]["care_recommendation"] = "This can likely be managed at home."
+                            correction_made = True
+                        
+                        # Case 2: Severe condition without emergency recommendation
+                        # 🚨 FIX: Only upgrade to emergency if confidence is high enough
+                        elif is_severe_condition and not is_emergency_recommendation and triage_level != "SEVERE":
+                            if primary_confidence >= MIN_CONFIDENCE_THRESHOLD:
+                                logger.warning(
+                                    f"CORRECTING: Severe condition '{primary_condition['name']}' "
+                                    f"missing emergency recommendation. "
+                                    f"Confidence={primary_confidence}% -> Applying SEVERE triage. "
+                                    f"Original triage={original_triage}, Original recommendation='{original_recommendation[:30]}...'"
+                                )
+                                assessment_data["assessment"]["triage_level"] = "SEVERE"
+                                assessment_data["assessment"]["care_recommendation"] = "Seek immediate medical attention."
+                                correction_made = True
+                            else:
+                                logger.info(
+                                    f"NOT changing recommendation: '{primary_condition['name']}' "
+                                    f"has LOW confidence ({primary_confidence}%) - keeping original triage={original_triage}"
+                                )
+                        
+                        # Case 3: Triage level says MILD but recommendation suggests emergency
+                        elif triage_level == "MILD" and is_emergency_recommendation:
+                            logger.warning(
+                                f"CORRECTING: Triage level MILD conflicts with emergency recommendation. "
+                                f"Condition='{primary_condition['name']}', Confidence={primary_confidence}%"
+                            )
+                            # Decide based on condition name and confidence
+                            if is_severe_condition and primary_confidence >= MIN_CONFIDENCE_THRESHOLD:
+                                assessment_data["assessment"]["triage_level"] = "SEVERE"
+                                logger.info(f"Changed triage to SEVERE based on condition name and high confidence")
+                            else:
+                                # Keep it MILD and fix the recommendation
+                                assessment_data["assessment"]["care_recommendation"] = "This can likely be managed at home."
+                                logger.info(f"Kept MILD triage but fixed recommendation to match")
+                            correction_made = True
+                        
+                        # Case 4: Triage level says SEVERE but recommendation doesn't suggest emergency
+                        elif triage_level == "SEVERE" and not is_emergency_recommendation:
+                            # Only enforce emergency recommendation if confidence is high enough
+                            if primary_confidence >= MIN_CONFIDENCE_THRESHOLD:
+                                logger.warning(
+                                    f"CORRECTING: Triage level SEVERE without emergency recommendation. "
+                                    f"Condition='{primary_condition['name']}', Confidence={primary_confidence}% "
+                                    f"-> Adding emergency recommendation"
+                                )
+                                assessment_data["assessment"]["care_recommendation"] = "Seek immediate medical attention."
+                                correction_made = True
+                            else:
+                                # Downgrade triage level for low confidence cases
+                                logger.warning(
+                                    f"CORRECTING: Downgrading SEVERE triage due to low confidence ({primary_confidence}%). "
+                                    f"Condition='{primary_condition['name']}' -> Changing to MODERATE"
+                                )
+                                assessment_data["assessment"]["triage_level"] = "MODERATE"
+                                assessment_data["assessment"]["care_recommendation"] = "Consider consulting with a healthcare professional."
+                                correction_made = True
+                        
+                        # Log any corrections made
+                        if correction_made and not is_production:
+                            logger.info(f"Corrected assessment: Condition='{primary_condition['name']}', " +
+                                        f"Original triage={original_triage}, New triage={assessment_data['assessment']['triage_level']}, " +
+                                        f"Original recommendation='{original_recommendation[:30]}...', " +
+                                        f"New recommendation='{assessment_data['assessment']['care_recommendation'][:30]}...', " +
+                                        f"Confidence={primary_confidence}")
                 
                 # ✅ Check if confidence is high enough
                 is_confident = confidence is not None and confidence >= MIN_CONFIDENCE_THRESHOLD
                 logger.info(f"Confidence: {confidence}, Is confident: {is_confident}")
                 
                 # ✅ If emergency detected, ensure triage level is set to SEVERE
+                # 🚨 FIX: Only enforce SEVERE if confidence is high enough
                 if is_emergency and "assessment" in assessment_data:
-                    assessment_data["assessment"]["triage_level"] = "SEVERE"
-                    assessment_data["assessment"]["care_recommendation"] = "Seek immediate medical attention."
-                    logger.info("Set triage level to SEVERE due to emergency detection")
+                    if confidence >= MIN_CONFIDENCE_THRESHOLD:
+                        assessment_data["assessment"]["triage_level"] = "SEVERE"
+                        assessment_data["assessment"]["care_recommendation"] = "Seek immediate medical attention."
+                        logger.info("Set triage level to SEVERE due to emergency detection (high confidence)")
+                    else:
+                        # For low confidence, use MODERATE instead
+                        assessment_data["assessment"]["triage_level"] = "MODERATE"
+                        assessment_data["assessment"]["care_recommendation"] = "Consider consulting with a healthcare professional."
+                        logger.info(f"Using MODERATE triage due to low confidence ({confidence}%) despite emergency phrases")
                 
                 # ✅ Enforce paywall if necessary AND confidence is high enough
                 requires_upgrade = False
@@ -217,6 +343,8 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
                         logger.info("Not requiring upgrade as no medical recommendation detected")
                 
                 assessment_data["requires_upgrade"] = requires_upgrade
+                # Ensure confidence is always included in the response
+                assessment_data["confidence"] = confidence
                 logger.info(f"Setting requires_upgrade={requires_upgrade}")
                 return assessment_data
                 
@@ -234,15 +362,13 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
         logger.info("Non-JSON response contains medical recommendation")
         
         # ✅ NEW: Try to estimate confidence from text
-        confidence = None
         if "high confidence" in response_text.lower():
             confidence = 90
         elif "moderate confidence" in response_text.lower():
             confidence = 80
         elif "low confidence" in response_text.lower():
             confidence = 60
-        else:
-            confidence = DEFAULT_CONFIDENCE
+        # else: confidence remains at DEFAULT_CONFIDENCE set at the beginning
         
         # ✅ Only require upgrade if confidence is high enough
         is_confident = confidence >= MIN_CONFIDENCE_THRESHOLD
@@ -256,11 +382,23 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
     
     logger.info(f"Final determination: is_question={is_question}, requires_upgrade={requires_upgrade}")
     
+    # 🚨 FIX: Only set triage level to SEVERE if confidence is high enough
+    triage_level = "MILD"
+    if is_emergency:
+        if confidence >= MIN_CONFIDENCE_THRESHOLD:
+            triage_level = "SEVERE"
+            logger.info(f"Setting triage to SEVERE due to emergency phrases with confidence {confidence}%")
+        else:
+            triage_level = "MODERATE"
+            logger.info(f"Setting triage to MODERATE despite emergency phrases due to low confidence {confidence}%")
+    elif requires_upgrade or needs_medical_attention:
+        triage_level = "MODERATE"
+    
     return {
         "is_question": is_question,
         "is_assessment": not is_question,
         "possible_conditions": response_text,
-        "triage_level": "SEVERE" if is_emergency else ("MODERATE" if requires_upgrade or needs_medical_attention else "MILD"),
+        "triage_level": triage_level,
         "requires_upgrade": requires_upgrade,
-        "confidence": confidence if 'confidence' in locals() else None
+        "confidence": confidence  # Always include confidence in the response
     }
