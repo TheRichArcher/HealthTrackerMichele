@@ -1,4 +1,4 @@
-// Chat.jsx
+// Chat.jsx - Part 1: Imports and Constants
 import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import PropTypes from 'prop-types';
 import { debounce } from 'lodash';
@@ -40,7 +40,7 @@ const WELCOME_MESSAGE = {
     careRecommendation: null,
     isAssessment: false
 };
-
+// Chat.jsx - Part 2: Error Boundary and Message Component
 class ChatErrorBoundary extends React.Component {
     state = { hasError: false };
 
@@ -167,7 +167,7 @@ Message.propTypes = {
     onRetry: PropTypes.func.isRequired,
     index: PropTypes.number.isRequired
 };
-
+// Chat.jsx - Part 3: Chat Component State and Helper Functions
 const Chat = () => {
     const [messages, setMessages] = useState(() => {
         try {
@@ -335,7 +335,7 @@ const Chat = () => {
         }
         return null;
     }, []);
-
+    // Chat.jsx - Part 4: Message Handling Functions
     // Simplified message function - no character-by-character typing
     const addBotMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null) => {
         // Show thinking indicator
@@ -508,7 +508,7 @@ const Chat = () => {
         
         return `I have some possible insights about your condition${conditionName ? ` (possibly ${conditionName})` : ""}, but I need a bit more information to be certain. ${followUpQuestion}`;
     }, [askedQuestions]);
-
+    // Chat.jsx - Part 5: Send Message Handler (Part 1)
     const handleSendMessage = async (retryMessage = null) => {
         const messageToSend = retryMessage || userInput;
         const validationError = validateInput(messageToSend);
@@ -678,7 +678,7 @@ const Chat = () => {
                     triageLevel: responseData.triage_level || responseData.assessment?.triage_level
                 });
             }
-
+            // Chat.jsx - Part 6: Send Message Handler (Part 2)
             setTimeout(() => {
                 // Check if this is a question or assessment
                 const isAssessment = responseData.is_assessment === true;
@@ -826,7 +826,10 @@ const Chat = () => {
                                             "dehydration": "Dehydration",
                                             "eye": "Conjunctivitis",
                                             "red eye": "Conjunctivitis",
-                                            "pink eye": "Conjunctivitis"
+                                            "pink eye": "Conjunctivitis",
+                                            "sunburn": "Sunburn",  // Add sunburn explicitly
+                                            "red skin": "Sunburn",  // Common sunburn description
+                                            "skin burn": "Sunburn"  // Another sunburn description
                                         };
                                         
                                         // Check user messages for symptom keywords
@@ -894,6 +897,7 @@ const Chat = () => {
                                     "Psoriasis": "Psoriasis",
                                     "Cellulitis": "Skin Infection",
                                     "Herpes Zoster": "Shingles",
+                                    "Sunburn": "Sunburn",  // Add sunburn explicitly
                                     
                                     // Foot/ankle conditions
                                     "Achilles Tendinitis": "Achilles Tendon Inflammation",
@@ -915,56 +919,26 @@ const Chat = () => {
                                     "Anxiety Disorder": "Anxiety",
                                     "Major Depressive Disorder": "Depression",
                                     "Insomnia": "Sleep Disorder",
-                                    "Dehydration": "Dehydration",
-                                    
-                                    // Additional mappings
-                                    "Pharyngitis": "Sore Throat",
-                                    "Otitis Media": "Middle Ear Infection",
-                                    "Otitis Externa": "Swimmer's Ear",
-                                    "Rhinitis": "Runny Nose",
-                                    "Cephalgia": "Headache",
-                                    "Tension Cephalgia": "Tension Headache",
-                                    "Cluster Cephalgia": "Cluster Headache",
-                                    "Hypertension": "High Blood Pressure",
-                                    "Hyperlipidemia": "High Cholesterol",
-                                    "Diabetes Mellitus": "Diabetes",
-                                    "Insomnia": "Sleep Disorder",
-                                    "Anxiety Disorder": "Anxiety",
-                                    "Major Depressive Disorder": "Depression",
-                                    "Cellulitis": "Skin Infection",
-                                    "Tinea Pedis": "Athlete's Foot",
-                                    "Tinea Corporis": "Ringworm",
-                                    "Tinea Cruris": "Jock Itch",
-                                    "Onychomycosis": "Fungal Nail Infection",
-                                    "Acne Vulgaris": "Acne",
-                                    "Seborrheic Dermatitis": "Dandruff",
-                                    "Rosacea": "Facial Redness",
-                                    "Psoriasis": "Scaly Skin Patches",
-                                    "Urticaria": "Hives",
-                                    "Dyspepsia": "Indigestion",
-                                    "Constipation": "Constipation",
-                                    "Diarrhea": "Diarrhea",
-                                    "Hemorrhoids": "Piles",
-                                    "Dysmenorrhea": "Menstrual Cramps",
-                                    "Premenstrual Syndrome": "PMS",
-                                    "Cystitis": "Bladder Infection",
-                                    "Nephrolithiasis": "Kidney Stones",
-                                    "Epicondylitis": "Tennis Elbow",
-                                    "Carpal Tunnel Syndrome": "Wrist Pain",
-                                    "Tendinitis": "Tendon Inflammation",
-                                    "Bursitis": "Joint Inflammation",
-                                    "Osteoarthritis": "Joint Pain",
-                                    "Myalgia": "Muscle Pain",
-                                    "Coryza": "Common Cold",
-                                    "Upper Respiratory Infection": "Common Cold",
-                                    "Acute Bronchitis": "Chest Cold",
-                                    "Pneumonia": "Lung Infection",
-                                    "Tonsillitis": "Tonsil Infection",
-                                    "Laryngitis": "Voice Box Inflammation"
+                                    "Dehydration": "Dehydration"
                                 };
                                 
                                 // Check if we have a mapping for this condition
                                 commonName = commonNameMap[conditionName] || null;
+                            }
+                            
+                            // SIMPLIFIED: Check for common mild conditions that should never be escalated
+                            const commonMildConditions = [
+                                "sunburn", "common cold", "seasonal allergy", "mild headache", 
+                                "tension headache", "sinus infection", "sinusitis"
+                            ];
+                            
+                            // Force MILD triage for common conditions
+                            if (conditionName && commonMildConditions.some(condition => 
+                                conditionName.toLowerCase().includes(condition))) {
+                                console.log(`Forcing MILD triage for common condition: ${conditionName}`);
+                                triageLevel = "MILD";
+                                careRecommendation = "You can likely manage this at home.";
+                                isMildCase = true;
                             }
                             
                             // Log the final condition and common name
@@ -972,7 +946,9 @@ const Chat = () => {
                                 console.log("Final condition data:", {
                                     conditionName,
                                     commonName,
-                                    isGenericCondition: /^condition\s+\d+$/i.test(rawConditionName)
+                                    isGenericCondition: /^condition\s+\d+$/i.test(rawConditionName),
+                                    triageLevel,
+                                    isMildCase
                                 });
                             }
                             
@@ -984,6 +960,7 @@ const Chat = () => {
                                 triageLevel: triageLevel
                             });
                         }
+                        // Chat.jsx - Part 7: Send Message Handler (Part 3)
                         
                         // Create display name with both common and medical terms
                         // If we have both, show common (medical)
@@ -1170,6 +1147,7 @@ const Chat = () => {
                 }
             }, CONFIG.THINKING_DELAY);
 
+// Chat.jsx - Part 8: Error Handling and Render Function
         } catch (error) {
             if (error.name !== 'AbortError') {
                 if (CONFIG.DEBUG_MODE) {
