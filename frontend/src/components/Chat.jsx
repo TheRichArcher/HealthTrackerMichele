@@ -711,72 +711,15 @@ const Chat = () => {
                 // Check if this is a mild case (at-home care)
                 const isMildCase = triageLevel?.toLowerCase() === 'mild';
                 
-                // If no common_name is provided, try to map common conditions
-                if (!commonName) {
-                    // Expanded mapping for common conditions
-                    const commonNameMap = {
-                        // Respiratory conditions
-                        "Upper Respiratory Infection": "Common Cold",
-                        "Acute Rhinosinusitis": "Sinus Infection",
-                        "Acute Pharyngitis": "Sore Throat",
-                        "Acute Bronchitis": "Chest Cold",
-                        "Pneumonia": "Lung Infection",
-                        "Influenza": "Flu",
-                        "Rhinitis": "Runny Nose",
-                        
-                        // Neurological conditions
-                        "Neurological condition": "Migraine",
-                        "Cephalalgia": "Headache",
-                        "Tension Cephalalgia": "Tension Headache",
-                        "Cluster Cephalalgia": "Cluster Headache",
-                        "Vertigo": "Dizziness",
-                        
-                        // Gastrointestinal conditions
-                        "Gastroenteritis": "Stomach Flu",
-                        "Gastroesophageal Reflux Disease": "Acid Reflux",
-                        "Irritable Bowel Syndrome": "IBS",
-                        "Acute Gastritis": "Stomach Inflammation",
-                        "Constipation": "Constipation",
-                        "Diarrhea": "Diarrhea",
-                        
-                        // Skin conditions
-                        "Dermatitis": "Skin Rash",
-                        "Urticaria": "Hives",
-                        "Contact Dermatitis": "Contact Rash",
-                        "Eczema": "Eczema",
-                        "Psoriasis": "Psoriasis",
-                        "Cellulitis": "Skin Infection",
-                        
-                        // Ear, nose, throat
-                        "Otitis Media": "Ear Infection",
-                        "Otitis Externa": "Swimmer's Ear",
-                        "Tonsillitis": "Tonsil Infection",
-                        "Laryngitis": "Voice Box Inflammation",
-                        
-                        // Other common conditions
-                        "Conjunctivitis": "Pink Eye",
-                        "Urinary Tract Infection": "UTI",
-                        "Hypertension": "High Blood Pressure",
-                        "Hyperlipidemia": "High Cholesterol",
-                        "Diabetes Mellitus": "Diabetes",
-                        "Anxiety Disorder": "Anxiety",
-                        "Major Depressive Disorder": "Depression",
-                        "Insomnia": "Sleep Disorder"
-                    };
-                    
-                    // Check if we have a mapping for this condition
-                    commonName = commonNameMap[conditionName] || null;
-                }
-                
                 // Add specific debug logging for condition name handling
                 if (CONFIG.DEBUG_MODE) {
-                    console.log("Condition name processing:", {
-                        medicalTerm: conditionName,
-                        providedCommonName: responseData.assessment?.conditions?.[0]?.common_name,
-                        mappedCommonName: commonName,
-                        finalCommonName: commonName,
-                        triageLevel: triageLevel,
-                        isMildCase: isMildCase
+                    console.log("ASSESSMENT CONDITION DEBUG:", {
+                        conditionName: responseData.assessment?.conditions?.[0]?.name,
+                        commonName: responseData.assessment?.conditions?.[0]?.common_name,
+                        confidence: responseData.assessment?.conditions?.[0]?.confidence,
+                        isGenericPlaceholder: responseData.assessment?.conditions?.[0]?.name ? 
+                            /^condition\s+\d+$/i.test(responseData.assessment.conditions[0].name) : false,
+                        fullResponse: responseData
                     });
                 }
                 
@@ -840,7 +783,199 @@ const Chat = () => {
 
                         // Update the latest assessment for reference
                         if (conditions && conditions.length > 0) {
-                            conditionName = conditions[0].name;
+                            // Check if we're getting a generic placeholder like "Condition 1"
+                            const rawConditionName = conditions[0].name;
+                            const isGenericCondition = /^condition\s+\d+$/i.test(rawConditionName);
+                            
+                            if (isGenericCondition) {
+                                // Log the issue for debugging
+                                console.warn("Received generic condition placeholder:", rawConditionName);
+                                
+                                // Try to extract a real condition name from possible_conditions
+                                if (responseData.possible_conditions) {
+                                    // Look for patterns like "likely condition is X" or "most likely X"
+                                    const conditionMatches = 
+                                        responseData.possible_conditions.match(/likely\s+(?:condition|diagnosis)\s+is\s+([^\.]+)/i) || 
+                                        responseData.possible_conditions.match(/most\s+likely\s+([^\.]+)/i) ||
+                                        responseData.possible_conditions.match(/appears\s+to\s+be\s+([^\.]+)/i) ||
+                                        responseData.possible_conditions.match(/consistent\s+with\s+([^\.]+)/i) ||
+                                        responseData.possible_conditions.match(/indicative\s+of\s+([^\.]+)/i) ||
+                                        responseData.possible_conditions.match(/points\s+to\s+([^\.]+)/i);
+                                    
+                                    if (conditionMatches && conditionMatches[1]) {
+                                        conditionName = conditionMatches[1].trim();
+                                        // Clean up the extracted name (remove trailing punctuation)
+                                        conditionName = conditionName.replace(/[,\.]$/, '');
+                                        console.log("Extracted condition name from text:", conditionName);
+                                    } else {
+                                        // Use a more specific fallback based on symptoms
+                                        const symptomsToConditions = {
+                                            "headache": "Migraine",
+                                            "fever": "Viral Infection",
+                                            "cough": "Bronchitis",
+                                            "rash": "Dermatitis",
+                                            "itchy": "Allergic Reaction",
+                                            "pain": "Pain Syndrome",
+                                            "sore throat": "Pharyngitis",
+                                            "runny nose": "Common Cold",
+                                            "dizziness": "Vertigo",
+                                            "nausea": "Gastroenteritis",
+                                            "blisters": "Herpes Zoster",
+                                            "heel pain": "Plantar Fasciitis",
+                                            "ankle pain": "Achilles Tendinitis",
+                                            "dehydration": "Dehydration",
+                                            "eye": "Conjunctivitis",
+                                            "red eye": "Conjunctivitis",
+                                            "pink eye": "Conjunctivitis"
+                                        };
+                                        
+                                        // Check user messages for symptom keywords
+                                        const userMessages = messages.filter(msg => msg.sender === 'user');
+                                        let matchedCondition = "Medical Condition"; // Default fallback
+                                        
+                                        for (const msg of userMessages) {
+                                            const text = msg.text.toLowerCase();
+                                            for (const [symptom, condition] of Object.entries(symptomsToConditions)) {
+                                                if (text.includes(symptom)) {
+                                                    matchedCondition = condition;
+                                                    break;
+                                                }
+                                            }
+                                            if (matchedCondition !== "Medical Condition") break;
+                                        }
+                                        
+                                        conditionName = matchedCondition;
+                                        console.log("Using symptom-based condition name:", conditionName);
+                                    }
+                                } else {
+                                    // Generic fallback
+                                    conditionName = "Medical Condition";
+                                }
+                            } else {
+                                conditionName = rawConditionName;
+                            }
+                            
+                            // Extract common name if available
+                            commonName = conditions[0].common_name || null;
+                            
+                            // If no common_name is provided, try to map common conditions
+                            if (!commonName) {
+                                // Expanded mapping for common conditions
+                                const commonNameMap = {
+                                    // Respiratory conditions
+                                    "Upper Respiratory Infection": "Common Cold",
+                                    "Acute Rhinosinusitis": "Sinus Infection",
+                                    "Acute Pharyngitis": "Sore Throat",
+                                    "Acute Bronchitis": "Chest Cold",
+                                    "Pneumonia": "Lung Infection",
+                                    "Influenza": "Flu",
+                                    "Rhinitis": "Runny Nose",
+                                    
+                                    // Neurological conditions
+                                    "Neurological condition": "Migraine",
+                                    "Cephalalgia": "Headache",
+                                    "Tension Cephalalgia": "Tension Headache",
+                                    "Cluster Cephalalgia": "Cluster Headache",
+                                    "Vertigo": "Dizziness",
+                                    
+                                    // Gastrointestinal conditions
+                                    "Gastroenteritis": "Stomach Flu",
+                                    "Gastroesophageal Reflux Disease": "Acid Reflux",
+                                    "Irritable Bowel Syndrome": "IBS",
+                                    "Acute Gastritis": "Stomach Inflammation",
+                                    "Constipation": "Constipation",
+                                    "Diarrhea": "Diarrhea",
+                                    
+                                    // Skin conditions
+                                    "Dermatitis": "Skin Rash",
+                                    "Urticaria": "Hives",
+                                    "Contact Dermatitis": "Contact Rash",
+                                    "Eczema": "Eczema",
+                                    "Psoriasis": "Psoriasis",
+                                    "Cellulitis": "Skin Infection",
+                                    "Herpes Zoster": "Shingles",
+                                    
+                                    // Foot/ankle conditions
+                                    "Achilles Tendinitis": "Achilles Tendon Inflammation",
+                                    "Plantar Fasciitis": "Heel Pain",
+                                    "Ankle Sprain": "Twisted Ankle",
+                                    
+                                    // Ear, nose, throat
+                                    "Otitis Media": "Ear Infection",
+                                    "Otitis Externa": "Swimmer's Ear",
+                                    "Tonsillitis": "Tonsil Infection",
+                                    "Laryngitis": "Voice Box Inflammation",
+                                    
+                                    // Other common conditions
+                                    "Conjunctivitis": "Pink Eye",
+                                    "Urinary Tract Infection": "UTI",
+                                    "Hypertension": "High Blood Pressure",
+                                    "Hyperlipidemia": "High Cholesterol",
+                                    "Diabetes Mellitus": "Diabetes",
+                                    "Anxiety Disorder": "Anxiety",
+                                    "Major Depressive Disorder": "Depression",
+                                    "Insomnia": "Sleep Disorder",
+                                    "Dehydration": "Dehydration",
+                                    
+                                    // Additional mappings
+                                    "Pharyngitis": "Sore Throat",
+                                    "Otitis Media": "Middle Ear Infection",
+                                    "Otitis Externa": "Swimmer's Ear",
+                                    "Rhinitis": "Runny Nose",
+                                    "Cephalgia": "Headache",
+                                    "Tension Cephalgia": "Tension Headache",
+                                    "Cluster Cephalgia": "Cluster Headache",
+                                    "Hypertension": "High Blood Pressure",
+                                    "Hyperlipidemia": "High Cholesterol",
+                                    "Diabetes Mellitus": "Diabetes",
+                                    "Insomnia": "Sleep Disorder",
+                                    "Anxiety Disorder": "Anxiety",
+                                    "Major Depressive Disorder": "Depression",
+                                    "Cellulitis": "Skin Infection",
+                                    "Tinea Pedis": "Athlete's Foot",
+                                    "Tinea Corporis": "Ringworm",
+                                    "Tinea Cruris": "Jock Itch",
+                                    "Onychomycosis": "Fungal Nail Infection",
+                                    "Acne Vulgaris": "Acne",
+                                    "Seborrheic Dermatitis": "Dandruff",
+                                    "Rosacea": "Facial Redness",
+                                    "Psoriasis": "Scaly Skin Patches",
+                                    "Urticaria": "Hives",
+                                    "Dyspepsia": "Indigestion",
+                                    "Constipation": "Constipation",
+                                    "Diarrhea": "Diarrhea",
+                                    "Hemorrhoids": "Piles",
+                                    "Dysmenorrhea": "Menstrual Cramps",
+                                    "Premenstrual Syndrome": "PMS",
+                                    "Cystitis": "Bladder Infection",
+                                    "Nephrolithiasis": "Kidney Stones",
+                                    "Epicondylitis": "Tennis Elbow",
+                                    "Carpal Tunnel Syndrome": "Wrist Pain",
+                                    "Tendinitis": "Tendon Inflammation",
+                                    "Bursitis": "Joint Inflammation",
+                                    "Osteoarthritis": "Joint Pain",
+                                    "Myalgia": "Muscle Pain",
+                                    "Coryza": "Common Cold",
+                                    "Upper Respiratory Infection": "Common Cold",
+                                    "Acute Bronchitis": "Chest Cold",
+                                    "Pneumonia": "Lung Infection",
+                                    "Tonsillitis": "Tonsil Infection",
+                                    "Laryngitis": "Voice Box Inflammation"
+                                };
+                                
+                                // Check if we have a mapping for this condition
+                                commonName = commonNameMap[conditionName] || null;
+                            }
+                            
+                            // Log the final condition and common name
+                            if (CONFIG.DEBUG_MODE) {
+                                console.log("Final condition data:", {
+                                    conditionName,
+                                    commonName,
+                                    isGenericCondition: /^condition\s+\d+$/i.test(rawConditionName)
+                                });
+                            }
+                            
                             setLatestAssessment({
                                 condition: conditionName,
                                 commonName: commonName,
@@ -851,7 +986,9 @@ const Chat = () => {
                         }
                         
                         // Create display name with both common and medical terms
-                        const displayName = commonName ? 
+                        // If we have both, show common (medical)
+                        // If we only have medical term, just show that
+                        const displayName = commonName && conditionName !== commonName ? 
                             `${commonName} (${conditionName})` : 
                             conditionName;
                         
