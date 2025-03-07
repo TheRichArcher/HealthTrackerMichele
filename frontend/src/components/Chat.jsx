@@ -1360,7 +1360,21 @@ const Chat = () => {
                     
                     {/* Show upgrade prompt as a separate component when in upgrade prompt state */}
                     {uiState === UI_STATES.UPGRADE_PROMPT && (
-                        <div className="upgrade-prompt-container" key={`upgrade-${Date.now()}`}>
+                        <div 
+                            className="upgrade-prompt-container" 
+                            key={`upgrade-${Date.now()}`}
+                            style={{
+                                display: 'block',
+                                width: '100%',
+                                margin: '20px 0',
+                                padding: '10px',
+                                borderRadius: '10px',
+                                backgroundColor: '#f8f9fa',
+                                boxShadow: '0 2px 10px rgba(0, 0, 0, 0.1)',
+                                position: 'relative',
+                                zIndex: 100
+                            }}
+                        >
                             <UpgradePrompt 
                                 condition={latestAssessment?.condition || "this condition"}
                                 commonName={latestAssessment?.commonName || ""}
