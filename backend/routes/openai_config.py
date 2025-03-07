@@ -219,7 +219,10 @@ IMPORTANT RULES:
 7. ALWAYS differentiate between first-time episodes and chronic conditions in your assessment.
 
 FINAL ASSESSMENT FORMAT:
-The AI must return JSON structured like this:
+First, provide a natural language summary of your assessment in a conversational tone.
+
+THEN, separately include the structured data in JSON format. The JSON will be processed by the system but should NOT be part of your visible response to the user:
+
 <json>
 {
   "assessment": {
@@ -612,6 +615,10 @@ def clean_ai_response(response_text: str, user=None, conversation_history=None) 
                 if "assessment" in assessment_data and "conditions" in assessment_data["assessment"]:
                     if assessment_data["assessment"]["conditions"] and len(assessment_data["assessment"]["conditions"]) > 0:
                         assessment_data["conditionName"] = assessment_data["assessment"]["conditions"][0].get("name", "")
+                
+                # Extract the text before the JSON for the visible response
+                visible_text = response_text.split("<json>")[0].strip() if "<json>" in response_text else response_text
+                assessment_data["possible_conditions"] = visible_text  # Use the text part for display
                 
                 return assessment_data
                 
