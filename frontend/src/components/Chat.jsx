@@ -259,6 +259,84 @@ const Chat = () => {
                     upgradePromptElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 } else {
                     console.warn("Upgrade prompt element NOT found after state change");
+                    
+                    // Force creation of upgrade prompt if it doesn't exist
+                    if (latestAssessment) {
+                        const messagesContainer = document.querySelector('.messages-container');
+                        if (messagesContainer) {
+                            const upgradeDiv = document.createElement('div');
+                            upgradeDiv.className = 'upgrade-prompt-container';
+                            upgradeDiv.style.display = 'block';
+                            upgradeDiv.style.width = '100%';
+                            upgradeDiv.style.margin = '20px 0';
+                            upgradeDiv.style.padding = '10px';
+                            upgradeDiv.style.borderRadius = '10px';
+                            upgradeDiv.style.backgroundColor = '#f8f9fa';
+                            upgradeDiv.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.1)';
+                            upgradeDiv.style.position = 'relative';
+                            upgradeDiv.style.zIndex = '100';
+                            
+                            // Create basic upgrade content
+                            const isMildCase = latestAssessment.triageLevel?.toLowerCase() === "mild";
+                            const displayName = latestAssessment.commonName ? 
+                                `${latestAssessment.commonName} (${latestAssessment.condition})` : 
+                                latestAssessment.condition;
+                                
+                            upgradeDiv.innerHTML = `
+                                <div class="upgrade-options-inline" style="width: 100%; display: block;">
+                                    <h3>Based on your symptoms, I've identified ${displayName} as a possible condition that may require further evaluation.</h3>
+                                    ${isMildCase ? 
+                                        `<p class="mild-case-note">Since this appears to be a condition you can manage at home, you can continue using the free version. However, for more detailed insights and tracking, consider upgrading.</p>` : ''}
+                                    <p>To get more insights, you can choose one of these options:</p>
+                                    <ul class="premium-features-list">
+                                        <li>
+                                            <span class="feature-name">🔹 Premium Access ($9.99/month)</span>
+                                            <span class="tooltip-icon" title="Get deeper insights, track symptoms, and receive doctor-ready reports">ⓘ</span>
+                                            <span class="feature-description">Unlimited symptom checks, detailed assessments, and personalized health monitoring.</span>
+                                        </li>
+                                        <li>
+                                            <span class="feature-name">🔹 One-time Consultation Report ($4.99)</span>
+                                            <span class="tooltip-icon" title="A comprehensive report you can share with your doctor">ⓘ</span>
+                                            <span class="feature-description">Get a comprehensive analysis of your current symptoms.</span>
+                                        </li>
+                                    </ul>
+                                    <p>Would you like to continue with one of these options?</p>
+                                    <div class="upgrade-buttons">
+                                        <button class="upgrade-button subscription" onclick="window.location.href='/subscribe'">
+                                            🩺 Get Premium Access ($9.99/month)
+                                        </button>
+                                        <button class="upgrade-button one-time" onclick="window.location.href='/one-time-report'">
+                                            📄 Get Consultation Report ($4.99)
+                                        </button>
+                                        ${isMildCase ? 
+                                            `<button class="continue-free-button" id="continue-free-button">Maybe Later</button>` : ''}
+                                    </div>
+                                </div>
+                            `;
+                            
+                            // Append to messages container
+                            messagesContainer.appendChild(upgradeDiv);
+                            
+                            // Add event listener for the continue free button
+                            const continueButton = document.getElementById('continue-free-button');
+                            if (continueButton) {
+                                continueButton.addEventListener('click', () => {
+                                    // Remove the upgrade div
+                                    upgradeDiv.remove();
+                                    // Reset UI state
+                                    setUiState(UI_STATES.DEFAULT);
+                                    // Add a message acknowledging their choice
+                                    addBotMessage(
+                                        "You can continue using the free version. Let me know if you have more questions!",
+                                        false
+                                    );
+                                });
+                            }
+                            
+                            // Scroll to the newly created element
+                            upgradeDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                    }
                 }
             }, 100);
         }
@@ -1208,16 +1286,38 @@ const Chat = () => {
                                                 upgradeDiv.style.zIndex = '100';
                                                 
                                                 // Create basic upgrade content
+                                                const isMildCase = latestAssessment.triageLevel?.toLowerCase() === "mild";
+                                                const displayName = latestAssessment.commonName ? 
+                                                    `${latestAssessment.commonName} (${latestAssessment.condition})` : 
+                                                    latestAssessment.condition;
+                                                    
                                                 upgradeDiv.innerHTML = `
                                                     <div class="upgrade-options-inline" style="width: 100%; display: block;">
-                                                        <h3>Based on your symptoms, I've identified ${latestAssessment.condition} as a possible condition that may require further evaluation.</h3>
-                                                        ${latestAssessment.triageLevel?.toLowerCase() === "mild" ? 
+                                                        <h3>Based on your symptoms, I've identified ${displayName} as a possible condition that may require further evaluation.</h3>
+                                                        ${isMildCase ? 
                                                             `<p class="mild-case-note">Since this appears to be a condition you can manage at home, you can continue using the free version. However, for more detailed insights and tracking, consider upgrading.</p>` : ''}
                                                         <p>To get more insights, you can choose one of these options:</p>
+                                                        <ul class="premium-features-list">
+                                                            <li>
+                                                                <span class="feature-name">🔹 Premium Access ($9.99/month)</span>
+                                                                <span class="tooltip-icon" title="Get deeper insights, track symptoms, and receive doctor-ready reports">ⓘ</span>
+                                                                <span class="feature-description">Unlimited symptom checks, detailed assessments, and personalized health monitoring.</span>
+                                                            </li>
+                                                            <li>
+                                                                <span class="feature-name">🔹 One-time Consultation Report ($4.99)</span>
+                                                                <span class="tooltip-icon" title="A comprehensive report you can share with your doctor">ⓘ</span>
+                                                                <span class="feature-description">Get a comprehensive analysis of your current symptoms.</span>
+                                                            </li>
+                                                        </ul>
+                                                        <p>Would you like to continue with one of these options?</p>
                                                         <div class="upgrade-buttons">
-                                                            <button class="upgrade-button subscription" onclick="window.location.href='/subscribe'">🩺 Get Premium Access ($9.99/month)</button>
-                                                            <button class="upgrade-button one-time" onclick="window.location.href='/one-time-report'">📄 Get Consultation Report ($4.99)</button>
-                                                            ${latestAssessment.triageLevel?.toLowerCase() === "mild" ? 
+                                                            <button class="upgrade-button subscription" onclick="window.location.href='/subscribe'">
+                                                                🩺 Get Premium Access ($9.99/month)
+                                                            </button>
+                                                            <button class="upgrade-button one-time" onclick="window.location.href='/one-time-report'">
+                                                                📄 Get Consultation Report ($4.99)
+                                                            </button>
+                                                            ${isMildCase ? 
                                                                 `<button class="continue-free-button" id="continue-free-button">Maybe Later</button>` : ''}
                                                         </div>
                                                     </div>
@@ -1344,16 +1444,38 @@ const Chat = () => {
                                                 upgradeDiv.style.zIndex = '100';
                                                 
                                                 // Create basic upgrade content
+                                                const isMildCase = latestAssessment.triageLevel?.toLowerCase() === "mild";
+                                                const displayName = latestAssessment.commonName ? 
+                                                    `${latestAssessment.commonName} (${latestAssessment.condition})` : 
+                                                    latestAssessment.condition;
+                                                    
                                                 upgradeDiv.innerHTML = `
                                                     <div class="upgrade-options-inline" style="width: 100%; display: block;">
-                                                        <h3>Based on your symptoms, I've identified ${latestAssessment.condition} as a possible condition that may require further evaluation.</h3>
-                                                        ${latestAssessment.triageLevel?.toLowerCase() === "mild" ? 
+                                                        <h3>Based on your symptoms, I've identified ${displayName} as a possible condition that may require further evaluation.</h3>
+                                                        ${isMildCase ? 
                                                             `<p class="mild-case-note">Since this appears to be a condition you can manage at home, you can continue using the free version. However, for more detailed insights and tracking, consider upgrading.</p>` : ''}
                                                         <p>To get more insights, you can choose one of these options:</p>
+                                                        <ul class="premium-features-list">
+                                                            <li>
+                                                                <span class="feature-name">🔹 Premium Access ($9.99/month)</span>
+                                                                <span class="tooltip-icon" title="Get deeper insights, track symptoms, and receive doctor-ready reports">ⓘ</span>
+                                                                <span class="feature-description">Unlimited symptom checks, detailed assessments, and personalized health monitoring.</span>
+                                                            </li>
+                                                            <li>
+                                                                <span class="feature-name">🔹 One-time Consultation Report ($4.99)</span>
+                                                                <span class="tooltip-icon" title="A comprehensive report you can share with your doctor">ⓘ</span>
+                                                                <span class="feature-description">Get a comprehensive analysis of your current symptoms.</span>
+                                                            </li>
+                                                        </ul>
+                                                        <p>Would you like to continue with one of these options?</p>
                                                         <div class="upgrade-buttons">
-                                                            <button class="upgrade-button subscription" onclick="window.location.href='/subscribe'">🩺 Get Premium Access ($9.99/month)</button>
-                                                            <button class="upgrade-button one-time" onclick="window.location.href='/one-time-report'">📄 Get Consultation Report ($4.99)</button>
-                                                            ${latestAssessment.triageLevel?.toLowerCase() === "mild" ? 
+                                                            <button class="upgrade-button subscription" onclick="window.location.href='/subscribe'">
+                                                                🩺 Get Premium Access ($9.99/month)
+                                                            </button>
+                                                            <button class="upgrade-button one-time" onclick="window.location.href='/one-time-report'">
+                                                                📄 Get Consultation Report ($4.99)
+                                                            </button>
+                                                            ${isMildCase ? 
                                                                 `<button class="continue-free-button" id="continue-free-button">Maybe Later</button>` : ''}
                                                         </div>
                                                     </div>
