@@ -27,7 +27,7 @@ const UpgradePrompt = ({ condition, commonName, isMildCase, onDismiss }) => {
     }, [condition, commonName, isMildCase]);
 
     return (
-        <div className="upgrade-options-inline">
+        <div className="upgrade-options-inline" style={{width: '100%', display: 'block'}}>
             <h3>
                 Based on your symptoms, I've identified {displayName} as a possible condition that may require further evaluation.
             </h3>
