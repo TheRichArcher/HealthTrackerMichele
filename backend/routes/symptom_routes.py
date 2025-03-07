@@ -18,8 +18,9 @@ symptom_routes = Blueprint('symptom_routes', __name__)
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 MAX_DETAILED_EXCHANGES = 5  # Number of recent exchanges to keep in full detail
-QUESTION_COUNT_THRESHOLD = 3  # Minimum number of questions before assessment
+QUESTION_COUNT_THRESHOLD = 5  # Increased from 3 to 5 to ensure more thorough questioning
 MAX_FREE_MESSAGES = 15  # Maximum number of messages for free tier users
+MAX_QUESTIONS_PER_SESSION = 20  # Maximum questions per session to prevent infinite loops
 
 class UserTier:
     FREE = "free"  # Nurse Mode
@@ -102,7 +103,7 @@ def prepare_messages_with_context(conversation_history, current_symptom, context
             user_symptoms.append(entry.get("message", ""))
     
     if user_symptoms:
-        # Create a summary of all user-reported symptoms
+        # Create a summary of all user-reported symptoms - preserve all symptom history
         symptom_summary = "User has reported: " + "; ".join(user_symptoms)
         messages.append({"role": "system", "content": symptom_summary})
     
@@ -111,10 +112,10 @@ def prepare_messages_with_context(conversation_history, current_symptom, context
         early_history = conversation_history[:-(MAX_DETAILED_EXCHANGES * 2)]
         recent_history = conversation_history[-(MAX_DETAILED_EXCHANGES * 2):]
         
-        # Add information about question count
+        # Add enhanced information about question count and confidence threshold
         messages.append({
             "role": "system", 
-            "content": f"You have asked {question_count} follow-up questions so far. Remember to ask at least {QUESTION_COUNT_THRESHOLD} questions before providing an assessment."
+            "content": f"You have asked {question_count} follow-up questions so far. Remember to ask at least {QUESTION_COUNT_THRESHOLD} questions before providing an assessment, and ONLY provide an assessment if you can reach at least {MIN_CONFIDENCE_THRESHOLD}% confidence. If you cannot reach this confidence level, continue asking questions."
         })
         
         # Add recent history in full detail
@@ -129,10 +130,10 @@ def prepare_messages_with_context(conversation_history, current_symptom, context
             content = entry.get("message", "")
             messages.append({"role": role, "content": content})
         
-        # Add information about question count
+        # Add enhanced information about question count and confidence threshold
         messages.append({
             "role": "system", 
-            "content": f"You have asked {question_count} follow-up questions so far. Remember to ask at least {QUESTION_COUNT_THRESHOLD} questions before providing an assessment."
+            "content": f"You have asked {question_count} follow-up questions so far. Remember to ask at least {QUESTION_COUNT_THRESHOLD} questions before providing an assessment, and ONLY provide an assessment if you can reach at least {MIN_CONFIDENCE_THRESHOLD}% confidence. If you cannot reach this confidence level, continue asking questions."
         })
     
     # Add the current symptom if not already in conversation
@@ -260,16 +261,15 @@ def analyze_symptoms():
         # Prepare messages with context preservation
         messages, question_count = prepare_messages_with_context(conversation_history, symptoms, context_notes)
 
-        # For free users, add instruction to avoid specific diagnoses and treatments
+        # Modified: For free users, allow specific condition names but limit detailed insights
         if not is_premium_user(current_user):
             messages.append({
                 "role": "system",
                 "content": """MONETIZATION ENFORCEMENT: 
-                1. DO NOT provide specific diagnoses or condition names to free users
-                2. DO NOT suggest specific treatments or medications
-                3. DO NOT provide detailed care recommendations
-                4. If you determine this is likely a specific condition, respond with a general description and indicate an upgrade is needed for details
-                5. For free users, only ask questions or provide very general information"""
+                1. DO provide specific condition names to all users (e.g., 'Gallstones' not 'Digestive Issue')
+                2. For free users, provide the condition name and basic care level (mild/moderate/severe)
+                3. DO NOT provide detailed treatment plans or comprehensive explanations for free users
+                4. Create curiosity by mentioning there are additional insights available with an upgrade"""
             })
 
         if not is_production:
@@ -333,6 +333,39 @@ def analyze_symptoms():
                 else:
                     # ✅ Override requires_upgrade if confidence is too low
                     is_confident = confidence is not None and confidence >= MIN_CONFIDENCE_THRESHOLD
+                    
+                    # CRITICAL FIX: If confidence is too low and we haven't asked enough questions,
+                    # force the AI to continue asking questions instead of providing an assessment
+                    if is_assessment and not is_confident and question_count < MAX_QUESTIONS_PER_SESSION:
+                        # Generate a follow-up question instead of an assessment
+                        follow_up_questions = [
+                            "I need more details to be certain. Can you describe when the pain started?",
+                            "To better understand your condition, can you tell me if anything makes the symptoms better or worse?",
+                            "I'd like to get a clearer picture. Have you noticed any other symptoms along with this?",
+                            "To help narrow down the possibilities, can you describe the exact location and nature of your discomfort?",
+                            "I need a bit more information. Have you tried any treatments or medications for this issue?"
+                        ]
+                        
+                        # Pick a question that hasn't been asked yet, or use the first one as fallback
+                        follow_up_question = follow_up_questions[0]
+                        for question in follow_up_questions:
+                            if question not in [msg.get("message", "") for msg in conversation_history if msg.get("isBot", False)]:
+                                follow_up_question = question
+                                break
+                        
+                        # Override the response to be a question instead of an assessment
+                        is_assessment = False
+                        is_question = True
+                        ai_response = follow_up_question
+                        processed_response = {
+                            'possible_conditions': follow_up_question,
+                            'is_assessment': False,
+                            'is_question': True
+                        }
+                        
+                        if not is_production:
+                            logger.info(f"Confidence too low ({confidence}), forcing follow-up question: {follow_up_question}")
+                    
                     if requires_upgrade and not is_confident:
                         requires_upgrade = False
                         upgrade_suggestion = False  # Also remove upgrade suggestions for low confidence
@@ -565,6 +598,11 @@ def analyze_symptoms():
                 # Ensure we always have a question field for the frontend
                 if is_question and 'question' not in result:
                     result['question'] = ai_response
+                
+                # Add condition name to the response for display in MessageItem.jsx
+                if is_assessment and "assessment" in result and "conditions" in result["assessment"]:
+                    if result["assessment"]["conditions"] and len(result["assessment"]["conditions"]) > 0:
+                        result["conditionName"] = result["assessment"]["conditions"][0].get("name", "")
                 
                 return jsonify(result)
                 
