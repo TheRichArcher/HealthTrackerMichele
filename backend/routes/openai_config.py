@@ -16,44 +16,49 @@ MAX_CONFIDENCE = 95  # Preventing overconfidence
 DEFAULT_CONFIDENCE = 75
 MIN_CONFIDENCE_THRESHOLD = 85  # Minimum confidence required for upgrade prompts - match frontend threshold
 
-# Lists for condition severity validation
+# Lists for condition severity validation - keeping these minimal
 MILD_CONDITION_PHRASES = [
     "common cold", "seasonal allergy", "mild", "minor", "viral infection",
-    "common nasal", "seasonal", "tension headache", "simple", "routine",
-    "non-serious", "benign", "uncomplicated", "self-limiting", "transient",
     "sunburn"  # Explicitly add sunburn
 ]
 
 # Common conditions that shouldn't trigger upgrade prompts even with doctor recommendations
+# Keeping this list minimal and focused on truly common conditions
 COMMON_CONDITIONS_NO_UPGRADE = [
     "common cold", "seasonal allergy", "mild headache", "tension headache",
-    "sinus infection", "sinusitis", "rhinitis", "sore throat", "pharyngitis",
-    "gastroenteritis", "stomach flu", "diarrhea", "constipation",
-    "urinary tract infection", "uti", "conjunctivitis", "pink eye",
-    "dermatitis", "eczema", "contact dermatitis", "insomnia",
-    "mild anxiety", "mild depression", "muscle strain", "sprain",
-    "plantar fasciitis", "heel pain", "achilles tendinitis",
-    "mild dehydration", "indigestion", "heartburn", "acid reflux",
-    "sunburn"  # Explicitly add sunburn
+    "sinus infection", "sinusitis", "sore throat", 
+    "stomach flu", "diarrhea", "constipation",
+    "urinary tract infection", "uti", "pink eye",
+    "sunburn"
 ]
 
-# Using a different approach to represent the JSON example
+# Updated system prompt to leverage OpenAI's capabilities and enforce proper formatting
 SYSTEM_PROMPT = """You are Michele, an AI medical assistant trained to have conversations like a doctor's visit.
 Your goal is to understand the user's symptoms through a conversation before providing any potential diagnosis.
 
+CRITICAL INSTRUCTIONS:
+1. ALWAYS ask at least 5 follow-up questions before considering a diagnosis.
+2. ALWAYS provide specific condition names (e.g., 'Gallstones', 'Acid Reflux', 'Migraine') rather than general categories (e.g., 'Digestive Issue', 'Headache').
+3. When providing a diagnosis, ALWAYS include both the medical term and common name in this format: "Medical Term (Common Name)" - for example "Cholelithiasis (Gallstones)" or "Cephalgia (Headache)".
+4. NEVER provide a diagnosis until you've asked at least 5 follow-up questions.
+5. ALWAYS include confidence levels with any diagnosis.
+6. NEVER use placeholder names like "Condition 1" or "Medical Condition" - always use specific medical terminology.
+7. If you're not confident (below 85%), continue asking questions instead of providing an assessment.
+
 CONVERSATION FLOW:
 1. Begin by asking about symptoms if the user hasn't provided them.
-2. ALWAYS ask at least 3 follow-up questions before considering a diagnosis.
+2. ALWAYS ask at least 5 follow-up questions before considering a diagnosis.
    - Tailor questions based on the symptom provided.
    - Do NOT ask the same set of questions for every symptom.
    - Include symptom history, triggers, and progression.
 3. Once enough information is gathered, provide a structured response.
 
 FOLLOW-UP QUESTIONING LOGIC:
-- **Headache:** "Have you had this type of headache before?" "Does anything make it better or worse?"
-- **Cough:** "Is the cough dry or producing mucus?" "Any fever or difficulty breathing?"
-- **Fever:** "Do you have chills or body aches?" "Have you traveled recently?"
-- **Injury:** "Is there swelling or bruising?" "Can you move the affected area?"
+- Ask about symptom onset, duration, severity, and any factors that make it better or worse
+- Ask about related symptoms that might help narrow down the diagnosis
+- Ask about medical history if relevant to the current symptoms
+- Ask about lifestyle factors that might contribute to the symptoms
+- Ask about any treatments the user has already tried
 
 TRIAGE GUIDELINES:
 - MILD: Conditions that can be managed at home with self-care (e.g., common cold, sunburn, seasonal allergies)
@@ -77,8 +82,6 @@ CONFIDENCE SCORING GUIDELINES:
 - 50-69%: Moderate evidence with significant uncertainty
 - Below 50%: Limited evidence, highly uncertain
 
-For common, well-established conditions with clear symptom patterns (like cat allergies with typical symptoms), confidence should be higher (95%+).
-
 IMPORTANT RULES:
 1. NEVER ask a question the user has already answered.
 2. DO NOT start questions by repeating the user's response.
@@ -91,8 +94,8 @@ The AI must return JSON structured like this:
 {
   "assessment": {
     "conditions": [
-      {"name": "Condition Name", "confidence": 70},
-      {"name": "Alternative Condition", "confidence": 20}
+      {"name": "Medical Term (Common Name)", "confidence": 70},
+      {"name": "Alternative Medical Term (Common Name)", "confidence": 20}
     ],
     "triage_level": "MILD|MODERATE|SEVERE",
     "care_recommendation": "Brief recommendation based on triage level",
@@ -101,60 +104,6 @@ The AI must return JSON structured like this:
 }
 </json>
 """
-
-def extract_real_condition_name(response_text, placeholder_name):
-    """
-    Extract a real condition name from the response text when a placeholder like 'Condition 1' is detected.
-    """
-    logger.info(f"Attempting to extract real condition name to replace '{placeholder_name}'")
-    
-    # Look for phrases that might indicate a condition name
-    condition_patterns = [
-        r"most likely (?:condition|diagnosis) is ([^\.]+)",
-        r"likely (?:suffering from|experiencing|have|has) ([^\.]+)",
-        r"symptoms suggest ([^\.]+)",
-        r"consistent with ([^\.]+)",
-        r"indicative of ([^\.]+)",
-        r"appears to be ([^\.]+)",
-        r"points to ([^\.]+)",
-        r"diagnosed with ([^\.]+)"
-    ]
-    
-    # Try each pattern to find a condition name
-    for pattern in condition_patterns:
-        matches = re.search(pattern, response_text, re.IGNORECASE)
-        if matches:
-            extracted_name = matches.group(1).strip()
-            # Clean up the extracted name
-            extracted_name = re.sub(r'[,\.]$', '', extracted_name)  # Remove trailing commas or periods
-            
-            # Don't return if it's just another placeholder
-            if re.match(r'^condition\s+\d+$', extracted_name, re.IGNORECASE):
-                continue
-                
-            logger.info(f"Extracted condition name: '{extracted_name}' using pattern: '{pattern}'")
-            return extracted_name
-    
-    # If no specific pattern matches, try to find medical condition names
-    common_conditions = [
-        "Migraine", "Common Cold", "Influenza", "Gastroenteritis", 
-        "Sinusitis", "Allergic Rhinitis", "Bronchitis", "Conjunctivitis",
-        "Urinary Tract Infection", "Dermatitis", "Anxiety", "Depression",
-        "Hypertension", "Diabetes", "Asthma", "Arthritis", "Pneumonia",
-        "Gastroesophageal Reflux Disease", "Irritable Bowel Syndrome",
-        "Plantar Fasciitis", "Achilles Tendinitis", "Herpes Zoster", "Shingles",
-        "Dehydration", "Heat Exhaustion", "Insomnia", "Tension Headache",
-        "Sunburn"  # Explicitly add Sunburn
-    ]
-    
-    for condition in common_conditions:
-        if condition.lower() in response_text.lower():
-            logger.info(f"Found condition name '{condition}' in response text")
-            return condition
-    
-    # If all else fails, return a generic but more informative name
-    logger.warning(f"Could not extract specific condition name to replace '{placeholder_name}'")
-    return "Medical Condition"
 
 def create_default_response() -> Dict:
     """
@@ -257,84 +206,16 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
                     conditions = assessment_data["assessment"]["conditions"]
                     if conditions and len(conditions) > 0:
                         confidence = conditions[0].get("confidence", DEFAULT_CONFIDENCE)
-                        
-                        # Check if the condition name is a generic placeholder like "Condition 1"
-                        if re.match(r'^condition\s+\d+$', conditions[0]["name"], re.IGNORECASE):
-                            logger.warning(f"Detected generic placeholder condition name: '{conditions[0]['name']}'")
-                            
-                            # Try to extract a real condition name from the full response
-                            real_condition_name = extract_real_condition_name(response_text, conditions[0]["name"])
-                            
-                            # Replace the placeholder with the extracted name
-                            conditions[0]["name"] = real_condition_name
-                            logger.info(f"Replaced placeholder with extracted condition name: '{real_condition_name}'")
-                            
-                            # Also add a common name if appropriate
-                            common_name_map = {
-                                # Respiratory conditions
-                                "Migraine": "Severe Headache",
-                                "Influenza": "Flu",
-                                "Gastroenteritis": "Stomach Flu",
-                                "Sinusitis": "Sinus Infection",
-                                "Allergic Rhinitis": "Hay Fever",
-                                "Bronchitis": "Chest Cold",
-                                "Conjunctivitis": "Pink Eye",
-                                "Urinary Tract Infection": "UTI",
-                                "Dermatitis": "Skin Rash",
-                                "Gastroesophageal Reflux Disease": "Acid Reflux",
-                                "Herpes Zoster": "Shingles",
-                                "Plantar Fasciitis": "Heel Pain",
-                                "Achilles Tendinitis": "Ankle Pain",
-                                "Pharyngitis": "Sore Throat",
-                                "Otitis Media": "Middle Ear Infection",
-                                "Otitis Externa": "Swimmer's Ear",
-                                "Rhinitis": "Runny Nose",
-                                "Cephalgia": "Headache",
-                                "Tension Cephalgia": "Tension Headache",
-                                "Cluster Cephalgia": "Cluster Headache",
-                                "Hypertension": "High Blood Pressure",
-                                "Hyperlipidemia": "High Cholesterol",
-                                "Diabetes Mellitus": "Diabetes",
-                                "Insomnia": "Sleep Disorder",
-                                "Anxiety Disorder": "Anxiety",
-                                "Major Depressive Disorder": "Depression",
-                                "Cellulitis": "Skin Infection",
-                                "Tinea Pedis": "Athlete's Foot",
-                                "Tinea Corporis": "Ringworm",
-                                "Tinea Cruris": "Jock Itch",
-                                "Onychomycosis": "Fungal Nail Infection",
-                                "Acne Vulgaris": "Acne",
-                                "Seborrheic Dermatitis": "Dandruff",
-                                "Rosacea": "Facial Redness",
-                                "Psoriasis": "Scaly Skin Patches",
-                                "Urticaria": "Hives",
-                                "Dyspepsia": "Indigestion",
-                                "Constipation": "Constipation",
-                                "Diarrhea": "Diarrhea",
-                                "Hemorrhoids": "Piles",
-                                "Dysmenorrhea": "Menstrual Cramps",
-                                "Premenstrual Syndrome": "PMS",
-                                "Cystitis": "Bladder Infection",
-                                "Nephrolithiasis": "Kidney Stones",
-                                "Epicondylitis": "Tennis Elbow",
-                                "Carpal Tunnel Syndrome": "Wrist Pain",
-                                "Tendinitis": "Tendon Inflammation",
-                                "Bursitis": "Joint Inflammation",
-                                "Osteoarthritis": "Joint Pain",
-                                "Myalgia": "Muscle Pain",
-                                "Coryza": "Common Cold",
-                                "Upper Respiratory Infection": "Common Cold",
-                                "Acute Bronchitis": "Chest Cold",
-                                "Pneumonia": "Lung Infection",
-                                "Tonsillitis": "Tonsil Infection",
-                                "Laryngitis": "Voice Box Inflammation",
-                                "Dehydration": "Dehydration",
-                                "Sunburn": "Sunburn"  # Add sunburn explicitly
-                            }
-                            
-                            if real_condition_name in common_name_map:
-                                conditions[0]["common_name"] = common_name_map[real_condition_name]
-                                logger.info(f"Added common name: '{conditions[0]['common_name']}'")
+                
+                # CRITICAL FIX: If confidence is below threshold, force a follow-up question
+                if confidence < MIN_CONFIDENCE_THRESHOLD:
+                    logger.info(f"Confidence too low ({confidence}%), forcing follow-up question.")
+                    return {
+                        "is_question": True,
+                        "is_assessment": False,
+                        "possible_conditions": "I need more details before making an accurate assessment. Can you describe your symptoms in more detail?",
+                        "requires_upgrade": False
+                    }
                 
                 # SIMPLIFIED: Check for common conditions that should be MILD
                 if "assessment" in assessment_data and "conditions" in assessment_data["assessment"]:
@@ -379,25 +260,15 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
                     # Check if it's a common condition that shouldn't require upgrade
                     is_common_condition = any(common_cond in condition_name for common_cond in COMMON_CONDITIONS_NO_UPGRADE)
                     
-                    # Also check if the recommendation is just a standard "see doctor if symptoms persist"
-                    is_standard_recommendation = "if symptoms persist" in care_recommendation or \
-                                               "if it doesn't improve" in care_recommendation
-                    
-                    if not is_common_condition and not (is_standard_recommendation and triage_level == 'MODERATE'):
-                        logger.info("Response contains medical recommendation with high confidence that may require upgrade")
-                        
-                        # Check user's subscription tier
-                        if user and hasattr(user, 'subscription_tier') and user.subscription_tier == UserTierEnum.FREE:
-                            logger.info("FREE tier user needs upgrade for medical recommendation")
-                            requires_upgrade = True
-                            logger.info("Free user can see condition names but needs upgrade for detailed insights")
-                        else:
-                            logger.info("User has appropriate subscription tier or is not authenticated")
+                    if not is_common_condition and user and hasattr(user, 'subscription_tier') and user.subscription_tier == UserTierEnum.FREE:
+                        logger.info("FREE tier user needs upgrade for medical recommendation")
+                        requires_upgrade = True
+                        logger.info("Free user can see condition names but needs upgrade for detailed insights")
                     else:
                         if is_common_condition:
                             logger.info(f"Not requiring upgrade because '{condition_name}' is a common condition")
                         else:
-                            logger.info(f"Not requiring upgrade because recommendation is standard advice")
+                            logger.info(f"User has appropriate subscription tier or is not authenticated")
                 else:
                     if not is_confident:
                         logger.info(f"Not requiring upgrade due to low confidence in assessment ({confidence})")
@@ -408,6 +279,12 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
                 # Ensure confidence is always included in the response
                 assessment_data["confidence"] = confidence
                 logger.info(f"Setting requires_upgrade={requires_upgrade}")
+                
+                # Add condition name to the response for display in MessageItem.jsx
+                if "assessment" in assessment_data and "conditions" in assessment_data["assessment"]:
+                    if assessment_data["assessment"]["conditions"] and len(assessment_data["assessment"]["conditions"]) > 0:
+                        assessment_data["conditionName"] = assessment_data["assessment"]["conditions"][0].get("name", "")
+                
                 return assessment_data
                 
         except json.JSONDecodeError as e:
@@ -431,6 +308,16 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
         elif "low confidence" in response_text.lower():
             confidence = 60
         # else: confidence remains at DEFAULT_CONFIDENCE set at the beginning
+        
+        # CRITICAL FIX: If confidence is below threshold, force a follow-up question
+        if confidence < MIN_CONFIDENCE_THRESHOLD:
+            logger.info(f"Confidence too low ({confidence}%), forcing follow-up question.")
+            return {
+                "is_question": True,
+                "is_assessment": False,
+                "possible_conditions": "I need more details before making an accurate assessment. Can you describe your symptoms in more detail?",
+                "requires_upgrade": False
+            }
         
         # SIMPLIFIED: Check for common conditions in the text
         is_common_condition = any(condition in response_text.lower() for condition in COMMON_CONDITIONS_NO_UPGRADE)
@@ -463,11 +350,23 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
         triage_level = "MILD"
         logger.info(f"Setting triage to MILD due to common condition detection")
     
+    # Try to extract condition name from text for non-JSON responses
+    # Look for medical terms followed by common terms in parentheses
+    condition_name = None
+    parentheses_pattern = r'([A-Za-z\s]+)\s*\(([A-Za-z\s]+)\)'
+    matches = re.search(parentheses_pattern, response_text)
+    if matches:
+        medical_term = matches.group(1).strip()
+        common_term = matches.group(2).strip()
+        logger.info(f"Found medical term with common name: {medical_term} ({common_term})")
+        condition_name = f"{medical_term} ({common_term})"
+    
     return {
         "is_question": is_question,
         "is_assessment": not is_question,
         "possible_conditions": response_text,
         "triage_level": triage_level,
         "requires_upgrade": requires_upgrade,
-        "confidence": confidence  # Always include confidence in the response
+        "confidence": confidence,  # Always include confidence in the response
+        "conditionName": condition_name if not is_question else None  # Add condition name for display
     }
