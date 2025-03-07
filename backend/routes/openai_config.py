@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 MIN_CONFIDENCE = 10  # Allowing lower confidence for nuanced assessments
 MAX_CONFIDENCE = 95  # Preventing overconfidence
 DEFAULT_CONFIDENCE = 75
-MIN_CONFIDENCE_THRESHOLD = 85  # Minimum confidence required for upgrade prompts - match frontend threshold
+MIN_CONFIDENCE_THRESHOLD = 90  # Increased from 85% to 90% to prevent premature assessments
+QUESTION_COUNT_THRESHOLD = 5  # Minimum number of questions before assessment
 
 # Lists for condition severity validation - keeping these minimal
 MILD_CONDITION_PHRASES = [
@@ -32,18 +33,72 @@ COMMON_CONDITIONS_NO_UPGRADE = [
     "sunburn"
 ]
 
+# Potentially serious conditions that require more thorough questioning
+SERIOUS_CONDITIONS_REQUIRING_DIFFERENTIATION = [
+    "heat exhaustion", "heat stroke", "dehydration", "concussion", "migraine", 
+    "meningitis", "stroke", "heart attack", "pulmonary embolism", "sepsis",
+    "diabetic ketoacidosis", "anaphylaxis", "appendicitis"
+]
+
+# Specific follow-up questions for ambiguous or uncertain answers
+CLARIFYING_QUESTIONS = {
+    "dehydration_heat": [
+        "I need to be certain: Have you felt extremely hot or sweaty, or have you stopped sweating?",
+        "Do you feel confused or disoriented?",
+        "Have you felt nauseous or vomited since the symptoms started?",
+        "Is your skin cool and clammy, or hot and dry?"
+    ],
+    "head_injury": [
+        "I need to be certain: Have you experienced any loss of consciousness, even briefly?",
+        "Are you experiencing any confusion, memory problems, or difficulty concentrating?",
+        "Do you have a headache that is getting worse over time?",
+        "Have you noticed any changes in your vision or pupils?"
+    ],
+    "chest_pain": [
+        "I need to be certain: Does the pain radiate to your arm, jaw, or back?",
+        "Are you experiencing shortness of breath along with the chest pain?",
+        "Are you sweating, nauseous, or lightheaded with the pain?",
+        "Do you have a history of heart problems or high blood pressure?"
+    ],
+    "uncertain": [
+        "I understand you're not sure, but this is important for your safety. Could you try to describe any other symptoms you've noticed?",
+        "When you say you're not sure, is it because you haven't checked, or because the symptom is unclear?",
+        "For your safety, I need to rule out serious conditions. Have you experienced any severe symptoms like extreme confusion, fainting, or severe pain?"
+    ]
+}
+
 # Updated system prompt to leverage OpenAI's capabilities and enforce proper formatting
 SYSTEM_PROMPT = """You are Michele, an AI medical assistant trained to have conversations like a doctor's visit.
 Your goal is to understand the user's symptoms through a conversation before providing any potential diagnosis.
 
 CRITICAL INSTRUCTIONS:
 1. ALWAYS ask at least 5 follow-up questions before considering a diagnosis.
-2. ALWAYS provide specific condition names (e.g., 'Gallstones', 'Acid Reflux', 'Migraine') rather than general categories (e.g., 'Digestive Issue', 'Headache').
-3. When providing a diagnosis, ALWAYS include both the medical term and common name in this format: "Medical Term (Common Name)" - for example "Cholelithiasis (Gallstones)" or "Cephalgia (Headache)".
-4. NEVER provide a diagnosis until you've asked at least 5 follow-up questions.
-5. ALWAYS include confidence levels with any diagnosis.
-6. NEVER use placeholder names like "Condition 1" or "Medical Condition" - always use specific medical terminology.
-7. If you're not confident (below 85%), continue asking questions instead of providing an assessment.
+2. For potentially serious conditions (like heat exhaustion vs. heat stroke, dehydration, concussion, etc.), ask at least 7-8 questions to properly differentiate between similar conditions.
+3. ALWAYS provide specific condition names (e.g., 'Gallstones', 'Acid Reflux', 'Migraine') rather than general categories (e.g., 'Digestive Issue', 'Headache').
+4. When providing a diagnosis, ALWAYS include both the medical term and common name in this format: "Medical Term (Common Name)" - for example "Cholelithiasis (Gallstones)" or "Cephalgia (Headache)".
+5. NEVER provide a diagnosis until you've asked enough questions to be at least 90% confident.
+6. ALWAYS include confidence levels with any diagnosis.
+7. NEVER use placeholder names like "Condition 1" or "Medical Condition" - always use specific medical terminology.
+8. If you're not confident (below 90%), continue asking questions instead of providing an assessment.
+
+HANDLING UNCERTAIN ANSWERS:
+When a user responds with uncertain answers like "I'm not sure", "maybe", or "I don't know":
+1. DO NOT proceed with an assessment
+2. Ask more specific, direct questions that can be answered with simple yes/no
+3. For heat-related or dehydration symptoms, ALWAYS ask about:
+   - Body temperature (hot/normal/cold)
+   - Skin condition (dry/wet/clammy)
+   - Mental status (confused/alert/disoriented)
+   - Sweating patterns (stopped sweating/sweating profusely)
+4. Explain why these questions are important for their safety
+
+CRITICAL DIFFERENTIATION REQUIREMENTS:
+When symptoms suggest potentially serious conditions that require differentiation (like heat exhaustion vs. heat stroke, or dehydration vs. more serious conditions), you MUST:
+1. Ask specific questions to differentiate between similar conditions
+2. For heat-related issues: Ask about body temperature, mental status changes, sweating patterns
+3. For head injuries: Ask about loss of consciousness, memory issues, nausea, pupil changes
+4. For chest pain: Ask about radiation to arm/jaw, shortness of breath, sweating, nausea
+5. NEVER provide a diagnosis until you've asked enough questions to properly differentiate between similar conditions
 
 CONVERSATION FLOW:
 1. Begin by asking about symptoms if the user hasn't provided them.
@@ -77,16 +132,17 @@ If the user describes symptoms that could indicate a medical emergency (such as 
 
 CONFIDENCE SCORING GUIDELINES:
 - 95-99%: Clear, textbook presentation with multiple confirming symptoms
-- 85-94%: Strong evidence but missing some confirmatory details
-- 70-84%: Good evidence but multiple possible conditions
-- 50-69%: Moderate evidence with significant uncertainty
-- Below 50%: Limited evidence, highly uncertain
+- 90-94%: Strong evidence with most confirming details present
+- 80-89%: Good evidence but some uncertainty remains
+- 70-79%: Moderate evidence with multiple possible conditions
+- Below 70%: Limited evidence, highly uncertain
 
 IMPORTANT RULES:
 1. NEVER ask a question the user has already answered.
 2. DO NOT start questions by repeating the user's response.
 3. Accept single-character inputs where applicable (e.g., severity rating from 1-10).
 4. If a symptom description is vague, ask for clarification instead of assuming.
+5. If the user responds with "I'm not sure" or "maybe", ask more specific questions.
 
 FINAL ASSESSMENT FORMAT:
 The AI must return JSON structured like this:
@@ -121,6 +177,27 @@ def create_default_response() -> Dict:
             "disclaimer": "This assessment is for informational purposes only and does not replace professional medical advice."
         }
     }
+
+def get_clarifying_question(response_text: str) -> str:
+    """
+    Returns an appropriate clarifying question based on the context of the conversation.
+    """
+    # Check for heat-related or dehydration context
+    if any(term in response_text.lower() for term in ["heat", "hot", "dehydrat", "dizz", "faint", "weak", "sweat"]):
+        questions = CLARIFYING_QUESTIONS["dehydration_heat"]
+    # Check for head injury context
+    elif any(term in response_text.lower() for term in ["head", "concuss", "hit", "fall", "dizz", "nause", "vomit"]):
+        questions = CLARIFYING_QUESTIONS["head_injury"]
+    # Check for chest pain context
+    elif any(term in response_text.lower() for term in ["chest", "heart", "pain", "breath", "pressure"]):
+        questions = CLARIFYING_QUESTIONS["chest_pain"]
+    # Default to general uncertain questions
+    else:
+        questions = CLARIFYING_QUESTIONS["uncertain"]
+    
+    # Return a random question from the appropriate category
+    import random
+    return random.choice(questions)
 
 def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
     """
@@ -170,13 +247,22 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
         "medical provider"
     ]
     
+    # Check for uncertain responses that should trigger clarifying questions
+    uncertain_phrases = [
+        "not sure", "maybe", "i don't know", "uncertain", "possibly", 
+        "can't tell", "hard to say", "unclear", "don't remember"
+    ]
+    
     is_emergency = any(phrase in response_text.lower() for phrase in emergency_phrases)
     needs_medical_attention = any(phrase in response_text.lower() for phrase in medical_consultation_phrases)
+    has_uncertainty = any(phrase in response_text.lower() for phrase in uncertain_phrases)
     
     if is_emergency:
         logger.info("EMERGENCY recommendation detected in response")
     if needs_medical_attention:
         logger.info("Medical consultation recommendation detected in response")
+    if has_uncertainty:
+        logger.info("Uncertainty detected in response, will require clarifying questions")
 
     # Extract JSON-formatted response if present
     json_match = re.search(r'```json\s*(.*?)\s*```|<json>\s*(.*?)\s*</json>|({[\s\S]*"assessment"[\s\S]*})', response_text, re.DOTALL)
@@ -206,14 +292,32 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
                     conditions = assessment_data["assessment"]["conditions"]
                     if conditions and len(conditions) > 0:
                         confidence = conditions[0].get("confidence", DEFAULT_CONFIDENCE)
+                        
+                        # Check if this is a potentially serious condition that requires differentiation
+                        condition_name = conditions[0].get("name", "").lower()
+                        requires_differentiation = any(serious_cond in condition_name for serious_cond in SERIOUS_CONDITIONS_REQUIRING_DIFFERENTIATION)
+                        
+                        if requires_differentiation:
+                            logger.info(f"Detected potentially serious condition requiring differentiation: {condition_name}")
+                            # For potentially serious conditions, we require higher confidence
+                            if confidence < 95:  # Even stricter for serious conditions
+                                logger.info(f"Confidence too low ({confidence}%) for potentially serious condition, forcing follow-up question.")
+                                clarifying_question = get_clarifying_question(response_text)
+                                return {
+                                    "is_question": True,
+                                    "is_assessment": False,
+                                    "possible_conditions": clarifying_question,
+                                    "requires_upgrade": False
+                                }
                 
                 # CRITICAL FIX: If confidence is below threshold, force a follow-up question
                 if confidence < MIN_CONFIDENCE_THRESHOLD:
                     logger.info(f"Confidence too low ({confidence}%), forcing follow-up question.")
+                    clarifying_question = get_clarifying_question(response_text)
                     return {
                         "is_question": True,
                         "is_assessment": False,
-                        "possible_conditions": "I need more details before making an accurate assessment. Can you describe your symptoms in more detail?",
+                        "possible_conditions": clarifying_question,
                         "requires_upgrade": False
                     }
                 
@@ -309,13 +413,26 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
             confidence = 60
         # else: confidence remains at DEFAULT_CONFIDENCE set at the beginning
         
-        # CRITICAL FIX: If confidence is below threshold, force a follow-up question
-        if confidence < MIN_CONFIDENCE_THRESHOLD:
-            logger.info(f"Confidence too low ({confidence}%), forcing follow-up question.")
+        # Check for potentially serious conditions
+        requires_differentiation = any(serious_cond in response_text.lower() for serious_cond in SERIOUS_CONDITIONS_REQUIRING_DIFFERENTIATION)
+        if requires_differentiation or confidence < 95:  # Even stricter for serious conditions
+            logger.info(f"Detected potentially serious condition requiring differentiation with confidence {confidence}%, forcing follow-up question.")
+            clarifying_question = get_clarifying_question(response_text)
             return {
                 "is_question": True,
                 "is_assessment": False,
-                "possible_conditions": "I need more details before making an accurate assessment. Can you describe your symptoms in more detail?",
+                "possible_conditions": clarifying_question,
+                "requires_upgrade": False
+            }
+        
+        # CRITICAL FIX: If confidence is below threshold, force a follow-up question
+        if confidence < MIN_CONFIDENCE_THRESHOLD:
+            logger.info(f"Confidence too low ({confidence}%), forcing follow-up question.")
+            clarifying_question = get_clarifying_question(response_text)
+            return {
+                "is_question": True,
+                "is_assessment": False,
+                "possible_conditions": clarifying_question,
                 "requires_upgrade": False
             }
         
@@ -332,6 +449,17 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
             logger.info(f"Not requiring upgrade due to low confidence in text response ({confidence})")
         elif is_common_condition:
             logger.info("Not requiring upgrade as this appears to be a common condition")
+    
+    # If the response contains uncertainty phrases, force a clarifying question
+    if has_uncertainty or confidence < MIN_CONFIDENCE_THRESHOLD:
+        logger.info("Detected uncertainty in non-question response, forcing clarifying question")
+        clarifying_question = get_clarifying_question(response_text)
+        return {
+            "is_question": True,
+            "is_assessment": False,
+            "possible_conditions": clarifying_question,
+            "requires_upgrade": False
+        }
     
     logger.info(f"Final determination: is_question={is_question}, requires_upgrade={requires_upgrade}")
     
