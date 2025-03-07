@@ -224,6 +224,12 @@ const Chat = () => {
     const inputRef = useRef(null);
     const messagesContainerRef = useRef(null);
 
+    // Add debugging to confirm the UI state is being set correctly
+    useEffect(() => {
+        console.log("UI State changed:", uiState);
+        console.log("Latest assessment:", latestAssessment);
+    }, [uiState, latestAssessment]);
+
     // Helper function to ensure upgrade prompt is shown for certain conditions
     const ensureUpgradePromptForCondition = useCallback((responseData, conditionName) => {
         // Check if this is an infectious disease case
@@ -247,6 +253,8 @@ const Chat = () => {
 
     // Handle continue with free version - improved as per developer feedback
     const handleContinueFree = useCallback(() => {
+        console.log("User dismissed upgrade prompt, returning to free chat");
+        
         // Reset UI state completely
         setUiState(UI_STATES.DEFAULT);
         setLoading(false);
@@ -256,7 +264,7 @@ const Chat = () => {
         
         // Add a message acknowledging their choice to continue with free version
         addBotMessage(
-            "You can continue using the free version for this assessment. Feel free to ask me more questions about managing your condition at home.",
+            "You can continue using the free version. Let me know if you have more questions!",
             false
         );
         
@@ -266,6 +274,13 @@ const Chat = () => {
                 inputRef.current.focus();
             }
         }, 100);
+        
+        // Additional focus attempt after a longer delay
+        setTimeout(() => {
+            if (document.activeElement !== inputRef.current && inputRef.current) {
+                inputRef.current.focus();
+            }
+        }, 300);
     }, []);
 
     // Auto-focus when component mounts
@@ -304,6 +319,29 @@ const Chat = () => {
         if (messagesEndRef.current) {
             messagesEndRef.current.scrollIntoView({ behavior: "auto" });
         }
+    }, []);
+
+    // Enhanced function to ensure element visibility
+    const ensureElementVisibility = useCallback((element) => {
+        if (!element) return;
+        
+        // Try multiple scroll methods
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // Backup scroll method after a delay
+        setTimeout(() => {
+            const rect = element.getBoundingClientRect();
+            const isVisible = (
+                rect.top >= 0 &&
+                rect.left >= 0 &&
+                rect.bottom <= window.innerHeight &&
+                rect.right <= window.innerWidth
+            );
+            
+            if (!isVisible) {
+                element.scrollIntoView({ behavior: 'auto', block: 'center' });
+            }
+        }, 500);
     }, []);
 
     // Scroll when messages change
@@ -978,59 +1016,20 @@ const Chat = () => {
                             careRecommendation
                         );
 
-                        // Step 2: Always show upgrade prompt after assessment
-                        // Different messaging for mild vs. moderate/severe cases
+                        // Step 2: IMMEDIATELY set upgrade prompt state after assessment
+                        // (Remove the setTimeout that was delaying this)
+                        setUiState(UI_STATES.UPGRADE_PROMPT);
+                        
+                        // Force scroll to make sure the upgrade prompt is visible
                         setTimeout(() => {
-                            // Only send upgrade message if the last message wasn't already an upgrade prompt
-                            if (!lastMessageWasUpgradePrompt) {
-                                if (isMildCase) {
-                                    addBotMessage(
-                                        `🔍 While you can manage this condition at home, Premium Access gives you deeper insights, symptom tracking, and doctor-ready reports if you'd like more detailed information.`,
-                                        false
-                                    );
-                                } else {
-                                    addBotMessage(
-                                        `🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?`,
-                                        false
-                                    );
-                                }
-                                setLastMessageWasUpgradePrompt(true);
+                            const upgradePromptElement = document.querySelector('.upgrade-prompt-container');
+                            if (upgradePromptElement) {
+                                upgradePromptElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                console.log("Scrolled to upgrade prompt");
+                            } else {
+                                console.warn("Upgrade prompt element not found for scrolling");
                             }
-                            
-                            // Step 3: ALWAYS set upgrade prompt state after assessment
-                            setTimeout(() => {
-                                // Set UI state to upgrade prompt
-                                setUiState(UI_STATES.UPGRADE_PROMPT);
-                                
-                                // Reset the flag when user interacts again
-                                const resetUpgradePromptFlag = () => {
-                                    setLastMessageWasUpgradePrompt(false);
-                                };
-                                
-                                // Add event listener to reset flag on user input
-                                inputRef.current?.addEventListener('focus', resetUpgradePromptFlag, { once: true });
-                                
-                                // Ensure everything is visible with multiple scroll attempts
-                                setTimeout(() => {
-                                    if (messagesEndRef.current) {
-                                        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-                                    }
-                                }, 100);
-                                
-                                // Backup scroll attempts to ensure visibility
-                                setTimeout(() => {
-                                    if (messagesEndRef.current) {
-                                        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-                                    }
-                                }, 300);
-                                
-                                setTimeout(() => {
-                                    if (messagesEndRef.current) {
-                                        messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
-                                    }
-                                }, 600);
-                            }, 500);
-                        }, 500);
+                        }, 100);
                     } else {
                         // Unstructured assessment handling (similar pattern as above)
                         const formattedMessage = responseData.possible_conditions || "Based on your symptoms, I can provide an assessment.";
@@ -1065,58 +1064,20 @@ const Chat = () => {
                             careRecommendation
                         );
                         
-                        // Step 2: Always show upgrade prompt after assessment
+                        // Step 2: IMMEDIATELY set upgrade prompt state after assessment
+                        // (Remove the setTimeout that was delaying this)
+                        setUiState(UI_STATES.UPGRADE_PROMPT);
+                        
+                        // Force scroll to make sure the upgrade prompt is visible
                         setTimeout(() => {
-                            // Only send upgrade message if the last message wasn't already an upgrade prompt
-                            if (!lastMessageWasUpgradePrompt) {
-                                // Different messaging for mild vs. moderate/severe cases
-                                if (isMildCase) {
-                                    addBotMessage(
-                                        `🔍 While you can manage this condition at home, Premium Access gives you deeper insights, symptom tracking, and doctor-ready reports if you'd like more detailed information.`,
-                                        false
-                                    );
-                                } else {
-                                    addBotMessage(
-                                        `🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?`,
-                                        false
-                                    );
-                                }
-                                setLastMessageWasUpgradePrompt(true);
+                            const upgradePromptElement = document.querySelector('.upgrade-prompt-container');
+                            if (upgradePromptElement) {
+                                upgradePromptElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                console.log("Scrolled to upgrade prompt");
+                            } else {
+                                console.warn("Upgrade prompt element not found for scrolling");
                             }
-                            
-                            // Step 3: ALWAYS set upgrade prompt state after assessment
-                            setTimeout(() => {
-                                // Set UI state to upgrade prompt
-                                setUiState(UI_STATES.UPGRADE_PROMPT);
-                                
-                                // Reset the flag when user interacts again
-                                const resetUpgradePromptFlag = () => {
-                                    setLastMessageWasUpgradePrompt(false);
-                                };
-                                
-                                // Add event listener to reset flag on user input
-                                inputRef.current?.addEventListener('focus', resetUpgradePromptFlag, { once: true });
-                                
-                                // Multiple scroll attempts to ensure visibility
-                                setTimeout(() => {
-                                    if (messagesEndRef.current) {
-                                        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-                                    }
-                                }, 100);
-                                
-                                setTimeout(() => {
-                                    if (messagesEndRef.current) {
-                                        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-                                    }
-                                }, 300);
-                                
-                                setTimeout(() => {
-                                    if (messagesEndRef.current) {
-                                        messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
-                                    }
-                                }, 600);
-                            }, 500);
-                        }, 500);
+                        }, 100);
                     }
                 } else if (isAssessment) {
                     // It's an assessment but confidence is too low - ALWAYS ask more questions
@@ -1253,13 +1214,14 @@ const Chat = () => {
                     
                     {/* Show upgrade prompt as a separate component when in upgrade prompt state */}
                     {uiState === UI_STATES.UPGRADE_PROMPT && latestAssessment && (
-                        <UpgradePrompt 
-                            key={`upgrade-${latestAssessment.condition}`} // Add key to force re-render
-                            condition={latestAssessment.condition || "this condition"}
-                            commonName={latestAssessment.commonName || ""}
-                            isMildCase={latestAssessment.triageLevel?.toLowerCase() === "mild"}
-                            onDismiss={handleContinueFree}
-                        />
+                        <div className="upgrade-prompt-container" key={`upgrade-${Date.now()}`}>
+                            <UpgradePrompt 
+                                condition={latestAssessment.condition || "this condition"}
+                                commonName={latestAssessment.commonName || ""}
+                                isMildCase={latestAssessment.triageLevel?.toLowerCase() === "mild"}
+                                onDismiss={handleContinueFree}
+                            />
+                        </div>
                     )}
                     
                     {/* Show typing indicator */}
