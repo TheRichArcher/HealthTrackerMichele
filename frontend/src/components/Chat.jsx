@@ -1075,6 +1075,7 @@ const Chat = () => {
                                 });
                             }
                             
+                            // CRITICAL: Always set latestAssessment for upgrade prompt
                             setLatestAssessment({
                                 condition: conditionName,
                                 commonName: commonName,
@@ -1138,9 +1139,11 @@ const Chat = () => {
                                 );
                             }
                             
-                            // Step 3: Set upgrade prompt state after sales pitch
+                            // Step 3: ALWAYS set upgrade prompt state after sales pitch
                             setTimeout(() => {
+                                // CRITICAL: Force UI state to UPGRADE_PROMPT
                                 setUiState(UI_STATES.UPGRADE_PROMPT);
+                                console.log("Setting UI state to UPGRADE_PROMPT");
                                 
                                 // Force scroll to make sure the upgrade prompt is visible
                                 setTimeout(() => {
@@ -1165,7 +1168,7 @@ const Chat = () => {
                             commonName = responseData.common_condition_name;
                         }
                         
-                        // Update the latest assessment for the sticky summary
+                        // CRITICAL: Always set latestAssessment for upgrade prompt
                         setLatestAssessment({
                             condition: "Assessment",
                             commonName: commonName,
@@ -1203,9 +1206,11 @@ const Chat = () => {
                                 );
                             }
                             
-                            // Step 3: Set upgrade prompt state after sales pitch
+                            // Step 3: ALWAYS set upgrade prompt state after sales pitch
                             setTimeout(() => {
+                                // CRITICAL: Force UI state to UPGRADE_PROMPT
                                 setUiState(UI_STATES.UPGRADE_PROMPT);
+                                console.log("Setting UI state to UPGRADE_PROMPT");
                                 
                                 // Force scroll to make sure the upgrade prompt is visible
                                 setTimeout(() => {
@@ -1354,12 +1359,12 @@ const Chat = () => {
                     ))}
                     
                     {/* Show upgrade prompt as a separate component when in upgrade prompt state */}
-                    {uiState === UI_STATES.UPGRADE_PROMPT && latestAssessment && (
+                    {uiState === UI_STATES.UPGRADE_PROMPT && (
                         <div className="upgrade-prompt-container" key={`upgrade-${Date.now()}`}>
                             <UpgradePrompt 
-                                condition={latestAssessment.condition || "this condition"}
-                                commonName={latestAssessment.commonName || ""}
-                                isMildCase={latestAssessment.triageLevel?.toLowerCase() === "mild"}
+                                condition={latestAssessment?.condition || "this condition"}
+                                commonName={latestAssessment?.commonName || ""}
+                                isMildCase={latestAssessment?.triageLevel?.toLowerCase() === "mild"}
                                 onDismiss={handleContinueFree}
                             />
                         </div>
