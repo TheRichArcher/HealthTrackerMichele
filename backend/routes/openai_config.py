@@ -15,7 +15,7 @@ MIN_CONFIDENCE = 10  # Allowing lower confidence for nuanced assessments
 MAX_CONFIDENCE = 95  # Preventing overconfidence
 DEFAULT_CONFIDENCE = 75
 MIN_CONFIDENCE_THRESHOLD = 90  # Increased from 85% to 90% to prevent premature assessments
-QUESTION_COUNT_THRESHOLD = 5  # Minimum number of questions before assessment
+QUESTION_COUNT_THRESHOLD = 8  # Increased from 5 to 8 minimum questions before assessment
 
 # Lists for condition severity validation - keeping these minimal
 MILD_CONDITION_PHRASES = [
@@ -30,14 +30,22 @@ COMMON_CONDITIONS_NO_UPGRADE = [
     "sinus infection", "sinusitis", "sore throat", 
     "stomach flu", "diarrhea", "constipation",
     "urinary tract infection", "uti", "pink eye",
-    "sunburn"
+    "sunburn", "acid reflux", "gerd"  # Added acid reflux/GERD as common conditions
 ]
 
 # Potentially serious conditions that require more thorough questioning
 SERIOUS_CONDITIONS_REQUIRING_DIFFERENTIATION = [
     "heat exhaustion", "heat stroke", "dehydration", "concussion", "migraine", 
     "meningitis", "stroke", "heart attack", "pulmonary embolism", "sepsis",
-    "diabetic ketoacidosis", "anaphylaxis", "appendicitis"
+    "diabetic ketoacidosis", "anaphylaxis", "appendicitis", "chest pain",
+    "angina", "myocardial infarction", "pneumonia", "pneumothorax"
+]
+
+# Conditions that require checking for recurring/chronic patterns
+CHRONIC_CONDITIONS_REQUIRING_HISTORY = [
+    "ibs", "irritable bowel syndrome", "gerd", "acid reflux", "gastroesophageal reflux",
+    "migraine", "tension headache", "cluster headache", "chronic fatigue",
+    "fibromyalgia", "arthritis", "asthma", "eczema", "psoriasis"
 ]
 
 # Specific follow-up questions for ambiguous or uncertain answers
@@ -58,7 +66,43 @@ CLARIFYING_QUESTIONS = {
         "I need to be certain: Does the pain radiate to your arm, jaw, or back?",
         "Are you experiencing shortness of breath along with the chest pain?",
         "Are you sweating, nauseous, or lightheaded with the pain?",
-        "Do you have a history of heart problems or high blood pressure?"
+        "Do you have a history of heart problems or high blood pressure?",
+        "Have you tried any medications like antacids, and if so, did they help?",
+        "Do you ever experience a sour or bitter taste in your mouth, especially after meals or when lying down?",
+        "How long have you been experiencing these symptoms?"
+    ],
+    "digestive": [
+        "How long have you been experiencing these symptoms?",
+        "Have you tried any medications like antacids, and if so, did they help?",
+        "Do you ever experience a sour or bitter taste in your mouth, especially after meals or when lying down?",
+        "Have you noticed any changes in your bowel movements?",
+        "Do you have any known food allergies or intolerances?",
+        "Have you had these symptoms multiple times in the past few months?",
+        "Do these symptoms tend to occur after eating certain foods?"
+    ],
+    "neurological": [
+        "Did your symptoms come on suddenly or gradually?",
+        "Have you experienced these symptoms before?",
+        "On a scale of 1-10, how severe is your headache?",
+        "Do you have any sensitivity to light or sound?",
+        "Have you had these symptoms multiple times in the past few months?",
+        "Do you have any family history of migraines or neurological conditions?",
+        "Are you experiencing any weakness or numbness on one side of your body?"
+    ],
+    "stroke_vs_migraine": [
+        "Did your symptoms appear suddenly (within seconds or minutes) or develop gradually (over 30+ minutes)?",
+        "Do you have any weakness or numbness on one side of your body?",
+        "Are you experiencing any difficulty speaking or understanding speech?",
+        "Have you had similar headaches or symptoms in the past?",
+        "Do you have any known risk factors for stroke such as high blood pressure, diabetes, or smoking?",
+        "Is this the worst headache of your life or similar to previous headaches you've had?"
+    ],
+    "chronic_condition_check": [
+        "Have you experienced these symptoms multiple times in the past few months?",
+        "How frequently do these symptoms occur?",
+        "Have you noticed any patterns or triggers for these symptoms?",
+        "Have you been diagnosed with any chronic conditions in the past?",
+        "Do these symptoms interfere with your daily activities?"
     ],
     "uncertain": [
         "I understand you're not sure, but this is important for your safety. Could you try to describe any other symptoms you've noticed?",
@@ -72,14 +116,39 @@ SYSTEM_PROMPT = """You are Michele, an AI medical assistant trained to have conv
 Your goal is to understand the user's symptoms through a conversation before providing any potential diagnosis.
 
 CRITICAL INSTRUCTIONS:
-1. ALWAYS ask at least 5 follow-up questions before considering a diagnosis.
-2. For potentially serious conditions (like heat exhaustion vs. heat stroke, dehydration, concussion, etc.), ask at least 7-8 questions to properly differentiate between similar conditions.
+1. ALWAYS ask at least 8 follow-up questions before considering a diagnosis, even if the condition seems obvious.
+2. For potentially serious conditions (like heat exhaustion vs. heat stroke, dehydration, concussion, etc.), ask at least 10 questions to properly differentiate between similar conditions.
 3. ALWAYS provide specific condition names (e.g., 'Gallstones', 'Acid Reflux', 'Migraine') rather than general categories (e.g., 'Digestive Issue', 'Headache').
-4. When providing a diagnosis, ALWAYS include both the medical term and common name in this format: "Medical Term (Common Name)" - for example "Cholelithiasis (Gallstones)" or "Cephalgia (Headache)".
+4. When providing a diagnosis, ALWAYS include both the medical term and common name in this format: "Medical Term (Common Name)" - for example "Cholelithiasis (Gallstones)" or "Gastroesophageal Reflux Disease (Acid Reflux)".
 5. NEVER provide a diagnosis until you've asked enough questions to be at least 90% confident.
 6. ALWAYS include confidence levels with any diagnosis.
 7. NEVER use placeholder names like "Condition 1" or "Medical Condition" - always use specific medical terminology.
 8. If you're not confident (below 90%), continue asking questions instead of providing an assessment.
+
+CRITICAL DIFFERENTIATION: STROKE VS. MIGRAINE:
+When evaluating neurological symptoms that could indicate stroke or migraine:
+1. ALWAYS ask about symptom onset: Sudden (seconds/minutes) suggests stroke; Gradual (30+ minutes) suggests migraine
+2. ALWAYS ask about previous similar episodes: Recurring similar episodes suggest migraine
+3. ALWAYS ask about one-sided weakness, facial drooping, or speech difficulties: These strongly suggest stroke
+4. ALWAYS ask about visual aura, light sensitivity, or sound sensitivity: These suggest migraine
+5. RULE OUT MIGRAINE FIRST before considering stroke if symptoms developed gradually
+6. If symptoms appeared suddenly with no history of similar episodes, prioritize stroke evaluation
+
+RECURRING SYMPTOM CHECK FOR CHRONIC CONDITIONS:
+For digestive conditions (IBS, GERD, etc.) and neurological conditions (migraines, etc.):
+1. ALWAYS ask: "Have you had these symptoms multiple times in the past few months?"
+2. If NO, DO NOT diagnose chronic conditions like IBS or migraines
+3. Instead suggest: "This seems like a one-time episode. If it happens frequently, it may be worth tracking."
+4. If YES, then you may consider chronic conditions in your assessment
+5. For chronic conditions, ask about frequency, patterns, and triggers
+
+MANDATORY QUESTIONS BEFORE DIAGNOSIS:
+Even when a diagnosis seems obvious (like GERD/Acid Reflux), you MUST ask these additional questions:
+1. How long have you been experiencing these symptoms?
+2. Have you tried any treatments or medications, and if so, did they help?
+3. Do you have any relevant medical history?
+4. Have you experienced these symptoms before?
+5. Are there any other symptoms you haven't mentioned yet?
 
 HANDLING UNCERTAIN ANSWERS:
 When a user responds with uncertain answers like "I'm not sure", "maybe", or "I don't know":
@@ -102,7 +171,7 @@ When symptoms suggest potentially serious conditions that require differentiatio
 
 CONVERSATION FLOW:
 1. Begin by asking about symptoms if the user hasn't provided them.
-2. ALWAYS ask at least 5 follow-up questions before considering a diagnosis.
+2. ALWAYS ask at least 8 follow-up questions before considering a diagnosis.
    - Tailor questions based on the symptom provided.
    - Do NOT ask the same set of questions for every symptom.
    - Include symptom history, triggers, and progression.
@@ -114,6 +183,9 @@ FOLLOW-UP QUESTIONING LOGIC:
 - Ask about medical history if relevant to the current symptoms
 - Ask about lifestyle factors that might contribute to the symptoms
 - Ask about any treatments the user has already tried
+- Ask about the frequency of symptoms
+- Ask about impact on daily activities
+- Ask about family history of similar conditions
 
 TRIAGE GUIDELINES:
 - MILD: Conditions that can be managed at home with self-care (e.g., common cold, sunburn, seasonal allergies)
@@ -143,6 +215,8 @@ IMPORTANT RULES:
 3. Accept single-character inputs where applicable (e.g., severity rating from 1-10).
 4. If a symptom description is vague, ask for clarification instead of assuming.
 5. If the user responds with "I'm not sure" or "maybe", ask more specific questions.
+6. ALWAYS ask at least 8 questions total before providing any diagnosis.
+7. ALWAYS differentiate between first-time episodes and chronic conditions in your assessment.
 
 FINAL ASSESSMENT FORMAT:
 The AI must return JSON structured like this:
@@ -150,11 +224,12 @@ The AI must return JSON structured like this:
 {
   "assessment": {
     "conditions": [
-      {"name": "Medical Term (Common Name)", "confidence": 70},
-      {"name": "Alternative Medical Term (Common Name)", "confidence": 20}
+      {"name": "Medical Term (Common Name)", "confidence": 70, "is_chronic": true/false},
+      {"name": "Alternative Medical Term (Common Name)", "confidence": 20, "is_chronic": true/false}
     ],
     "triage_level": "MILD|MODERATE|SEVERE",
     "care_recommendation": "Brief recommendation based on triage level",
+    "is_first_occurrence": true/false,
     "disclaimer": "This assessment is for informational purposes only and does not replace professional medical advice."
   }
 }
@@ -178,19 +253,40 @@ def create_default_response() -> Dict:
         }
     }
 
-def get_clarifying_question(response_text: str) -> str:
+def get_clarifying_question(response_text: str, conversation_history=None) -> str:
     """
     Returns an appropriate clarifying question based on the context of the conversation.
     """
+    # Check for stroke vs migraine context
+    if any(term in response_text.lower() for term in ["stroke", "migraine", "headache", "head", "neurological", "vision", "speech", "weakness"]):
+        questions = CLARIFYING_QUESTIONS["stroke_vs_migraine"]
     # Check for heat-related or dehydration context
-    if any(term in response_text.lower() for term in ["heat", "hot", "dehydrat", "dizz", "faint", "weak", "sweat"]):
+    elif any(term in response_text.lower() for term in ["heat", "hot", "dehydrat", "dizz", "faint", "weak", "sweat"]):
         questions = CLARIFYING_QUESTIONS["dehydration_heat"]
     # Check for head injury context
     elif any(term in response_text.lower() for term in ["head", "concuss", "hit", "fall", "dizz", "nause", "vomit"]):
         questions = CLARIFYING_QUESTIONS["head_injury"]
     # Check for chest pain context
-    elif any(term in response_text.lower() for term in ["chest", "heart", "pain", "breath", "pressure"]):
+    elif any(term in response_text.lower() for term in ["chest", "heart", "pain", "breath", "pressure", "burn"]):
         questions = CLARIFYING_QUESTIONS["chest_pain"]
+    # Check for digestive issues
+    elif any(term in response_text.lower() for term in ["stomach", "digest", "acid", "reflux", "gerd", "nausea", "vomit", "food", "bowel", "ibs"]):
+        # Check if we need to ask about recurring symptoms
+        if conversation_history and not any("multiple times" in msg.get("message", "").lower() for msg in conversation_history if msg.get("isBot", False)):
+            return "Have you experienced these symptoms multiple times in the past few months?"
+        questions = CLARIFYING_QUESTIONS["digestive"]
+    # Check for neurological issues
+    elif any(term in response_text.lower() for term in ["headache", "migraine", "dizz", "vertigo", "neurological", "vision", "aura"]):
+        # Check if we need to ask about recurring symptoms
+        if conversation_history and not any("multiple times" in msg.get("message", "").lower() for msg in conversation_history if msg.get("isBot", False)):
+            return "Have you experienced these headaches or neurological symptoms multiple times in the past few months?"
+        questions = CLARIFYING_QUESTIONS["neurological"]
+    # Check for potentially chronic conditions
+    elif any(chronic_cond in response_text.lower() for chronic_cond in CHRONIC_CONDITIONS_REQUIRING_HISTORY):
+        # Check if we need to ask about recurring symptoms
+        if conversation_history and not any("multiple times" in msg.get("message", "").lower() for msg in conversation_history if msg.get("isBot", False)):
+            return "Have you experienced these symptoms multiple times in the past few months?"
+        questions = CLARIFYING_QUESTIONS["chronic_condition_check"]
     # Default to general uncertain questions
     else:
         questions = CLARIFYING_QUESTIONS["uncertain"]
@@ -199,7 +295,82 @@ def get_clarifying_question(response_text: str) -> str:
     import random
     return random.choice(questions)
 
-def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
+def count_questions_in_conversation(conversation_history):
+    """
+    Count the number of questions asked by the bot in the conversation history.
+    """
+    if not conversation_history:
+        return 0
+    
+    question_count = 0
+    for msg in conversation_history:
+        if msg.get("isBot", False) and "?" in msg.get("message", ""):
+            question_count += 1
+    
+    return question_count
+
+def check_chronic_condition_requirements(conversation_history, condition_name):
+    """
+    Check if a chronic condition has been properly verified with recurring symptom checks.
+    """
+    if not conversation_history:
+        return False
+    
+    # Check if this is a condition that requires recurring symptom verification
+    is_chronic_condition = any(chronic_cond in condition_name.lower() for chronic_cond in CHRONIC_CONDITIONS_REQUIRING_HISTORY)
+    
+    if not is_chronic_condition:
+        return True  # Not a chronic condition, so no special requirements
+    
+    # Check if we've asked about recurring symptoms
+    recurring_symptom_check = False
+    positive_recurring_response = False
+    
+    for i, msg in enumerate(conversation_history):
+        if msg.get("isBot", False) and "multiple times" in msg.get("message", "").lower() and "?" in msg.get("message", ""):
+            recurring_symptom_check = True
+            # Check if the user's next response was positive
+            if i + 1 < len(conversation_history) and not conversation_history[i+1].get("isBot", True):
+                user_response = conversation_history[i+1].get("message", "").lower()
+                if any(pos in user_response for pos in ["yes", "yeah", "yep", "correct", "i do", "i have", "multiple", "recurring", "chronic", "often", "frequently"]):
+                    positive_recurring_response = True
+    
+    # For chronic conditions, we need both the check and a positive response
+    return not is_chronic_condition or (recurring_symptom_check and positive_recurring_response)
+
+def check_stroke_vs_migraine_differentiation(conversation_history, condition_name):
+    """
+    Check if proper differentiation between stroke and migraine has been performed.
+    """
+    if not conversation_history:
+        return True  # No conversation history to check
+    
+    # Check if this is a stroke or migraine diagnosis
+    is_stroke = "stroke" in condition_name.lower()
+    is_migraine = "migraine" in condition_name.lower()
+    
+    if not (is_stroke or is_migraine):
+        return True  # Not stroke or migraine, so no special requirements
+    
+    # Check for key differentiation questions
+    onset_question = False
+    previous_episodes_question = False
+    weakness_question = False
+    
+    for msg in conversation_history:
+        if msg.get("isBot", False):
+            bot_message = msg.get("message", "").lower()
+            if "sudden" in bot_message and "gradual" in bot_message and "?" in bot_message:
+                onset_question = True
+            if ("previous" in bot_message or "before" in bot_message) and "?" in bot_message:
+                previous_episodes_question = True
+            if ("weakness" in bot_message or "numbness" in bot_message) and "?" in bot_message:
+                weakness_question = True
+    
+    # For stroke or migraine, we need all three key questions
+    return onset_question and previous_episodes_question and weakness_question
+
+def clean_ai_response(response_text: str, user=None, conversation_history=None) -> Union[Dict, str]:
     """
     Processes the AI response and determines if it's a question or assessment.
     Now includes subscription tier and confidence threshold enforcement.
@@ -217,6 +388,21 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
         return create_default_response()
     
     logger.info(f"Processing AI response: {response_text[:100]}...")
+
+    # Count questions asked so far
+    question_count = count_questions_in_conversation(conversation_history) if conversation_history else 0
+    logger.info(f"Questions asked so far: {question_count}")
+    
+    # If we haven't asked enough questions yet, force a follow-up question
+    if question_count < QUESTION_COUNT_THRESHOLD and "?" not in response_text:
+        logger.info(f"Not enough questions asked yet ({question_count}/{QUESTION_COUNT_THRESHOLD}), forcing follow-up question.")
+        clarifying_question = get_clarifying_question(response_text, conversation_history)
+        return {
+            "is_question": True,
+            "is_assessment": False,
+            "possible_conditions": clarifying_question,
+            "requires_upgrade": False
+        }
 
     # Initialize confidence with default value to ensure it always exists
     confidence = DEFAULT_CONFIDENCE
@@ -292,17 +478,38 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
                     conditions = assessment_data["assessment"]["conditions"]
                     if conditions and len(conditions) > 0:
                         confidence = conditions[0].get("confidence", DEFAULT_CONFIDENCE)
+                        condition_name = conditions[0].get("name", "").lower()
                         
                         # Check if this is a potentially serious condition that requires differentiation
-                        condition_name = conditions[0].get("name", "").lower()
                         requires_differentiation = any(serious_cond in condition_name for serious_cond in SERIOUS_CONDITIONS_REQUIRING_DIFFERENTIATION)
+                        
+                        # Check for stroke vs migraine differentiation
+                        if ("stroke" in condition_name or "migraine" in condition_name) and not check_stroke_vs_migraine_differentiation(conversation_history, condition_name):
+                            logger.info(f"Stroke vs migraine differentiation not properly performed for: {condition_name}")
+                            clarifying_question = get_clarifying_question("stroke migraine", conversation_history)
+                            return {
+                                "is_question": True,
+                                "is_assessment": False,
+                                "possible_conditions": clarifying_question,
+                                "requires_upgrade": False
+                            }
+                        
+                        # Check for chronic condition requirements
+                        if not check_chronic_condition_requirements(conversation_history, condition_name):
+                            logger.info(f"Chronic condition requirements not met for: {condition_name}")
+                            return {
+                                "is_question": True,
+                                "is_assessment": False,
+                                "possible_conditions": "Have you experienced these symptoms multiple times in the past few months?",
+                                "requires_upgrade": False
+                            }
                         
                         if requires_differentiation:
                             logger.info(f"Detected potentially serious condition requiring differentiation: {condition_name}")
                             # For potentially serious conditions, we require higher confidence
                             if confidence < 95:  # Even stricter for serious conditions
                                 logger.info(f"Confidence too low ({confidence}%) for potentially serious condition, forcing follow-up question.")
-                                clarifying_question = get_clarifying_question(response_text)
+                                clarifying_question = get_clarifying_question(response_text, conversation_history)
                                 return {
                                     "is_question": True,
                                     "is_assessment": False,
@@ -313,7 +520,7 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
                 # CRITICAL FIX: If confidence is below threshold, force a follow-up question
                 if confidence < MIN_CONFIDENCE_THRESHOLD:
                     logger.info(f"Confidence too low ({confidence}%), forcing follow-up question.")
-                    clarifying_question = get_clarifying_question(response_text)
+                    clarifying_question = get_clarifying_question(response_text, conversation_history)
                     return {
                         "is_question": True,
                         "is_assessment": False,
@@ -333,6 +540,23 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
                             assessment_data["assessment"]["triage_level"] = "MILD"
                             assessment_data["assessment"]["care_recommendation"] = "This can likely be managed at home."
                             logger.info(f"Set triage to MILD for common condition: {primary_condition_name}")
+                        
+                        # Add is_chronic flag based on conversation history
+                        is_chronic = False
+                        if conversation_history:
+                            for msg in conversation_history:
+                                if not msg.get("isBot", True) and any(pos in msg.get("message", "").lower() for pos in ["yes", "yeah", "yep", "correct", "i do", "i have", "multiple", "recurring", "chronic", "often", "frequently"]):
+                                    for prev_msg in conversation_history:
+                                        if prev_msg.get("isBot", False) and "multiple times" in prev_msg.get("message", "").lower():
+                                            is_chronic = True
+                                            break
+                        
+                        # Add is_first_occurrence flag (opposite of is_chronic)
+                        assessment_data["assessment"]["is_first_occurrence"] = not is_chronic
+                        
+                        # Add is_chronic flag to each condition
+                        for condition in conditions:
+                            condition["is_chronic"] = is_chronic
                 
                 # Check if confidence is high enough
                 is_confident = confidence is not None and confidence >= MIN_CONFIDENCE_THRESHOLD
@@ -415,9 +639,9 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
         
         # Check for potentially serious conditions
         requires_differentiation = any(serious_cond in response_text.lower() for serious_cond in SERIOUS_CONDITIONS_REQUIRING_DIFFERENTIATION)
-        if requires_differentiation or confidence < 95:  # Even stricter for serious conditions
+        if requires_differentiation and confidence < 95:  # Even stricter for serious conditions
             logger.info(f"Detected potentially serious condition requiring differentiation with confidence {confidence}%, forcing follow-up question.")
-            clarifying_question = get_clarifying_question(response_text)
+            clarifying_question = get_clarifying_question(response_text, conversation_history)
             return {
                 "is_question": True,
                 "is_assessment": False,
@@ -425,10 +649,21 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
                 "requires_upgrade": False
             }
         
+        # Check for chronic conditions without proper verification
+        potential_chronic_condition = any(chronic_cond in response_text.lower() for chronic_cond in CHRONIC_CONDITIONS_REQUIRING_HISTORY)
+        if potential_chronic_condition and conversation_history and not any("multiple times" in msg.get("message", "").lower() for msg in conversation_history if msg.get("isBot", False)):
+            logger.info("Detected potential chronic condition without recurring symptom check, forcing clarifying question")
+            return {
+                "is_question": True,
+                "is_assessment": False,
+                "possible_conditions": "Have you experienced these symptoms multiple times in the past few months?",
+                "requires_upgrade": False
+            }
+        
         # CRITICAL FIX: If confidence is below threshold, force a follow-up question
         if confidence < MIN_CONFIDENCE_THRESHOLD:
             logger.info(f"Confidence too low ({confidence}%), forcing follow-up question.")
-            clarifying_question = get_clarifying_question(response_text)
+            clarifying_question = get_clarifying_question(response_text, conversation_history)
             return {
                 "is_question": True,
                 "is_assessment": False,
@@ -451,9 +686,9 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
             logger.info("Not requiring upgrade as this appears to be a common condition")
     
     # If the response contains uncertainty phrases, force a clarifying question
-    if has_uncertainty or confidence < MIN_CONFIDENCE_THRESHOLD:
+    if has_uncertainty and not is_question:
         logger.info("Detected uncertainty in non-question response, forcing clarifying question")
-        clarifying_question = get_clarifying_question(response_text)
+        clarifying_question = get_clarifying_question(response_text, conversation_history)
         return {
             "is_question": True,
             "is_assessment": False,
@@ -489,6 +724,16 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
         logger.info(f"Found medical term with common name: {medical_term} ({common_term})")
         condition_name = f"{medical_term} ({common_term})"
     
+    # Determine if this is a first occurrence or chronic condition
+    is_first_occurrence = True
+    if conversation_history:
+        for msg in conversation_history:
+            if not msg.get("isBot", True) and any(pos in msg.get("message", "").lower() for pos in ["yes", "yeah", "yep", "correct", "i do", "i have", "multiple", "recurring", "chronic", "often", "frequently"]):
+                for prev_msg in conversation_history:
+                    if prev_msg.get("isBot", False) and "multiple times" in prev_msg.get("message", "").lower():
+                        is_first_occurrence = False
+                        break
+    
     return {
         "is_question": is_question,
         "is_assessment": not is_question,
@@ -496,5 +741,6 @@ def clean_ai_response(response_text: str, user=None) -> Union[Dict, str]:
         "triage_level": triage_level,
         "requires_upgrade": requires_upgrade,
         "confidence": confidence,  # Always include confidence in the response
-        "conditionName": condition_name if not is_question else None  # Add condition name for display
+        "conditionName": condition_name if not is_question else None,  # Add condition name for display
+        "is_first_occurrence": is_first_occurrence  # Add first occurrence flag
     }
