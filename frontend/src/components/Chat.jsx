@@ -246,6 +246,22 @@ const Chat = () => {
     useEffect(() => {
         console.log("UI State changed:", uiState);
         console.log("Latest assessment:", latestAssessment);
+        
+        // If UI state is UPGRADE_PROMPT, ensure the upgrade prompt is visible
+        if (uiState === UI_STATES.UPGRADE_PROMPT) {
+            setTimeout(() => {
+                const upgradePromptElement = document.querySelector('.upgrade-prompt-container');
+                if (upgradePromptElement) {
+                    console.log("Upgrade prompt element found after state change");
+                    upgradePromptElement.style.display = 'block';
+                    upgradePromptElement.style.visibility = 'visible';
+                    upgradePromptElement.style.opacity = '1';
+                    upgradePromptElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } else {
+                    console.warn("Upgrade prompt element NOT found after state change");
+                }
+            }, 100);
+        }
     }, [uiState, latestAssessment]);
 
     // Helper function to ensure upgrade prompt is shown for certain conditions
@@ -417,6 +433,16 @@ const Chat = () => {
             // Increment bot message counter for non-assessment messages
             if (!isAssessment) {
                 setBotMessageCount(prev => prev + 1);
+            }
+            
+            // If this is an assessment message, log it for debugging
+            if (isAssessment) {
+                console.log("Added assessment message:", {
+                    message,
+                    confidence,
+                    triageLevel,
+                    careRecommendation
+                });
             }
             
             setTyping(false);
@@ -1141,21 +1167,90 @@ const Chat = () => {
                             
                             // Step 3: ALWAYS set upgrade prompt state after sales pitch
                             setTimeout(() => {
-                                // CRITICAL: Force UI state to UPGRADE_PROMPT
-                                setUiState(UI_STATES.UPGRADE_PROMPT);
-                                console.log("Setting UI state to UPGRADE_PROMPT");
-                                
-                                // Force scroll to make sure the upgrade prompt is visible
-                                setTimeout(() => {
-                                    const upgradePromptElement = document.querySelector('.upgrade-prompt-container');
-                                    if (upgradePromptElement) {
-                                        upgradePromptElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                        console.log("Scrolled to upgrade prompt");
-                                    } else {
-                                        console.warn("Upgrade prompt element not found for scrolling");
-                                    }
-                                }, 100);
-                            }, 1500);
+                                try {
+                                    // CRITICAL: Force UI state to UPGRADE_PROMPT
+                                    console.log("CRITICAL: Setting UI state to UPGRADE_PROMPT", {
+                                        condition: latestAssessment?.condition,
+                                        commonName: latestAssessment?.commonName,
+                                        triageLevel: latestAssessment?.triageLevel
+                                    });
+                                    
+                                    setUiState(UI_STATES.UPGRADE_PROMPT);
+                                    
+                                    // Force a DOM update check
+                                    setTimeout(() => {
+                                        const upgradePromptElement = document.querySelector('.upgrade-prompt-container');
+                                        console.log("Upgrade prompt element exists:", !!upgradePromptElement);
+                                        
+                                        if (upgradePromptElement) {
+                                            // Ensure it's visible
+                                            upgradePromptElement.style.display = 'block';
+                                            upgradePromptElement.style.visibility = 'visible';
+                                            upgradePromptElement.style.opacity = '1';
+                                            upgradePromptElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                            console.log("Scrolled to upgrade prompt");
+                                        } else {
+                                            console.warn("Upgrade prompt element not found - forcing creation");
+                                            
+                                            // If React state update didn't work, try direct DOM manipulation
+                                            const messagesContainer = document.querySelector('.messages-container');
+                                            if (messagesContainer && latestAssessment) {
+                                                const upgradeDiv = document.createElement('div');
+                                                upgradeDiv.className = 'upgrade-prompt-container';
+                                                upgradeDiv.style.display = 'block';
+                                                upgradeDiv.style.width = '100%';
+                                                upgradeDiv.style.margin = '20px 0';
+                                                upgradeDiv.style.padding = '10px';
+                                                upgradeDiv.style.borderRadius = '10px';
+                                                upgradeDiv.style.backgroundColor = '#f8f9fa';
+                                                upgradeDiv.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.1)';
+                                                upgradeDiv.style.position = 'relative';
+                                                upgradeDiv.style.zIndex = '100';
+                                                
+                                                // Create basic upgrade content
+                                                upgradeDiv.innerHTML = `
+                                                    <div class="upgrade-options-inline" style="width: 100%; display: block;">
+                                                        <h3>Based on your symptoms, I've identified ${latestAssessment.condition} as a possible condition that may require further evaluation.</h3>
+                                                        ${latestAssessment.triageLevel?.toLowerCase() === "mild" ? 
+                                                            `<p class="mild-case-note">Since this appears to be a condition you can manage at home, you can continue using the free version. However, for more detailed insights and tracking, consider upgrading.</p>` : ''}
+                                                        <p>To get more insights, you can choose one of these options:</p>
+                                                        <div class="upgrade-buttons">
+                                                            <button class="upgrade-button subscription" onclick="window.location.href='/subscribe'">🩺 Get Premium Access ($9.99/month)</button>
+                                                            <button class="upgrade-button one-time" onclick="window.location.href='/one-time-report'">📄 Get Consultation Report ($4.99)</button>
+                                                            ${latestAssessment.triageLevel?.toLowerCase() === "mild" ? 
+                                                                `<button class="continue-free-button" id="continue-free-button">Maybe Later</button>` : ''}
+                                                        </div>
+                                                    </div>
+                                                `;
+                                                
+                                                // Append to messages container
+                                                messagesContainer.appendChild(upgradeDiv);
+                                                
+                                                // Add event listener for the continue free button
+                                                const continueButton = document.getElementById('continue-free-button');
+                                                if (continueButton) {
+                                                    continueButton.addEventListener('click', () => {
+                                                        // Remove the upgrade div
+                                                        upgradeDiv.remove();
+                                                        // Reset UI state
+                                                        setUiState(UI_STATES.DEFAULT);
+                                                        // Add a message acknowledging their choice
+                                                        addBotMessage(
+                                                            "You can continue using the free version. Let me know if you have more questions!",
+                                                            false
+                                                        );
+                                                    });
+                                                }
+                                                
+                                                // Scroll to the newly created element
+                                                upgradeDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                            }
+                                        }
+                                    }, 100);
+                                } catch (err) {
+                                    console.error("Error setting upgrade prompt state:", err);
+                                }
+                            }, 1000); // Reduced from 1500 to 1000 ms
                         }, 1500);
                     } else {
                         // Unstructured assessment handling (similar pattern as above)
@@ -1208,21 +1303,90 @@ const Chat = () => {
                             
                             // Step 3: ALWAYS set upgrade prompt state after sales pitch
                             setTimeout(() => {
-                                // CRITICAL: Force UI state to UPGRADE_PROMPT
-                                setUiState(UI_STATES.UPGRADE_PROMPT);
-                                console.log("Setting UI state to UPGRADE_PROMPT");
-                                
-                                // Force scroll to make sure the upgrade prompt is visible
-                                setTimeout(() => {
-                                    const upgradePromptElement = document.querySelector('.upgrade-prompt-container');
-                                    if (upgradePromptElement) {
-                                        upgradePromptElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                        console.log("Scrolled to upgrade prompt");
-                                    } else {
-                                        console.warn("Upgrade prompt element not found for scrolling");
-                                    }
-                                }, 100);
-                            }, 1500);
+                                try {
+                                    // CRITICAL: Force UI state to UPGRADE_PROMPT
+                                    console.log("CRITICAL: Setting UI state to UPGRADE_PROMPT", {
+                                        condition: latestAssessment?.condition,
+                                        commonName: latestAssessment?.commonName,
+                                        triageLevel: latestAssessment?.triageLevel
+                                    });
+                                    
+                                    setUiState(UI_STATES.UPGRADE_PROMPT);
+                                    
+                                    // Force a DOM update check
+                                    setTimeout(() => {
+                                        const upgradePromptElement = document.querySelector('.upgrade-prompt-container');
+                                        console.log("Upgrade prompt element exists:", !!upgradePromptElement);
+                                        
+                                        if (upgradePromptElement) {
+                                            // Ensure it's visible
+                                            upgradePromptElement.style.display = 'block';
+                                            upgradePromptElement.style.visibility = 'visible';
+                                            upgradePromptElement.style.opacity = '1';
+                                            upgradePromptElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                            console.log("Scrolled to upgrade prompt");
+                                        } else {
+                                            console.warn("Upgrade prompt element not found - forcing creation");
+                                            
+                                            // If React state update didn't work, try direct DOM manipulation
+                                            const messagesContainer = document.querySelector('.messages-container');
+                                            if (messagesContainer && latestAssessment) {
+                                                const upgradeDiv = document.createElement('div');
+                                                upgradeDiv.className = 'upgrade-prompt-container';
+                                                upgradeDiv.style.display = 'block';
+                                                upgradeDiv.style.width = '100%';
+                                                upgradeDiv.style.margin = '20px 0';
+                                                upgradeDiv.style.padding = '10px';
+                                                upgradeDiv.style.borderRadius = '10px';
+                                                upgradeDiv.style.backgroundColor = '#f8f9fa';
+                                                upgradeDiv.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.1)';
+                                                upgradeDiv.style.position = 'relative';
+                                                upgradeDiv.style.zIndex = '100';
+                                                
+                                                // Create basic upgrade content
+                                                upgradeDiv.innerHTML = `
+                                                    <div class="upgrade-options-inline" style="width: 100%; display: block;">
+                                                        <h3>Based on your symptoms, I've identified ${latestAssessment.condition} as a possible condition that may require further evaluation.</h3>
+                                                        ${latestAssessment.triageLevel?.toLowerCase() === "mild" ? 
+                                                            `<p class="mild-case-note">Since this appears to be a condition you can manage at home, you can continue using the free version. However, for more detailed insights and tracking, consider upgrading.</p>` : ''}
+                                                        <p>To get more insights, you can choose one of these options:</p>
+                                                        <div class="upgrade-buttons">
+                                                            <button class="upgrade-button subscription" onclick="window.location.href='/subscribe'">🩺 Get Premium Access ($9.99/month)</button>
+                                                            <button class="upgrade-button one-time" onclick="window.location.href='/one-time-report'">📄 Get Consultation Report ($4.99)</button>
+                                                            ${latestAssessment.triageLevel?.toLowerCase() === "mild" ? 
+                                                                `<button class="continue-free-button" id="continue-free-button">Maybe Later</button>` : ''}
+                                                        </div>
+                                                    </div>
+                                                `;
+                                                
+                                                // Append to messages container
+                                                messagesContainer.appendChild(upgradeDiv);
+                                                
+                                                // Add event listener for the continue free button
+                                                const continueButton = document.getElementById('continue-free-button');
+                                                if (continueButton) {
+                                                    continueButton.addEventListener('click', () => {
+                                                        // Remove the upgrade div
+                                                        upgradeDiv.remove();
+                                                        // Reset UI state
+                                                        setUiState(UI_STATES.DEFAULT);
+                                                        // Add a message acknowledging their choice
+                                                        addBotMessage(
+                                                            "You can continue using the free version. Let me know if you have more questions!",
+                                                            false
+                                                        );
+                                                    });
+                                                }
+                                                
+                                                // Scroll to the newly created element
+                                                upgradeDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                            }
+                                        }
+                                    }, 100);
+                                } catch (err) {
+                                    console.error("Error setting upgrade prompt state:", err);
+                                }
+                            }, 1000); // Reduced from 1500 to 1000 ms
                         }, 1500);
                     }
                 } else if (isAssessment) {
