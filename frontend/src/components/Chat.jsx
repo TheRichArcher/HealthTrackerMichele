@@ -70,8 +70,26 @@ class ChatErrorBoundary extends React.Component {
 }
 
 const Message = memo(({ message, onRetry, index }) => {
-    // Regular message handling (removed upgrade prompt handling as it's now a separate component)
+    // Regular message handling
     const { sender, text, confidence, careRecommendation, isAssessment, triageLevel } = message;
+
+    // Clean the message text to remove any JSON content
+    let displayText = text;
+    
+    // Only process bot messages
+    if (text && sender === 'bot') {
+        // Check for <json> tags
+        if (text.includes("<json>")) {
+            displayText = text.split("<json>")[0].trim();
+        }
+        // Check for JSON-like content
+        else if (text.includes('"assessment"') || text.includes('"conditions"')) {
+            const jsonStartIndex = text.indexOf('{');
+            if (jsonStartIndex > 0) {
+                displayText = text.substring(0, jsonStartIndex).trim();
+            }
+        }
+    }
 
     const getCareRecommendation = useCallback((level) => {
         switch(level?.toLowerCase()) {
@@ -106,12 +124,12 @@ const Message = memo(({ message, onRetry, index }) => {
             <div className="avatar-container">
                 {avatarContent}
             </div>
-            <div className={`message ${sender} ${text.includes('?') && sender === 'bot' ? 'follow-up-question' : ''}`}>
+            <div className={`message ${sender} ${displayText.includes('?') && sender === 'bot' ? 'follow-up-question' : ''}`}>
                 {isAssessment && (
                     <div className="assessment-indicator">Assessment</div>
                 )}
                 <div className="message-content">
-                    {text.split('\n').map((line, i) => (
+                    {displayText.split('\n').map((line, i) => (
                         <p key={i}>{line}</p>
                     ))}
                 </div>
@@ -136,7 +154,7 @@ const Message = memo(({ message, onRetry, index }) => {
                         )}
                     </div>
                 )}
-                {sender === 'bot' && text.includes("trouble processing") && (
+                {sender === 'bot' && displayText.includes("trouble processing") && (
                     <button 
                         className="retry-button"
                         onClick={() => {
