@@ -1,16 +1,35 @@
 // src/components/UpgradePrompt.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import '../styles/UpgradePrompt.css';
 
-const UpgradePrompt = ({ condition, isMildCase, onDismiss }) => {
+const UpgradePrompt = ({ condition, commonName, isMildCase, onDismiss }) => {
     const [loadingSubscription, setLoadingSubscription] = useState(false);
     const [loadingOneTime, setLoadingOneTime] = useState(false);
+
+    // Create a display name that includes both common and medical terms
+    const displayName = commonName ? 
+        `${commonName} (${condition})` : 
+        condition;
+        
+    // Add logging for tracking issues
+    useEffect(() => {
+        console.log("Upgrade Prompt Loaded with Condition:", {
+            condition,
+            commonName,
+            isMildCase
+        });
+        
+        // Make sure Maybe Later button is visible if it exists
+        setTimeout(() => {
+            document.querySelector('.continue-free-button')?.scrollIntoView({ behavior: "smooth" });
+        }, 100);
+    }, [condition, commonName, isMildCase]);
 
     return (
         <div className="upgrade-options-inline">
             <h3>
-                Based on your symptoms, I've identified {condition} as a possible condition that may require further evaluation.
+                Based on your symptoms, I've identified {displayName} as a possible condition that may require further evaluation.
             </h3>
             
             {/* Add conditional section for mild cases */}
@@ -81,6 +100,7 @@ const UpgradePrompt = ({ condition, isMildCase, onDismiss }) => {
 
 UpgradePrompt.propTypes = {
     condition: PropTypes.string.isRequired,
+    commonName: PropTypes.string, // Add this prop
     isMildCase: PropTypes.bool.isRequired,
     onDismiss: PropTypes.func.isRequired
 };

@@ -211,11 +211,39 @@ const Chat = () => {
     // Track if user has declined an upgrade
     const [hasDeclinedUpgrade, setHasDeclinedUpgrade] = useState(false);
 
+    // Track if the last message was an upgrade prompt to prevent duplicates
+    const [lastMessageWasUpgradePrompt, setLastMessageWasUpgradePrompt] = useState(false);
+
+    // Track API retry attempts
+    const [apiRetryCount, setApiRetryCount] = useState(0);
+    const MAX_API_RETRIES = 3;
+
     const messagesEndRef = useRef(null);
     const abortControllerRef = useRef(null);
     const chatContainerRef = useRef(null);
     const inputRef = useRef(null);
     const messagesContainerRef = useRef(null);
+
+    // Helper function to ensure upgrade prompt is shown for certain conditions
+    const ensureUpgradePromptForCondition = useCallback((responseData, conditionName) => {
+        // Check if this is an infectious disease case
+        const isInfectiousDisease = 
+            conditionName?.toLowerCase().includes('infectious') || 
+            responseData.possible_conditions?.toLowerCase().includes('infectious') ||
+            responseData.possible_conditions?.toLowerCase().includes('fever') ||
+            responseData.possible_conditions?.toLowerCase().includes('viral') ||
+            responseData.possible_conditions?.toLowerCase().includes('bacterial');
+        
+        if (isInfectiousDisease && CONFIG.DEBUG_MODE) {
+            console.log("Detected infectious disease case, ensuring upgrade prompt is displayed", {
+                conditionName,
+                possibleConditions: responseData.possible_conditions
+            });
+        }
+        
+        // Always return true to ensure upgrade prompt is shown
+        return true;
+    }, []);
 
     // Handle continue with free version - improved as per developer feedback
     const handleContinueFree = useCallback(() => {
@@ -224,6 +252,7 @@ const Chat = () => {
         setLoading(false);
         setTyping(false);
         setHasDeclinedUpgrade(true); // Prevent immediate re-prompting
+        setLastMessageWasUpgradePrompt(false); // Reset upgrade prompt tracking
         
         // Add a message acknowledging their choice to continue with free version
         addBotMessage(
@@ -396,6 +425,8 @@ const Chat = () => {
             setLatestAssessment(null); // Reset the latest assessment
             setUiState(UI_STATES.DEFAULT); // Reset UI state
             setHasDeclinedUpgrade(false); // Reset upgrade decline state
+            setLastMessageWasUpgradePrompt(false); // Reset upgrade prompt tracking
+            setApiRetryCount(0); // Reset API retry count
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
             
             // Focus the input after reset
@@ -421,6 +452,8 @@ const Chat = () => {
             setLatestAssessment(null); // Reset the latest assessment
             setUiState(UI_STATES.DEFAULT); // Reset UI state
             setHasDeclinedUpgrade(false); // Reset upgrade decline state
+            setLastMessageWasUpgradePrompt(false); // Reset upgrade prompt tracking
+            setApiRetryCount(0); // Reset API retry count
             localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
         } finally {
             setResetting(false);
@@ -491,6 +524,9 @@ const Chat = () => {
         setMessageCount(newMessageCount);
         setError(null);
         setInputError(null);
+
+        // Reset upgrade prompt tracking when user sends a new message
+        setLastMessageWasUpgradePrompt(false);
 
         // Handle free tier message limit
         if (newMessageCount >= CONFIG.MAX_FREE_MESSAGES && uiState === UI_STATES.DEFAULT) {
@@ -621,6 +657,9 @@ const Chat = () => {
             // Parse the response
             const responseData = await response.json();
 
+            // Reset API retry count on successful response
+            setApiRetryCount(0);
+
             // Debug logging
             if (CONFIG.DEBUG_MODE) {
                 console.log("Raw API response:", responseData);
@@ -656,8 +695,12 @@ const Chat = () => {
                 
                 // Get condition name for context in follow-up questions
                 let conditionName = "";
+                let commonName = null;
+                
                 if (responseData.assessment?.conditions && responseData.assessment.conditions.length > 0) {
                     conditionName = responseData.assessment.conditions[0].name;
+                    // Extract common name if available
+                    commonName = responseData.assessment.conditions[0].common_name || null;
                 }
                 
                 // Get triage level
@@ -668,6 +711,87 @@ const Chat = () => {
                 // Check if this is a mild case (at-home care)
                 const isMildCase = triageLevel?.toLowerCase() === 'mild';
                 
+                // If no common_name is provided, try to map common conditions
+                if (!commonName) {
+                    // Expanded mapping for common conditions
+                    const commonNameMap = {
+                        // Respiratory conditions
+                        "Upper Respiratory Infection": "Common Cold",
+                        "Acute Rhinosinusitis": "Sinus Infection",
+                        "Acute Pharyngitis": "Sore Throat",
+                        "Acute Bronchitis": "Chest Cold",
+                        "Pneumonia": "Lung Infection",
+                        "Influenza": "Flu",
+                        "Rhinitis": "Runny Nose",
+                        
+                        // Neurological conditions
+                        "Neurological condition": "Migraine",
+                        "Cephalalgia": "Headache",
+                        "Tension Cephalalgia": "Tension Headache",
+                        "Cluster Cephalalgia": "Cluster Headache",
+                        "Vertigo": "Dizziness",
+                        
+                        // Gastrointestinal conditions
+                        "Gastroenteritis": "Stomach Flu",
+                        "Gastroesophageal Reflux Disease": "Acid Reflux",
+                        "Irritable Bowel Syndrome": "IBS",
+                        "Acute Gastritis": "Stomach Inflammation",
+                        "Constipation": "Constipation",
+                        "Diarrhea": "Diarrhea",
+                        
+                        // Skin conditions
+                        "Dermatitis": "Skin Rash",
+                        "Urticaria": "Hives",
+                        "Contact Dermatitis": "Contact Rash",
+                        "Eczema": "Eczema",
+                        "Psoriasis": "Psoriasis",
+                        "Cellulitis": "Skin Infection",
+                        
+                        // Ear, nose, throat
+                        "Otitis Media": "Ear Infection",
+                        "Otitis Externa": "Swimmer's Ear",
+                        "Tonsillitis": "Tonsil Infection",
+                        "Laryngitis": "Voice Box Inflammation",
+                        
+                        // Other common conditions
+                        "Conjunctivitis": "Pink Eye",
+                        "Urinary Tract Infection": "UTI",
+                        "Hypertension": "High Blood Pressure",
+                        "Hyperlipidemia": "High Cholesterol",
+                        "Diabetes Mellitus": "Diabetes",
+                        "Anxiety Disorder": "Anxiety",
+                        "Major Depressive Disorder": "Depression",
+                        "Insomnia": "Sleep Disorder"
+                    };
+                    
+                    // Check if we have a mapping for this condition
+                    commonName = commonNameMap[conditionName] || null;
+                }
+                
+                // Add specific debug logging for condition name handling
+                if (CONFIG.DEBUG_MODE) {
+                    console.log("Condition name processing:", {
+                        medicalTerm: conditionName,
+                        providedCommonName: responseData.assessment?.conditions?.[0]?.common_name,
+                        mappedCommonName: commonName,
+                        finalCommonName: commonName,
+                        triageLevel: triageLevel,
+                        isMildCase: isMildCase
+                    });
+                }
+                
+                // Add specific logging for infectious disease cases
+                if (conditionName.toLowerCase().includes("infectious") || 
+                    conditionName.toLowerCase().includes("infection") ||
+                    responseData.possible_conditions?.toLowerCase().includes("infectious")) {
+                    console.log("Infectious disease case detected:", {
+                        conditionName,
+                        commonName,
+                        responseData,
+                        uiState
+                    });
+                }
+                
                 // Add detailed logging
                 if (CONFIG.DEBUG_MODE) {
                     console.log("API response analysis:", {
@@ -677,6 +801,7 @@ const Chat = () => {
                         confidence,
                         isConfidentAssessment,
                         conditionName,
+                        commonName,
                         triageLevel,
                         isMildCase,
                         responseData
@@ -700,6 +825,8 @@ const Chat = () => {
                             confidence,
                             triageLevel,
                             isMildCase,
+                            conditionName,
+                            commonName,
                             responseData
                         });
                     }
@@ -716,15 +843,21 @@ const Chat = () => {
                             conditionName = conditions[0].name;
                             setLatestAssessment({
                                 condition: conditionName,
+                                commonName: commonName,
                                 confidence: conditions[0].confidence,
                                 recommendation: careRecommendation,
                                 triageLevel: triageLevel
                             });
                         }
                         
+                        // Create display name with both common and medical terms
+                        const displayName = commonName ? 
+                            `${commonName} (${conditionName})` : 
+                            conditionName;
+                        
                         // Step 1: Bot assessment message (looks natural in chat)
                         addBotMessage(
-                            `🩺 The most likely condition is **${conditionName}** (**${confidence}% confidence**).\n\n${careRecommendation || ""}`,
+                            `🩺 The most likely condition is **${displayName}** (**${confidence}% confidence**).\n\n${careRecommendation || ""}`,
                             true,
                             confidence,
                             triageLevel,
@@ -734,22 +867,34 @@ const Chat = () => {
                         // Step 2: Always show upgrade prompt after assessment
                         // Different messaging for mild vs. moderate/severe cases
                         setTimeout(() => {
-                            if (isMildCase) {
-                                addBotMessage(
-                                    `🔍 While you can manage this condition at home, Premium Access gives you deeper insights, symptom tracking, and doctor-ready reports if you'd like more detailed information.`,
-                                    false
-                                );
-                            } else {
-                                addBotMessage(
-                                    `🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?`,
-                                    false
-                                );
+                            // Only send upgrade message if the last message wasn't already an upgrade prompt
+                            if (!lastMessageWasUpgradePrompt) {
+                                if (isMildCase) {
+                                    addBotMessage(
+                                        `🔍 While you can manage this condition at home, Premium Access gives you deeper insights, symptom tracking, and doctor-ready reports if you'd like more detailed information.`,
+                                        false
+                                    );
+                                } else {
+                                    addBotMessage(
+                                        `🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?`,
+                                        false
+                                    );
+                                }
+                                setLastMessageWasUpgradePrompt(true);
                             }
                             
                             // Step 3: ALWAYS set upgrade prompt state after assessment
                             setTimeout(() => {
                                 // Set UI state to upgrade prompt
                                 setUiState(UI_STATES.UPGRADE_PROMPT);
+                                
+                                // Reset the flag when user interacts again
+                                const resetUpgradePromptFlag = () => {
+                                    setLastMessageWasUpgradePrompt(false);
+                                };
+                                
+                                // Add event listener to reset flag on user input
+                                inputRef.current?.addEventListener('focus', resetUpgradePromptFlag, { once: true });
                                 
                                 // Ensure everything is visible with multiple scroll attempts
                                 setTimeout(() => {
@@ -777,17 +922,29 @@ const Chat = () => {
                         const formattedMessage = responseData.possible_conditions || "Based on your symptoms, I can provide an assessment.";
                         careRecommendation = responseData.care_recommendation;
                         
+                        // Try to extract common name from possible conditions if available
+                        let commonName = null;
+                        if (responseData.common_condition_name) {
+                            commonName = responseData.common_condition_name;
+                        }
+                        
                         // Update the latest assessment for the sticky summary
                         setLatestAssessment({
                             condition: "Assessment",
+                            commonName: commonName,
                             confidence: confidence,
                             recommendation: careRecommendation,
                             triageLevel: triageLevel
                         });
                         
+                        // Create display message with common name if available
+                        const displayMessage = commonName ? 
+                            `${formattedMessage} (commonly known as ${commonName})` : 
+                            formattedMessage;
+                        
                         // Step 1: Bot assessment message
                         addBotMessage(
-                            `🩺 ${formattedMessage} (**${confidence}% confidence**).\n\n${careRecommendation || ""}`,
+                            `🩺 ${displayMessage} (**${confidence}% confidence**).\n\n${careRecommendation || ""}`,
                             true,
                             confidence,
                             triageLevel,
@@ -796,23 +953,35 @@ const Chat = () => {
                         
                         // Step 2: Always show upgrade prompt after assessment
                         setTimeout(() => {
-                            // Different messaging for mild vs. moderate/severe cases
-                            if (isMildCase) {
-                                addBotMessage(
-                                    `🔍 While you can manage this condition at home, Premium Access gives you deeper insights, symptom tracking, and doctor-ready reports if you'd like more detailed information.`,
-                                    false
-                                );
-                            } else {
-                                addBotMessage(
-                                    `🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?`,
-                                    false
-                                );
+                            // Only send upgrade message if the last message wasn't already an upgrade prompt
+                            if (!lastMessageWasUpgradePrompt) {
+                                // Different messaging for mild vs. moderate/severe cases
+                                if (isMildCase) {
+                                    addBotMessage(
+                                        `🔍 While you can manage this condition at home, Premium Access gives you deeper insights, symptom tracking, and doctor-ready reports if you'd like more detailed information.`,
+                                        false
+                                    );
+                                } else {
+                                    addBotMessage(
+                                        `🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?`,
+                                        false
+                                    );
+                                }
+                                setLastMessageWasUpgradePrompt(true);
                             }
                             
                             // Step 3: ALWAYS set upgrade prompt state after assessment
                             setTimeout(() => {
                                 // Set UI state to upgrade prompt
                                 setUiState(UI_STATES.UPGRADE_PROMPT);
+                                
+                                // Reset the flag when user interacts again
+                                const resetUpgradePromptFlag = () => {
+                                    setLastMessageWasUpgradePrompt(false);
+                                };
+                                
+                                // Add event listener to reset flag on user input
+                                inputRef.current?.addEventListener('focus', resetUpgradePromptFlag, { once: true });
                                 
                                 // Multiple scroll attempts to ensure visibility
                                 setTimeout(() => {
@@ -868,8 +1037,37 @@ const Chat = () => {
             if (error.name !== 'AbortError') {
                 if (CONFIG.DEBUG_MODE) {
                     console.error("API error details:", error);
+                    console.error("Request that failed:", {
+                        messageToSend,
+                        apiRetryCount,
+                        uiState
+                    });
                 }
                 
+                // Check if we should retry
+                if (apiRetryCount < MAX_API_RETRIES) {
+                    setApiRetryCount(prev => prev + 1);
+                    
+                    // Show a temporary message
+                    setMessages(prev => [...prev, {
+                        sender: 'bot',
+                        text: "I'm having a brief connection issue. Retrying in a moment...",
+                        isTemporary: true
+                    }]);
+                    
+                    // Retry after a delay
+                    setTimeout(() => {
+                        // Remove the temporary message
+                        setMessages(prev => prev.filter(msg => !msg.isTemporary));
+                        
+                        // Retry the request
+                        handleSendMessage(messageToSend);
+                    }, 2000); // 2 second delay before retry
+                    
+                    return;
+                }
+                
+                // If we've reached max retries, show error message
                 let errorMessage = "I apologize, but I'm having trouble processing your request.";
                 
                 if (error.message.includes('status code')) {
@@ -886,6 +1084,9 @@ const Chat = () => {
                 setTimeout(() => {
                     addBotMessage(errorMessage, false);
                 }, CONFIG.THINKING_DELAY);
+                
+                // Reset retry count after showing error
+                setApiRetryCount(0);
             }
         } finally {
             setLoading(false);
@@ -938,7 +1139,9 @@ const Chat = () => {
                     {/* Show upgrade prompt as a separate component when in upgrade prompt state */}
                     {uiState === UI_STATES.UPGRADE_PROMPT && latestAssessment && (
                         <UpgradePrompt 
+                            key={`upgrade-${latestAssessment.condition}`} // Add key to force re-render
                             condition={latestAssessment.condition || "this condition"}
+                            commonName={latestAssessment.commonName || ""}
                             isMildCase={latestAssessment.triageLevel?.toLowerCase() === "mild"}
                             onDismiss={handleContinueFree}
                         />
