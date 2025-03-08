@@ -18,6 +18,7 @@ RETRY_DELAY = 2
 MAX_FREE_MESSAGES = 15
 MIN_CONFIDENCE_THRESHOLD = 90  # Aligned with frontend threshold
 JSON_RETRY_ATTEMPTS = 3  # Number of attempts to get valid JSON
+EMPTY_RESPONSE_RETRIES = 2  # Number of retries for empty/malformed OpenAI responses
 
 # Set OpenAI API key globally
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -156,23 +157,39 @@ CRITICAL INSTRUCTIONS:
                 logger.debug(f"Processing symptom request: {symptom[:50]}")
                 logger.debug(f"OpenAI messages: {json.dumps(messages)}")
             
-            response = openai.chat.completions.create(
-                model="gpt-4-turbo",
-                messages=messages,
-                response_format={"type": "json_object"},  # Updated for v1.x
-                temperature=0.7,
-                max_tokens=1500
-            )
+            empty_response_attempts = 0
+            while empty_response_attempts < EMPTY_RESPONSE_RETRIES:
+                response = openai.chat.completions.create(
+                    model="gpt-4-turbo",
+                    messages=messages,
+                    response_format={"type": "json_object"},
+                    temperature=0.7,
+                    max_tokens=1500
+                )
+                
+                # Log the full response for debugging
+                if not is_production:
+                    logger.debug(f"OpenAI raw response object: {response}")
+                
+                # Handle empty or invalid response
+                if not response.choices or not response.choices[0].message or "content" not in response.choices[0].message or not response.choices[0].message["content"].strip():
+                    empty_response_attempts += 1
+                    logger.warning(f"OpenAI returned an empty or malformed response (Attempt {empty_response_attempts}/{EMPTY_RESPONSE_RETRIES})")
+                    if empty_response_attempts == EMPTY_RESPONSE_RETRIES:
+                        logger.error("Max retries reached for empty/malformed OpenAI response")
+                        return {"error": "AI service did not return a valid response after multiple attempts. Please try again later.", "requires_upgrade": False}
+                    # Add a message to the conversation to prompt the model to retry
+                    messages.append({"role": "user", "content": "Your response was empty or invalid. Please provide a valid JSON response as per the instructions."})
+                    time.sleep(RETRY_DELAY)
+                    continue
+                
+                # If we get here, the response is valid
+                break
             
-            # Handle empty or invalid response
-            if not response.choices or not response.choices[0].message or "content" not in response.choices[0].message or not response.choices[0].message["content"].strip():
-                logger.error("OpenAI returned an empty or malformed response")
-                return {"error": "AI service did not return a valid response. Please try again later.", "requires_upgrade": False}
-
             response_text = response.choices[0].message["content"]
             
             if not is_production:
-                logger.info(f"Raw OpenAI response: {response_text}")
+                logger.info(f"Raw OpenAI response content: {response_text}")
             
             # Parse JSON response with retry for invalid JSON
             json_retry_count = 0
@@ -200,10 +217,14 @@ CRITICAL INSTRUCTIONS:
                             response = openai.chat.completions.create(
                                 model="gpt-4-turbo",
                                 messages=messages,
-                                response_format={"type": "json_object"},  # Updated for v1.x
+                                response_format={"type": "json_object"},
                                 temperature=0.7,
                                 max_tokens=1500
                             )
+                            
+                            # Log the full response for debugging
+                            if not is_production:
+                                logger.debug(f"OpenAI retry response object: {response}")
                             
                             if not response.choices or not response.choices[0].message or "content" not in response.choices[0].message or not response.choices[0].message["content"].strip():
                                 logger.error("OpenAI returned an empty response on retry")
@@ -211,7 +232,7 @@ CRITICAL INSTRUCTIONS:
                             
                             response_text = response.choices[0].message["content"]
                             if not is_production:
-                                logger.info(f"Retry raw OpenAI response: {response_text}")
+                                logger.info(f"Retry raw OpenAI response content: {response_text}")
                             
                             json_retry_count += 1
                             continue
@@ -233,10 +254,14 @@ CRITICAL INSTRUCTIONS:
                                 response = openai.chat.completions.create(
                                     model="gpt-4-turbo",
                                     messages=messages,
-                                    response_format={"type": "json_object"},  # Updated for v1.x
+                                    response_format={"type": "json_object"},
                                     temperature=0.7,
                                     max_tokens=1500
                                 )
+                                
+                                # Log the full response for debugging
+                                if not is_production:
+                                    logger.debug(f"OpenAI retry response object: {response}")
                                 
                                 if not response.choices or not response.choices[0].message or "content" not in response.choices[0].message or not response.choices[0].message["content"].strip():
                                     logger.error("OpenAI returned an empty response on retry")
@@ -244,7 +269,7 @@ CRITICAL INSTRUCTIONS:
                                 
                                 response_text = response.choices[0].message["content"]
                                 if not is_production:
-                                    logger.info(f"Retry raw OpenAI response: {response_text}")
+                                    logger.info(f"Retry raw OpenAI response content: {response_text}")
                                 
                                 json_retry_count += 1
                                 continue
@@ -308,10 +333,14 @@ CRITICAL INSTRUCTIONS:
                         response = openai.chat.completions.create(
                             model="gpt-4-turbo",
                             messages=messages,
-                            response_format={"type": "json_object"},  # Updated for v1.x
+                            response_format={"type": "json_object"},
                             temperature=0.7,
                             max_tokens=1500
                         )
+                        
+                        # Log the full response for debugging
+                        if not is_production:
+                            logger.debug(f"OpenAI retry response object: {response}")
                         
                         if not response.choices or not response.choices[0].message or "content" not in response.choices[0].message or not response.choices[0].message["content"].strip():
                             logger.error("OpenAI returned an empty response on retry")
@@ -319,7 +348,7 @@ CRITICAL INSTRUCTIONS:
                         
                         response_text = response.choices[0].message["content"]
                         if not is_production:
-                            logger.info(f"Retry raw OpenAI response: {response_text}")
+                            logger.info(f"Retry raw OpenAI response content: {response_text}")
                         
                         json_retry_count += 1
                     else:
@@ -448,13 +477,47 @@ def analyze_symptoms():
     
     try:
         data = request.get_json() or {}
-        symptoms = data.get("symptom", "")
+        symptoms = data.get("symptom", "").strip()
         conversation_history = data.get("conversation_history", [])
         context_notes = data.get("context_notes", "")
         one_time_report = data.get("one_time_report", False)
         reset = data.get("reset", False)
         
-        if not is_production and symptoms:
+        # Validate inputs
+        if not isinstance(symptoms, str) or not symptoms:
+            logger.warning(f"Invalid symptom input: {symptoms}")
+            return jsonify({
+                "possible_conditions": "Please describe your symptoms.",
+                "care_recommendation": "Consider seeing a doctor soon.",
+                "confidence": None,
+                "is_assessment": False,
+                "is_question": True,
+                "requires_upgrade": False
+            }), 400
+        
+        if not isinstance(conversation_history, list):
+            logger.warning(f"Invalid conversation_history input: {conversation_history}")
+            return jsonify({
+                "error": "Conversation history must be a list.",
+                "requires_upgrade": False
+            }), 400
+        
+        # Validate conversation history entries
+        for entry in conversation_history:
+            if not isinstance(entry, dict) or "message" not in entry or "isBot" not in entry:
+                logger.warning(f"Invalid conversation history entry: {entry}")
+                return jsonify({
+                    "error": "Each conversation history entry must be an object with 'message' and 'isBot' fields.",
+                    "requires_upgrade": False
+                }), 400
+            if not isinstance(entry["message"], str) or not isinstance(entry["isBot"], bool):
+                logger.warning(f"Invalid conversation history entry types: {entry}")
+                return jsonify({
+                    "error": "Conversation history entries must have a string 'message' and boolean 'isBot'.",
+                    "requires_upgrade": False
+                }), 400
+        
+        if not is_production:
             logger.debug(f"Processing symptom request: {symptoms[:50]}")
         
         if reset:
@@ -487,16 +550,6 @@ def analyze_symptoms():
                         {"type": "one_time", "name": "Doctor's Report", "price": 4.99}
                     ]
                 }), 200
-
-        if not symptoms:
-            return jsonify({
-                "possible_conditions": "Please describe your symptoms.",
-                "care_recommendation": "Consider seeing a doctor soon.",
-                "confidence": None,
-                "is_assessment": False,
-                "is_question": True,
-                "requires_upgrade": False
-            }), 400
 
         if not is_production:
             logger.info(f"Conversation history length for user {user_id if user_id else 'Anonymous'}: {len(conversation_history)}")
@@ -580,7 +633,7 @@ def save_symptom_interaction(user_id, symptom_text, ai_response, care_recommenda
 
             report_content = {
                 "assessment": ai_response.get("possible_conditions", ""),
-                "care_rerecommendation": care_recommendation,
+                "care_recommendation": care_recommendation,
                 "confidence": confidence,
                 "doctors_report": ai_response.get("doctors_report", "")
             }
