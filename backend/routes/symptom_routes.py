@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app
 from backend.routes.extensions import db
-from backend.models import User, Symptom, Report, UserTierEnum, CareRecommendationEnum  # Added CareRecommendationEnum
+from backend.models import User, Symptom, Report, UserTierEnum, CareRecommendationEnum
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 import openai
 import os
@@ -159,7 +159,7 @@ CRITICAL INSTRUCTIONS:
             response = openai.chat.completions.create(
                 model="gpt-4-turbo",
                 messages=messages,
-                response_format="json",
+                response_format={"type": "json_object"},  # Updated for v1.x
                 temperature=0.7,
                 max_tokens=1500
             )
@@ -200,7 +200,7 @@ CRITICAL INSTRUCTIONS:
                             response = openai.chat.completions.create(
                                 model="gpt-4-turbo",
                                 messages=messages,
-                                response_format="json",
+                                response_format={"type": "json_object"},  # Updated for v1.x
                                 temperature=0.7,
                                 max_tokens=1500
                             )
@@ -233,7 +233,7 @@ CRITICAL INSTRUCTIONS:
                                 response = openai.chat.completions.create(
                                     model="gpt-4-turbo",
                                     messages=messages,
-                                    response_format="json",
+                                    response_format={"type": "json_object"},  # Updated for v1.x
                                     temperature=0.7,
                                     max_tokens=1500
                                 )
@@ -308,7 +308,7 @@ CRITICAL INSTRUCTIONS:
                         response = openai.chat.completions.create(
                             model="gpt-4-turbo",
                             messages=messages,
-                            response_format="json",
+                            response_format={"type": "json_object"},  # Updated for v1.x
                             temperature=0.7,
                             max_tokens=1500
                         )
@@ -580,7 +580,7 @@ def save_symptom_interaction(user_id, symptom_text, ai_response, care_recommenda
 
             report_content = {
                 "assessment": ai_response.get("possible_conditions", ""),
-                "care_recommendation": care_recommendation,
+                "care_rerecommendation": care_recommendation,
                 "confidence": confidence,
                 "doctors_report": ai_response.get("doctors_report", "")
             }
