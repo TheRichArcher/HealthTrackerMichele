@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 from backend.models import User, Symptom, Report, UserTierEnum, CareRecommendationEnum
 from backend.extensions import db
