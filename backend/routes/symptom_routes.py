@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 from backend.models import User, Symptom, Report, UserTierEnum, CareRecommendationEnum
 from backend.extensions import db
-from backend.openai_config import clean_ai_response  # Import the updated config
+from backend.openai_config import clean_ai_response
 import openai
 import os
 import json
@@ -44,7 +44,7 @@ def is_premium_user(user):
 
 def prepare_conversation_messages(symptom, conversation_history):
     """Prepare messages for OpenAI API with system prompt and conversation context."""
-    system_prompt = f"""You are Michele, an AI medical assistant. Always return a valid JSON response with:
+    system_prompt = f"""You are Michele, an AI medical assistant. You MUST ALWAYS respond with a valid JSON object and NO text outside of it. Your response must include:
 - "is_assessment": boolean (true if ≥{MIN_CONFIDENCE_THRESHOLD}% confidence diagnosis)
 - "is_question": boolean (true if asking a follow-up question)
 - "possible_conditions": string (question or assessment text)
@@ -53,10 +53,10 @@ def prepare_conversation_messages(symptom, conversation_history):
 - "care_recommendation": string (brief advice)
 - "requires_upgrade": boolean (true for free-tier detailed assessments)
 
-For assessments (is_assessment=true), include:
+For the first user message, always set "is_question": true and ask a follow-up question. For assessments (is_assessment=true), include:
 - "assessment": {{"conditions": [{{"name": "Medical Term (Common Name)", "confidence": number, "is_chronic": boolean}}], "triage_level": string, "care_recommendation": string}}
 
-Ask 5+ questions before diagnosing. Avoid diagnosis if confidence <{MIN_CONFIDENCE_THRESHOLD}%. Use 'Medical Term (Common Name)' for conditions."""
+Ask 5+ questions before diagnosing unless confidence ≥{MIN_CONFIDENCE_THRESHOLD}%. Use 'Medical Term (Common Name)' for conditions. Do not deviate from this JSON structure."""
 
     messages = [{"role": "system", "content": system_prompt}]
 
@@ -88,28 +88,50 @@ def call_openai_api(messages, retry_count=0):
         )
         logger.debug(f"OpenAI raw response: {response}")
 
-        # Handle empty or invalid response
-        if not response.choices or not response.choices[0].message or not response.choices[0].message.content.strip():
-            logger.warning(f"Empty or malformed response from OpenAI (Attempt {retry_count + 1}/{MAX_RETRIES})")
-            if retry_count + 1 < EMPTY_RESPONSE_RETRIES:
+        # Safely extract content
+        content = None
+        if response.choices and len(response.choices) > 0 and response.choices[0].message:
+            content = response.choices[0].message.content
+        
+        if not content or not isinstance(content, str):
+            logger.warning("Empty or invalid response received from OpenAI")
+            content = ""
+        else:
+            content = content.strip()
+            
+        # Try to parse as JSON
+        try:
+            json.loads(content)  # Validate JSON
+            return content
+        except json.JSONDecodeError:
+            # Log with context
+            symptom = messages[-1]['content'] if messages and len(messages) > 0 else "unknown"
+            logger.warning(f"Non-JSON response received for symptom '{symptom}': {content}")
+            
+            # Consider retrying once for non-JSON responses
+            if retry_count < 1:  # Only retry once for format issues
+                messages.append({
+                    "role": "user", 
+                    "content": "Your last response was not in valid JSON format. Please respond ONLY with valid JSON."
+                })
                 time.sleep(RETRY_DELAY)
                 return call_openai_api(messages, retry_count + 1)
-            else:
-                logger.info("Falling back to gpt-3.5-turbo")
-                response = openai.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=messages,
-                    response_format={"type": "json_object"},
-                    temperature=TEMPERATURE,
-                    max_tokens=MAX_TOKENS
-                )
-                if not response.choices or not response.choices[0].message or not response.choices[0].message.content.strip():
-                    logger.error("Fallback to gpt-3.5-turbo failed")
-                    raise ValueError("AI service did not return a valid response")
-        return response.choices[0].message.content
+                
+            # Fallback if retry failed or skipped
+            fallback = {
+                "is_assessment": False,
+                "is_question": True,
+                "possible_conditions": content if content else "Can you tell me more about your symptoms?",
+                "confidence": 0,
+                "triage_level": "MILD",
+                "care_recommendation": "Please provide more details.",
+                "requires_upgrade": False,
+                "assessment": None  # Added for consistency
+            }
+            return json.dumps(fallback)
 
     except openai.RateLimitError:
-        wait_time = (2 ** retry_count) * RETRY_DELAY
+        wait_time = min(10, (2 ** retry_count) * RETRY_DELAY)  # Cap at 10 seconds
         logger.warning(f"Rate limit hit. Retrying in {wait_time} seconds...")
         time.sleep(wait_time)
         return call_openai_api(messages, retry_count + 1)
@@ -172,7 +194,11 @@ def save_symptom_interaction(user_id, symptom_text, ai_response, care_recommenda
 @symptom_routes.route("/analyze", methods=["POST"])
 def analyze_symptoms():
     """Analyze user symptoms with tiered access and conversation history."""
-    is_production = current_app.config.get("ENV") == "production" if current_app else False
+    try:
+        is_production = current_app._get_current_object().config.get("ENV") == "production"
+    except RuntimeError:
+        is_production = False
+        
     logger.info("Processing symptom analysis request")
 
     # Authentication
