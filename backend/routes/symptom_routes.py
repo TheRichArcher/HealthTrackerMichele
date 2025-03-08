@@ -17,7 +17,7 @@ MAX_RETRIES = 3
 RETRY_DELAY = 2
 MAX_FREE_MESSAGES = 15
 MIN_CONFIDENCE_THRESHOLD = 90  # Aligned with frontend threshold
-JSON_RETRY_ATTEMPTS = 2  # Number of attempts to get valid JSON before falling back
+JSON_RETRY_ATTEMPTS = 3  # Number of attempts to get valid JSON
 
 # Set OpenAI API key globally
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -157,9 +157,9 @@ CRITICAL INSTRUCTIONS:
                 logger.debug(f"OpenAI messages: {json.dumps(messages)}")
             
             response = openai.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4-turbo-turbo",
                 messages=messages,
-                response_format={"type": "json_object"},
+                response_format="json",
                 temperature=0.7,
                 max_tokens=1500
             )
@@ -187,7 +187,7 @@ CRITICAL INSTRUCTIONS:
                     if missing_fields:
                         if json_retry_count < JSON_RETRY_ATTEMPTS - 1:
                             retry_message = (
-                                "Your response is missing required fields or is not valid JSON. "
+                                "Your response is not valid JSON or is missing required fields. "
                                 "Ensure your reply follows the required JSON format and includes: "
                                 "'is_assessment', 'is_question', 'possible_conditions', 'confidence', 'triage_level', 'care_recommendation'. "
                                 "Please try again."
@@ -198,9 +198,9 @@ CRITICAL INSTRUCTIONS:
                                 logger.warning(f"Missing fields in JSON response: {missing_fields}. Retrying.")
                             
                             response = openai.chat.completions.create(
-                                model="gpt-4",
+                                model="gpt-4-turbo-turbo",
                                 messages=messages,
-                                response_format={"type": "json_object"},
+                                response_format="json",
                                 temperature=0.7,
                                 max_tokens=1500
                             )
@@ -222,10 +222,8 @@ CRITICAL INSTRUCTIONS:
                         if confidence < MIN_CONFIDENCE_THRESHOLD:
                             if json_retry_count < JSON_RETRY_ATTEMPTS - 1:
                                 retry_message = (
-                                    "Your response is missing required fields or is not valid JSON. "
-                                    "Ensure your reply follows the required JSON format and includes: "
-                                    "'is_assessment', 'is_question', 'possible_conditions', 'confidence', 'triage_level', 'care_recommendation'. "
-                                    "Please try again."
+                                    f"Your response indicates low confidence (<{MIN_CONFIDENCE_THRESHOLD}%). "
+                                    "Please ask a follow-up question instead of providing an assessment."
                                 )
                                 messages.append({"role": "user", "content": retry_message})
                                 
@@ -233,9 +231,9 @@ CRITICAL INSTRUCTIONS:
                                     logger.warning(f"Confidence too low: {confidence}%. Requesting follow-up question instead.")
                                 
                                 response = openai.chat.completions.create(
-                                    model="gpt-4",
+                                    model="gpt-4-turbo-turbo",
                                     messages=messages,
-                                    response_format={"type": "json_object"},
+                                    response_format="json",
                                     temperature=0.7,
                                     max_tokens=1500
                                 )
@@ -297,7 +295,7 @@ CRITICAL INSTRUCTIONS:
                 except json.JSONDecodeError as e:
                     if json_retry_count < JSON_RETRY_ATTEMPTS - 1:
                         retry_message = (
-                            "Your response is missing required fields or is not valid JSON. "
+                            "Your response is not valid JSON or is missing required fields. "
                             "Ensure your reply follows the required JSON format and includes: "
                             "'is_assessment', 'is_question', 'possible_conditions', 'confidence', 'triage_level', 'care_recommendation'. "
                             "Please try again."
@@ -308,9 +306,9 @@ CRITICAL INSTRUCTIONS:
                             logger.warning(f"Invalid JSON response: {e}. Retrying.")
                         
                         response = openai.chat.completions.create(
-                            model="gpt-4",
+                            model="gpt-4-turbo-turbo",
                             messages=messages,
-                            response_format={"type": "json_object"},
+                            response_format="json",
                             temperature=0.7,
                             max_tokens=1500
                         )
