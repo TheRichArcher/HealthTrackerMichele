@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app
 from backend.routes.extensions import db
-from backend.models import User, Symptom, Report, UserTierEnum
+from backend.models import User, Symptom, Report, UserTierEnum, CareRecommendationEnum  # Added CareRecommendationEnum
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 import openai
 import os
@@ -565,6 +565,19 @@ def save_symptom_interaction(user_id, symptom_text, ai_response, care_recommenda
         db.session.commit()
         
         if is_assessment:
+            # Map care_recommendation to enum value
+            care_recommendation_enum = None
+            if care_recommendation is None:
+                care_recommendation = "Consider seeing a doctor soon."  # Fallback if None
+            if "manage at home" in care_recommendation.lower():
+                care_recommendation_enum = CareRecommendationEnum.HOME_CARE
+            elif "see a doctor" in care_recommendation.lower() or "consult" in care_recommendation.lower():
+                care_recommendation_enum = CareRecommendationEnum.SEE_DOCTOR
+            elif "urgent" in care_recommendation.lower() or "emergency" in care_recommendation.lower():
+                care_recommendation_enum = CareRecommendationEnum.URGENT_CARE
+            else:
+                care_recommendation_enum = CareRecommendationEnum.SEE_DOCTOR  # Default fallback
+
             report_content = {
                 "assessment": ai_response.get("possible_conditions", ""),
                 "care_recommendation": care_recommendation,
@@ -575,7 +588,9 @@ def save_symptom_interaction(user_id, symptom_text, ai_response, care_recommenda
             new_report = Report(
                 user_id=user_id,
                 symptom_id=new_symptom.id,
+                title=f"Assessment Report - {datetime.utcnow().strftime('%Y-%m-%d')}",
                 content=json.dumps(report_content),
+                care_recommendation=care_recommendation_enum,
                 created_at=datetime.utcnow()
             )
             db.session.add(new_report)
@@ -767,7 +782,9 @@ This report was generated based on the symptoms provided. For a definitive diagn
                 new_report = Report(
                     user_id=user_id,
                     symptom_id=symptom.id,
+                    title=f"Doctor's Report - {datetime.utcnow().strftime('%Y-%m-%d')}",
                     content=json.dumps(report_content),
+                    care_recommendation=CareRecommendationEnum.SEE_DOCTOR,  # Default for doctor's report
                     created_at=datetime.utcnow()
                 )
                 db.session.add(new_report)
