@@ -48,7 +48,9 @@ def process_with_openai(symptom, conversation_history, current_user, options=Non
         Dict with processed response
     """
     logger = current_app.logger if current_app else logging.getLogger(__name__)
+    # Force debug logging for troubleshooting
     is_production = current_app.config.get("ENV") == "production" if current_app else False
+    force_debug = True  # Temporarily force debug mode to capture logs
     
     # Get options
     options = options or {}
@@ -66,76 +68,23 @@ def process_with_openai(symptom, conversation_history, current_user, options=Non
     user_messages = [msg.get("message", "") for msg in conversation_history if not msg.get("isBot", False)]
     symptom_context = "; ".join(user_messages) if user_messages else symptom
     
-    # Build the system prompt with all necessary instructions
-    system_prompt = f"""You are Michele, an AI medical assistant trained to analyze symptoms and provide medical insights.
+    # Simplified system prompt to reduce ambiguity
+    system_prompt = f"""You are Michele, an AI medical assistant. Always return a valid JSON response with:
+- "is_assessment": boolean (true if ≥{MIN_CONFIDENCE_THRESHOLD}% confidence diagnosis)
+- "is_question": boolean (true if asking a follow-up question)
+- "possible_conditions": string (question or assessment text)
+- "confidence": number (0-100)
+- "triage_level": string ("MILD", "MODERATE", "SEVERE")
+- "care_recommendation": string (brief advice)
+- "requires_upgrade": boolean (true for free-tier detailed assessments)
 
-CONVERSATION CONTEXT:
-User has reported: {symptom_context}
-Questions asked so far: {question_count}
-User subscription tier: {user_tier}
-One-time report requested: {one_time_report}
-Additional context: {context_notes}
+For assessments (is_assessment=true), include:
+- "assessment": {{"conditions": [{{"name": string, "confidence": number, "is_chronic": boolean}}], "triage_level": string, "care_recommendation": string}}
 
-CRITICAL INSTRUCTIONS:
-1. ALWAYS return a JSON response with the following structure:
-{{
-  "is_assessment": boolean,  // True if providing a diagnosis with ≥{MIN_CONFIDENCE_THRESHOLD}% confidence
-  "is_question": boolean,    // True if asking a follow-up question
-  "possible_conditions": string,  // Main response text (question or assessment)
-  "confidence": number,      // Confidence level (0-100)
-  "triage_level": string,    // "MILD", "MODERATE", or "SEVERE"
-  "care_recommendation": string,  // Brief care advice
-  "requires_upgrade": boolean,  // True if detailed insights require premium access
-  "assessment": {{           // Only include if is_assessment is true
-    "conditions": [
-      {{
-        "name": string,      // Medical term (Common name)
-        "confidence": number,
-        "is_chronic": boolean
-      }}
-    ],
-    "triage_level": string,
-    "care_recommendation": string
-  }},
-  "doctors_report": string   // Only include if one_time_report is true and user is premium
-}}
+For one-time reports (one_time_report=true and premium user), include:
+- "doctors_report": string
 
-2. DIAGNOSIS REQUIREMENTS:
-   - Ask at least 5 follow-up questions before considering a diagnosis
-   - NEVER provide a diagnosis if confidence is <{MIN_CONFIDENCE_THRESHOLD}%
-   - If you cannot reach {MIN_CONFIDENCE_THRESHOLD}% confidence, ask another follow-up question instead
-   - Always include both medical term and common name for conditions: "Medical Term (Common Name)"
-   - For potentially serious conditions, ask more questions to properly differentiate
-
-3. TIER-SPECIFIC BEHAVIOR:
-   - For FREE tier users:
-     - DO provide specific condition names (not generic "Digestive Issue")
-     - DO provide basic triage level (mild/moderate/severe)
-     - DO NOT provide detailed treatment plans or comprehensive explanations
-     - Set requires_upgrade=true for high-confidence assessments
-     - Include a teaser like "For more detailed insights, consider upgrading"
-   
-   - For PAID or ONE_TIME tier users:
-     - Provide full details, treatment suggestions, and comprehensive explanations
-     - Set requires_upgrade=false
-     - Include doctors_report if one_time_report is true
-
-4. TRIAGE GUIDELINES:
-   - MILD: Conditions manageable at home (e.g., common cold, sunburn)
-   - MODERATE: Conditions benefiting from medical consultation but not urgent
-   - SEVERE: Conditions requiring immediate medical attention
-
-5. SPECIAL CASES:
-   - For common mild conditions like sunburn, always set triage_level="MILD"
-   - For stroke vs. migraine, ask about symptom onset (sudden vs. gradual)
-   - For chronic conditions (IBS, GERD, migraines), verify recurring pattern
-   - For uncertain answers, ask more specific, direct questions
-
-6. RESPONSE FORMAT:
-   - For questions: Conversational, single question format
-   - For assessments: Clear, concise explanation with confidence level
-   - Never combine multiple questions in one response
-"""
+Ask 5+ questions before diagnosing. Avoid diagnosis if confidence <{MIN_CONFIDENCE_THRESHOLD}%. Use 'Medical Term (Common Name)' for conditions."""
 
     # Prepare conversation history for OpenAI
     messages = [{"role": "system", "content": system_prompt}]
@@ -153,7 +102,7 @@ CRITICAL INSTRUCTIONS:
     # Try with exponential backoff for handling rate limits and temporary errors
     for attempt in range(MAX_RETRIES):
         try:
-            if not is_production and symptom:
+            if (not is_production or force_debug) and symptom:
                 logger.debug(f"Processing symptom request: {symptom[:50]}")
                 logger.debug(f"OpenAI messages: {json.dumps(messages)}")
             
@@ -168,7 +117,7 @@ CRITICAL INSTRUCTIONS:
                 )
                 
                 # Log the full response for debugging
-                if not is_production:
+                if (not is_production or force_debug):
                     logger.debug(f"OpenAI raw response object: {response}")
                 
                 # Handle empty or invalid response
@@ -177,18 +126,29 @@ CRITICAL INSTRUCTIONS:
                     logger.warning(f"OpenAI returned an empty or malformed response (Attempt {empty_response_attempts}/{EMPTY_RESPONSE_RETRIES})")
                     if empty_response_attempts == EMPTY_RESPONSE_RETRIES:
                         logger.error("Max retries reached for empty/malformed OpenAI response")
-                        return {"error": "AI service did not return a valid response after multiple attempts. Please try again later.", "requires_upgrade": False}
-                    # Add a message to the conversation to prompt the model to retry
-                    messages.append({"role": "user", "content": "Your response was empty or invalid. Please provide a valid JSON response as per the instructions."})
-                    time.sleep(RETRY_DELAY)
-                    continue
+                        # Fallback to gpt-3.5-turbo if gpt-4-turbo fails
+                        logger.info("Falling back to gpt-3.5-turbo")
+                        response = openai.chat.completions.create(
+                            model="gpt-3.5-turbo",
+                            messages=messages,
+                            response_format={"type": "json_object"},
+                            temperature=0.7,
+                            max_tokens=1500
+                        )
+                        if not response.choices or not response.choices[0].message or "content" not in response.choices[0].message or not response.choices[0].message["content"].strip():
+                            logger.error("Fallback to gpt-3.5-turbo also failed")
+                            return {"error": "AI service did not return a valid response after multiple attempts. Please try again later.", "requires_upgrade": False}
+                    else:
+                        messages.append({"role": "user", "content": "Your response was empty or invalid. Please provide a valid JSON response as per the instructions."})
+                        time.sleep(RETRY_DELAY)
+                        continue
                 
                 # If we get here, the response is valid
                 break
             
             response_text = response.choices[0].message["content"]
             
-            if not is_production:
+            if (not is_production or force_debug):
                 logger.info(f"Raw OpenAI response content: {response_text}")
             
             # Parse JSON response with retry for invalid JSON
@@ -211,7 +171,7 @@ CRITICAL INSTRUCTIONS:
                             )
                             messages.append({"role": "user", "content": retry_message})
                             
-                            if not is_production:
+                            if (not is_production or force_debug):
                                 logger.warning(f"Missing fields in JSON response: {missing_fields}. Retrying.")
                             
                             response = openai.chat.completions.create(
@@ -222,8 +182,7 @@ CRITICAL INSTRUCTIONS:
                                 max_tokens=1500
                             )
                             
-                            # Log the full response for debugging
-                            if not is_production:
+                            if (not is_production or force_debug):
                                 logger.debug(f"OpenAI retry response object: {response}")
                             
                             if not response.choices or not response.choices[0].message or "content" not in response.choices[0].message or not response.choices[0].message["content"].strip():
@@ -231,7 +190,7 @@ CRITICAL INSTRUCTIONS:
                                 return {"error": "AI response was empty on retry", "requires_upgrade": False}
                             
                             response_text = response.choices[0].message["content"]
-                            if not is_production:
+                            if (not is_production or force_debug):
                                 logger.info(f"Retry raw OpenAI response content: {response_text}")
                             
                             json_retry_count += 1
@@ -248,7 +207,7 @@ CRITICAL INSTRUCTIONS:
                                 )
                                 messages.append({"role": "user", "content": retry_message})
                                 
-                                if not is_production:
+                                if (not is_production or force_debug):
                                     logger.warning(f"Confidence too low: {confidence}%. Requesting follow-up question instead.")
                                 
                                 response = openai.chat.completions.create(
@@ -259,8 +218,7 @@ CRITICAL INSTRUCTIONS:
                                     max_tokens=1500
                                 )
                                 
-                                # Log the full response for debugging
-                                if not is_production:
+                                if (not is_production or force_debug):
                                     logger.debug(f"OpenAI retry response object: {response}")
                                 
                                 if not response.choices or not response.choices[0].message or "content" not in response.choices[0].message or not response.choices[0].message["content"].strip():
@@ -268,7 +226,7 @@ CRITICAL INSTRUCTIONS:
                                     return {"error": "AI response was empty on retry", "requires_upgrade": False}
                                 
                                 response_text = response.choices[0].message["content"]
-                                if not is_production:
+                                if (not is_production or force_debug):
                                     logger.info(f"Retry raw OpenAI response content: {response_text}")
                                 
                                 json_retry_count += 1
@@ -312,7 +270,7 @@ CRITICAL INSTRUCTIONS:
                         result["requires_upgrade"] = False
                     
                     # Log the final processed result in debug mode
-                    if not is_production:
+                    if (not is_production or force_debug):
                         logger.debug(f"Final processed result: {json.dumps(result)}")
                     
                     return result
@@ -327,7 +285,7 @@ CRITICAL INSTRUCTIONS:
                         )
                         messages.append({"role": "user", "content": retry_message})
                         
-                        if not is_production:
+                        if (not is_production or force_debug):
                             logger.warning(f"Invalid JSON response: {e}. Retrying.")
                         
                         response = openai.chat.completions.create(
@@ -338,8 +296,7 @@ CRITICAL INSTRUCTIONS:
                             max_tokens=1500
                         )
                         
-                        # Log the full response for debugging
-                        if not is_production:
+                        if (not is_production or force_debug):
                             logger.debug(f"OpenAI retry response object: {response}")
                         
                         if not response.choices or not response.choices[0].message or "content" not in response.choices[0].message or not response.choices[0].message["content"].strip():
@@ -347,7 +304,7 @@ CRITICAL INSTRUCTIONS:
                             return {"error": "AI response was empty on retry", "requires_upgrade": False}
                         
                         response_text = response.choices[0].message["content"]
-                        if not is_production:
+                        if (not is_production or force_debug):
                             logger.info(f"Retry raw OpenAI response content: {response_text}")
                         
                         json_retry_count += 1
@@ -427,7 +384,17 @@ def reset_conversation():
     logger = current_app.logger if current_app else logging.getLogger(__name__)
     logger.info(f"Reset conversation requested by user {user_id if user_id else 'Anonymous'}")
     current_user = User.query.get(user_id) if user_id else MockUser()
-    data = request.get_json() or {}
+    
+    # Handle missing Content-Type gracefully
+    try:
+        data = request.get_json(force=True) or {}
+    except Exception as e:
+        logger.warning(f"Invalid JSON in reset request: {str(e)}")
+        return jsonify({
+            "error": "Invalid request format. Please send a valid JSON body with Content-Type: application/json.",
+            "requires_upgrade": False
+        }), 415
+
     conversation_history = data.get("conversation_history", [])
 
     if (not is_premium_user(current_user)) and sum(1 for msg in conversation_history if not msg.get("isBot", False)) >= MAX_FREE_MESSAGES:
@@ -465,14 +432,14 @@ def analyze_symptoms():
             is_authenticated = user_id is not None
             if is_authenticated:
                 current_user = User.query.get(user_id)
-                if current_user and not is_production:
+                if current_user and (not is_production):
                     logger.info(f"User {user_id if user_id else 'Anonymous'} subscription tier: {getattr(current_user, 'subscription_tier', 'Unknown')}")
         except Exception as e:
             logger.warning(f"Invalid token provided by user {user_id if user_id else 'Anonymous'}: {str(e)}")
     
     if not current_user:
         current_user = MockUser()
-        if not is_authenticated and not is_production:
+        if not is_authenticated and (not is_production):
             logger.info("Handling unauthenticated user as a free-tier user.")
     
     try:
@@ -517,7 +484,7 @@ def analyze_symptoms():
                     "requires_upgrade": False
                 }), 400
         
-        if not is_production:
+        if (not is_production) and symptoms:
             logger.debug(f"Processing symptom request: {symptoms[:50]}")
         
         if reset:
@@ -551,7 +518,7 @@ def analyze_symptoms():
                     ]
                 }), 200
 
-        if not is_production:
+        if (not is_production):
             logger.info(f"Conversation history length for user {user_id if user_id else 'Anonymous'}: {len(conversation_history)}")
             logger.info(f"User authenticated: {is_authenticated}, Premium: {is_premium_user(current_user)}")
 
@@ -755,7 +722,7 @@ def generate_doctor_report():
     symptoms = data.get("symptom", "")
     conversation_history = data.get("conversation_history", [])
     
-    if not is_production and symptoms:
+    if (not is_production) and symptoms:
         logger.debug(f"Processing doctor's report request: {symptoms[:50]}")
     
     try:
@@ -768,7 +735,7 @@ def generate_doctor_report():
                         report_content = json.loads(existing_report.content)
                         doctor_report = report_content.get("doctors_report", "")
                         if doctor_report:
-                            if not is_production:
+                            if (not is_production):
                                 logger.info(f"Using existing doctor's report for user {user_id if user_id else 'Anonymous'}")
                             return jsonify({
                                 "doctors_report": doctor_report,
