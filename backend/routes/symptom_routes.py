@@ -157,7 +157,7 @@ CRITICAL INSTRUCTIONS:
                 logger.debug(f"OpenAI messages: {json.dumps(messages)}")
             
             response = openai.chat.completions.create(
-                model="gpt-4-turbo-turbo",
+                model="gpt-4-turbo",
                 messages=messages,
                 response_format="json",
                 temperature=0.7,
@@ -198,7 +198,7 @@ CRITICAL INSTRUCTIONS:
                                 logger.warning(f"Missing fields in JSON response: {missing_fields}. Retrying.")
                             
                             response = openai.chat.completions.create(
-                                model="gpt-4-turbo-turbo",
+                                model="gpt-4-turbo",
                                 messages=messages,
                                 response_format="json",
                                 temperature=0.7,
@@ -231,7 +231,7 @@ CRITICAL INSTRUCTIONS:
                                     logger.warning(f"Confidence too low: {confidence}%. Requesting follow-up question instead.")
                                 
                                 response = openai.chat.completions.create(
-                                    model="gpt-4-turbo-turbo",
+                                    model="gpt-4-turbo",
                                     messages=messages,
                                     response_format="json",
                                     temperature=0.7,
@@ -306,7 +306,7 @@ CRITICAL INSTRUCTIONS:
                             logger.warning(f"Invalid JSON response: {e}. Retrying.")
                         
                         response = openai.chat.completions.create(
-                            model="gpt-4-turbo-turbo",
+                            model="gpt-4-turbo",
                             messages=messages,
                             response_format="json",
                             temperature=0.7,
