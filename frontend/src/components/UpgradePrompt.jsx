@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import '../styles/UpgradePrompt.css';
 
-const UpgradePrompt = ({ condition, commonName, isMildCase, onDismiss }) => {
+const UpgradePrompt = ({ condition, commonName, isMildCase, requiresUpgrade, onDismiss }) => {
     const [loadingSubscription, setLoadingSubscription] = useState(false);
     const [loadingOneTime, setLoadingOneTime] = useState(false);
 
@@ -17,14 +17,21 @@ const UpgradePrompt = ({ condition, commonName, isMildCase, onDismiss }) => {
         console.log("Upgrade Prompt Loaded with Condition:", {
             condition,
             commonName,
-            isMildCase
+            isMildCase,
+            requiresUpgrade
         });
         
         // Make sure Maybe Later button is visible if it exists
         setTimeout(() => {
             document.querySelector('.continue-free-button')?.scrollIntoView({ behavior: "smooth" });
         }, 100);
-    }, [condition, commonName, isMildCase]);
+    }, [condition, commonName, isMildCase, requiresUpgrade]);
+
+    // Don't render if upgrade isn't required and it's not a mild case
+    if (!requiresUpgrade && !isMildCase) {
+        console.log("UpgradePrompt not showing - upgrade not required and not mild case");
+        return null;
+    }
 
     return (
         <div className="upgrade-options-inline" style={{width: '100%', display: 'block'}}>
@@ -100,8 +107,9 @@ const UpgradePrompt = ({ condition, commonName, isMildCase, onDismiss }) => {
 
 UpgradePrompt.propTypes = {
     condition: PropTypes.string.isRequired,
-    commonName: PropTypes.string, // Add this prop
+    commonName: PropTypes.string,
     isMildCase: PropTypes.bool.isRequired,
+    requiresUpgrade: PropTypes.bool,
     onDismiss: PropTypes.func.isRequired
 };
 
