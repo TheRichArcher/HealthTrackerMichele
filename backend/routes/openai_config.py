@@ -473,8 +473,16 @@ def clean_ai_response(response_text: str, user=None, conversation_history=None) 
             else:
                 logger.info(f"Found JSON content: {json_str[:100]}...")
                 assessment_data = json.loads(json_str)
-                assessment_data["is_assessment"] = True
-                assessment_data["is_question"] = False
+                
+                # CRITICAL FIX: If we have assessment JSON data, ALWAYS mark it as an assessment
+                # regardless of whether there's a question mark in the text
+                if "assessment" in assessment_data:
+                    assessment_data["is_assessment"] = True
+                    assessment_data["is_question"] = False
+                    logger.info("Found assessment JSON data, marking as assessment regardless of question marks in text")
+                else:
+                    assessment_data["is_assessment"] = True
+                    assessment_data["is_question"] = False
                 
                 # Get confidence level
                 if "assessment" in assessment_data and "conditions" in assessment_data["assessment"]:
