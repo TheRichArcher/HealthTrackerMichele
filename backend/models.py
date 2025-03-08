@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from backend.routes.extensions import db
+from backend.extensions import db
 from sqlalchemy.orm import validates, Query
 from sqlalchemy import func
 import enum

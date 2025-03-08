@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from backend.routes.extensions import db
+from backend.extensions import db
 import logging
 import datetime
 

@@ -8,7 +8,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # Import database extensions and models
-from backend.routes.extensions import db  # Ensure this matches your actual project structure
+from backend.extensions import db  # Ensure this matches your actual project structure
 from backend.models import db as models_db  # Ensure SQLAlchemy instance is imported
 
 # Alembic configuration

@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, send_file
 from backend.models import User, SymptomLog, Symptom
-from backend.routes.extensions import db
+from backend.extensions import db
 import logging
 import io
 import csv
