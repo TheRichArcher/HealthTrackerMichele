@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 
 # Blueprint setup
-symptom_routes = Blueprint('symptom_routes', __name__)
+symptom_routes = Blueprint("symptom_routes", __name__)
 
 # Constants
 MAX_RETRIES = 3
@@ -20,7 +20,7 @@ MIN_CONFIDENCE_THRESHOLD = 90  # Aligned with frontend threshold
 JSON_RETRY_ATTEMPTS = 2  # Number of attempts to get valid JSON before falling back
 
 # Set OpenAI API key globally
-openai.api_key = os.getenv('OPENAI_API_KEY')
+openai.api_key = os.getenv("OPENAI_API_KEY")
 if not openai.api_key:
     raise ValueError("OPENAI_API_KEY environment variable not set")
 
@@ -51,8 +51,8 @@ def process_with_openai(symptom, conversation_history, current_user, options=Non
     
     # Get options
     options = options or {}
-    one_time_report = options.get('one_time_report', False)
-    context_notes = options.get('context_notes', '')
+    one_time_report = options.get("one_time_report", False)
+    context_notes = options.get("context_notes", "")
     
     # Determine user tier and premium status
     is_premium = is_premium_user(current_user)
@@ -308,7 +308,7 @@ CRITICAL INSTRUCTIONS:
                             logger.warning(f"Invalid JSON response: {e}. Retrying.")
                         
                         response = openai.chat.completions.create(
-                            model="gmt-4",
+                            model="gpt-4",
                             messages=messages,
                             response_format={"type": "json_object"},
                             temperature=0.7,
@@ -350,7 +350,7 @@ CRITICAL INSTRUCTIONS:
     # If we get here, all attempts failed
     raise RuntimeError("Failed to get response from OpenAI after multiple attempts")
 
-@symptom_routes.route('/debug', methods=['GET'])
+@symptom_routes.route("/debug", methods=["GET"])
 def debug_route():
     """Debug endpoint to check subscription enforcement logic"""
     logger = logging.getLogger(__name__)
@@ -379,16 +379,16 @@ def debug_route():
         logger.info(f"Debug result for user {user_id if user_id else 'Anonymous'}: {result}")
         
         return jsonify({
-            'symptom': test_symptom,
-            'processed_result': result,
-            'requires_upgrade': result.get('requires_upgrade', False),
-            'user_tier': getattr(current_user, 'subscription_tier', "free")
+            "symptom": test_symptom,
+            "processed_result": result,
+            "requires_upgrade": result.get("requires_upgrade", False),
+            "user_tier": getattr(current_user, "subscription_tier", "free")
         }), 200
     except Exception as e:
         logger.error(f"Debug error for user {user_id if user_id else 'Anonymous'}: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
-@symptom_routes.route('/reset', methods=['POST'])
+@symptom_routes.route("/reset", methods=["POST"])
 def reset_conversation():
     """Reset the conversation history"""
     user_id = None
@@ -401,9 +401,9 @@ def reset_conversation():
     logger.info(f"Reset conversation requested by user {user_id if user_id else 'Anonymous'}")
     current_user = User.query.get(user_id) if user_id else MockUser()
     data = request.get_json() or {}
-    conversation_history = data.get('conversation_history', [])
+    conversation_history = data.get("conversation_history", [])
 
-    if (not is_premium_user(current_user)) and sum(1 for msg in conversation_history if not msg.get('isBot', False)) >= MAX_FREE_MESSAGES:
+    if (not is_premium_user(current_user)) and sum(1 for msg in conversation_history if not msg.get("isBot", False)) >= MAX_FREE_MESSAGES:
         return jsonify({
             "message": "Free users cannot reset conversation after reaching the limit. Please upgrade to continue.",
             "requires_upgrade": True,
@@ -420,18 +420,18 @@ def reset_conversation():
         "is_greeting": True
     }), 200
 
-@symptom_routes.route('/analyze', methods=['POST'])
+@symptom_routes.route("/analyze", methods=["POST"])
 def analyze_symptoms():
     """Public endpoint for symptom analysis with tiered access"""
     is_production = current_app.config.get("ENV") == "production"
     logger = current_app.logger
     
-    auth_header = request.headers.get('Authorization')
+    auth_header = request.headers.get("Authorization")
     is_authenticated = False
     user_id = None
     current_user = None
     
-    if auth_header and auth_header.startswith('Bearer '):
+    if auth_header and auth_header.startswith("Bearer "):
         try:
             verify_jwt_in_request(optional=True)
             user_id = get_jwt_identity()
@@ -450,17 +450,17 @@ def analyze_symptoms():
     
     try:
         data = request.get_json() or {}
-        symptoms = data.get('symptom', '')
-        conversation_history = data.get('conversation_history', [])
-        context_notes = data.get('context_notes', '')
-        one_time_report = data.get('one_time_report', False)
-        reset = data.get('reset', False)
+        symptoms = data.get("symptom", "")
+        conversation_history = data.get("conversation_history", [])
+        context_notes = data.get("context_notes", "")
+        one_time_report = data.get("one_time_report", False)
+        reset = data.get("reset", False)
         
         if not is_production and symptoms:
             logger.debug(f"Processing symptom request: {symptoms[:50]}")
         
         if reset:
-            if (not is_premium_user(current_user)) and sum(1 for msg in conversation_history if not msg.get('isBot', False)) >= MAX_FREE_MESSAGES:
+            if (not is_premium_user(current_user)) and sum(1 for msg in conversation_history if not msg.get("isBot", False)) >= MAX_FREE_MESSAGES:
                 return jsonify({
                     "message": "Free users cannot reset conversation after reaching the limit. Please upgrade to continue.",
                     "requires_upgrade": True,
@@ -478,13 +478,13 @@ def analyze_symptoms():
             }), 200
         
         if not is_premium_user(current_user):
-            user_message_count = sum(1 for msg in conversation_history if not msg.get('isBot', False))
+            user_message_count = sum(1 for msg in conversation_history if not msg.get("isBot", False))
             if user_message_count >= MAX_FREE_MESSAGES:
                 return jsonify({
-                    'message': "You've reached the free message limit. Please upgrade to continue or reset your conversation to start over.",
-                    'requires_upgrade': True,
-                    'can_reset': True,
-                    'upgrade_options': [
+                    "message": "You've reached the free message limit. Please upgrade to continue or reset your conversation to start over.",
+                    "requires_upgrade": True,
+                    "can_reset": True,
+                    "upgrade_options": [
                         {"type": "subscription", "name": "PA Mode", "price": 9.99, "period": "month"},
                         {"type": "one_time", "name": "Doctor's Report", "price": 4.99}
                     ]
@@ -492,12 +492,12 @@ def analyze_symptoms():
 
         if not symptoms:
             return jsonify({
-                'possible_conditions': "Please describe your symptoms.",
-                'care_recommendation': "Consider seeing a doctor soon.",
-                'confidence': None,
-                'is_assessment': False,
-                'is_question': True,
-                'requires_upgrade': False
+                "possible_conditions": "Please describe your symptoms.",
+                "care_recommendation": "Consider seeing a doctor soon.",
+                "confidence": None,
+                "is_assessment": False,
+                "is_question": True,
+                "requires_upgrade": False
             }), 400
 
         if not is_production:
@@ -505,47 +505,47 @@ def analyze_symptoms():
             logger.info(f"User authenticated: {is_authenticated}, Premium: {is_premium_user(current_user)}")
 
         options = {
-            'one_time_report': one_time_report,
-            'context_notes': context_notes
+            "one_time_report": one_time_report,
+            "context_notes": context_notes
         }
         
         result = process_with_openai(symptoms, conversation_history, current_user, options)
         
         if is_authenticated and user_id:
-            save_symptom_interaction(user_id, symptoms, result, result.get('care_recommendation'), result.get('confidence'), result.get('is_assessment', False))
+            save_symptom_interaction(user_id, symptoms, result, result.get("care_recommendation"), result.get("confidence"), result.get("is_assessment", False))
         
         return jsonify(result)
         
     except openai.OpenAIError as e:
         logger.error(f"OpenAI API error for user {user_id if user_id else 'Anonymous'}: {str(e)}", exc_info=True)
         return jsonify({
-            'error': 'AI service is temporarily unavailable. Please try again later.',
-            'requires_upgrade': False
+            "error": "AI service is temporarily unavailable. Please try again later.",
+            "requires_upgrade": False
         }), 503
         
     except openai.AuthenticationError:
         logger.error(f"OpenAI authentication error for user {user_id if user_id else 'Anonymous'}: {str(e)}", exc_info=True)
         return jsonify({
-            'error': 'AI service authentication error. Please check your API key.',
-            'requires_upgrade': False
+            "error": "AI service authentication error. Please check your API key.",
+            "requires_upgrade": False
         }), 500
         
     except openai.InvalidRequestError:
         logger.error(f"OpenAI invalid request error for user {user_id if user_id else 'Anonymous'}: {str(e)}", exc_info=True)
         return jsonify({
-            'error': 'Invalid request to AI service.',
-            'requires_upgrade': False
+            "error": "Invalid request to AI service.",
+            "requires_upgrade": False
         }), 400
         
     except Exception as e:
-        logger.error(f'Error analyzing symptoms for user {user_id if user_id else 'Anonymous'}: {str(e)}', exc_info=True)
+        logger.error(f"Error analyzing symptoms for user {user_id if user_id else 'Anonymous'}: {str(e)}", exc_info=True)
         return jsonify({
-            'error': "I'm having trouble connecting to my medical database. Please check your internet connection and try again.",
-            'possible_conditions': "I apologize, but I'm having trouble processing your request right now. Please try again or seek medical attention if you're concerned about your symptoms.",
-            'care_recommendation': "Consider seeing a doctor soon.",
-            'confidence': None,
-            'requires_upgrade': False,
-            'is_question': False
+            "error": "I'm having trouble connecting to my medical database. Please check your internet connection and try again.",
+            "possible_conditions": "I apologize, but I'm having trouble processing your request right now. Please try again or seek medical attention if you're concerned about your symptoms.",
+            "care_recommendation": "Consider seeing a doctor soon.",
+            "confidence": None,
+            "requires_upgrade": False,
+            "is_question": False
         }), 500
 
 def save_symptom_interaction(user_id, symptom_text, ai_response, care_recommendation, confidence, is_assessment):
@@ -568,10 +568,10 @@ def save_symptom_interaction(user_id, symptom_text, ai_response, care_recommenda
         
         if is_assessment:
             report_content = {
-                "assessment": ai_response.get('possible_conditions', ''),
+                "assessment": ai_response.get("possible_conditions", ""),
                 "care_recommendation": care_recommendation,
                 "confidence": confidence,
-                "doctors_report": ai_response.get('doctors_report', '')
+                "doctors_report": ai_response.get("doctors_report", "")
             }
             
             new_report = Report(
@@ -593,7 +593,7 @@ def save_symptom_interaction(user_id, symptom_text, ai_response, care_recommenda
             db.session.rollback()
         return False
 
-@symptom_routes.route('/history', methods=['GET'])
+@symptom_routes.route("/history", methods=["GET"])
 def get_symptom_history():
     """Get symptom history for authenticated users (PA Mode feature)"""
     user_id = None
@@ -628,44 +628,44 @@ def get_symptom_history():
                 
                 report = Report.query.filter_by(symptom_id=symptom.id).first()
                 entry = {
-                    'id': symptom.id,
-                    'description': symptom.description,
-                    'created_at': symptom.created_at.isoformat(),
-                    'response': response_data
+                    "id": symptom.id,
+                    "description": symptom.description,
+                    "created_at": symptom.created_at.isoformat(),
+                    "response": response_data
                 }
                 if report:
                     try:
                         report_content = json.loads(report.content)
-                        entry['report'] = report_content
+                        entry["report"] = report_content
                     except json.JSONDecodeError:
-                        entry['report'] = {'content': report.content}
+                        entry["report"] = {"content": report.content}
                 result.append(entry)
             except Exception as e:
                 current_app.logger.error(f"Error processing symptom {symptom.id} for user {user_id if user_id else 'Anonymous'}: {str(e)}")
                 result.append({
-                    'id': symptom.id,
-                    'description': symptom.description,
-                    'created_at': symptom.created_at.isoformat(),
-                    'error': 'Failed to process response'
+                    "id": symptom.id,
+                    "description": symptom.description,
+                    "created_at": symptom.created_at.isoformat(),
+                    "error": "Failed to process response"
                 })
         
         return jsonify(result)
     except Exception as e:
         current_app.logger.error(f"Error retrieving symptom history for user {user_id if user_id else 'Anonymous'}: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
-@symptom_routes.route('/doctor-report', methods=['POST'])
+@symptom_routes.route("/doctor-report", methods=["POST"])
 def generate_doctor_report():
     """Generate a one-time doctor's report for a specific symptom conversation"""
     is_production = current_app.config.get("ENV") == "production"
     logger = current_app.logger
     
-    auth_header = request.headers.get('Authorization')
+    auth_header = request.headers.get("Authorization")
     is_authenticated = False
     user_id = None
     current_user = None
     
-    if auth_header and auth_header.startswith('Bearer '):
+    if auth_header and auth_header.startswith("Bearer "):
         try:
             verify_jwt_in_request(optional=True)
             user_id = get_jwt_identity()
@@ -686,8 +686,8 @@ def generate_doctor_report():
         }), 403
     
     data = request.get_json() or {}
-    symptoms = data.get('symptom', '')
-    conversation_history = data.get('conversation_history', [])
+    symptoms = data.get("symptom", "")
+    conversation_history = data.get("conversation_history", [])
     
     if not is_production and symptoms:
         logger.debug(f"Processing doctor's report request: {symptoms[:50]}")
@@ -714,28 +714,28 @@ def generate_doctor_report():
                         pass
         
         options = {
-            'one_time_report': True,
-            'context_notes': 'Generate a comprehensive medical report suitable for healthcare providers'
+            "one_time_report": True,
+            "context_notes": "Generate a comprehensive medical report suitable for healthcare providers"
         }
         
         result = process_with_openai(symptoms, conversation_history, current_user, options)
         
-        doctor_report = result.get('doctors_report', '')
+        doctor_report = result.get("doctors_report", "")
         if not doctor_report:
             doctor_report = f"""
 MEDICAL CONSULTATION REPORT
-Date: {datetime.utcnow().strftime('%Y-%m-%d')}
+Date: {datetime.utcnow().strftime("%Y-%m-%d")}
 
 PATIENT SYMPTOMS:
 {symptoms}
 
 ASSESSMENT:
-{result.get('possible_conditions', 'Unable to determine specific condition')}
+{result.get("possible_conditions", "Unable to determine specific condition")}
 
-CONFIDENCE LEVEL: {result.get('confidence', 'Unknown')}%
+CONFIDENCE LEVEL: {result.get("confidence", "Unknown")}%
 
 CARE RECOMMENDATION:
-{result.get('care_recommendation', 'Consider consulting with a healthcare provider')}
+{result.get("care_recommendation", "Consider consulting with a healthcare provider")}
 
 NOTES:
 This report was generated based on the symptoms provided. For a definitive diagnosis, please consult with a healthcare provider.
@@ -744,7 +744,7 @@ This report was generated based on the symptoms provided. For a definitive diagn
         if is_authenticated and user_id:
             report_content = {
                 "doctors_report": doctor_report,
-                "care_recommendation": result.get('care_recommendation', 'Consider seeing a doctor soon.'),
+                "care_recommendation": result.get("care_recommendation", "Consider seeing a doctor soon."),
                 "generated_at": datetime.utcnow().isoformat(),
                 "one_time_purchase": True
             }
@@ -777,7 +777,7 @@ This report was generated based on the symptoms provided. For a definitive diagn
         
         return jsonify({
             "doctors_report": doctor_report,
-            "care_recommendation": result.get('care_recommendation', 'Consider seeing a doctor soon.'),
+            "care_recommendation": result.get("care_recommendation", "Consider seeing a doctor soon."),
             "success": True
         })
         
