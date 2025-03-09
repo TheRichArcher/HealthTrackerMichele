@@ -32,8 +32,8 @@ CRITICAL INSTRUCTIONS:
    - Use 'Medical Term (Common Name)' format (e.g., "Rhinitis (Common Cold)").
 
 3. Conversation flow:
-   - For the first user message, set "is_question": true and ask a follow-up question.
-   - Ask clear, single questions until you reach ≥ 90% confidence or gather enough context.
+   - For the first user message, set "is_question": true and ask ONE clear follow-up question.
+   - Ask ONE clear, single question at a time until you reach ≥ 90% confidence or gather enough context. Do NOT ask multiple questions in one response—wait for the user’s answer before asking another.
    - Avoid diagnosing unless confidence meets the threshold.
    - For potentially serious conditions (e.g., stroke, heart attack), ask differentiating questions until certain.
    - For common conditions (e.g., common cold, sunburn), suggest home care if appropriate.
@@ -125,6 +125,15 @@ def clean_ai_response(
                 parsed_json["care_recommendation"] = None
                 if "assessment" in parsed_json:
                     del parsed_json["assessment"]
+
+        # Ensure only one question is asked
+        if parsed_json["is_question"]:
+            question_text = parsed_json["possible_conditions"]
+            if question_text.count("?") > 1:
+                logger.warning(f"Multiple questions detected in: {question_text}")
+                # Take the first question only
+                first_question = question_text.split("?")[0] + "?"
+                parsed_json["possible_conditions"] = first_question
 
         # Log processed response
         logger.info(f"Processed response: {json.dumps(parsed_json, indent=2)}")

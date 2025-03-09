@@ -27,12 +27,6 @@ const UpgradePrompt = ({ condition, commonName, isMildCase, requiresUpgrade, onD
     }
   }, [condition, commonName, isMildCase, requiresUpgrade]);
 
-  // Don’t render if neither requiresUpgrade nor isMildCase is true
-  if (!requiresUpgrade && !isMildCase) {
-    console.log("UpgradePrompt not rendering - no upgrade required and not a mild case");
-    return null;
-  }
-
   // Handle upgrade button clicks with loading state and navigation
   const handleSubscriptionClick = () => {
     if (loadingSubscription || loadingOneTime) return;
@@ -53,17 +47,20 @@ const UpgradePrompt = ({ condition, commonName, isMildCase, requiresUpgrade, onD
   return (
     <div className="upgrade-options-inline" role="dialog" aria-labelledby="upgrade-title">
       <h3 id="upgrade-title">
-        Based on your symptoms, I’ve identified{' '}
-        <strong>{displayName}</strong> as a possible condition that may require further evaluation.
+        I’ve identified <strong>{displayName}</strong> as a possible condition based on your symptoms.
       </h3>
 
       {isMildCase && (
         <p className="mild-case-note">
-          This appears to be a condition you can manage at home. You can continue with the free version, but upgrading offers detailed insights and tracking.
+          Good news—it looks like you can manage this at home! If you’d like more details, upgrading can help.
+        </p>
+      )}
+      {!isMildCase && (
+        <p>
+          To get a deeper understanding and the best next steps, here are your options:
         </p>
       )}
 
-      <p>To unlock more insights, choose an option below:</p>
       <ul className="premium-features-list" aria-label="Upgrade options">
         <li>
           <span className="feature-name">🔹 Premium Access ($9.99/month)</span>
@@ -88,12 +85,12 @@ const UpgradePrompt = ({ condition, commonName, isMildCase, requiresUpgrade, onD
             ⓘ
           </span>
           <span className="feature-description">
-            A comprehensive analysis of your current symptoms.
+            A detailed analysis of your current symptoms.
           </span>
         </li>
       </ul>
 
-      <p>Would you like to proceed with one of these options?</p>
+      <p>Ready to unlock more insights?</p>
       <div className="upgrade-buttons">
         <button
           className={`upgrade-button subscription ${loadingSubscription ? 'loading' : ''}`}

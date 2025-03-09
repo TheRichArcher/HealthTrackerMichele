@@ -28,7 +28,7 @@ const CONFIG = {
 
 const WELCOME_MESSAGE = {
   sender: 'bot',
-  text: "Hi, I'm Michele—your AI medical assistant. I’m here to help you understand your symptoms step-by-step. Start by telling me what’s going on, like: 'I’ve had a headache for two days' or 'I’m sneezing a lot today!'",
+  text: "Hi, I'm Michele—your AI medical assistant. Think of me as that doctor you absolutely trust, here to listen, guide, and help you make sense of your symptoms. While I can't replace a real doctor, I can give you insights, ask the right questions, and help you feel more in control of your health.\n\nYou can start by describing your symptoms like:\n• \"I've had a headache for two days\"\n• \"My throat is sore and I have a fever\"\n• \"I have a rash on my arm that's itchy\"",
   confidence: null,
   careRecommendation: null,
   isAssessment: false
@@ -259,7 +259,7 @@ const Chat = () => {
       const data = await response.json();
       setMessages([{
         sender: 'bot',
-        text: data.possible_conditions,
+        text: "Hi, I'm Michele—your AI medical assistant. Think of me as that doctor you absolutely trust, here to listen, guide, and help you make sense of your symptoms. While I can't replace a real doctor, I can give you insights, ask the right questions, and help you feel more in control of your health.\n\nYou can start by describing your symptoms like:\n• \"I've had a headache for two days\"\n• \"My throat is sore and I have a fever\"\n• \"I have a rash on my arm that's itchy\"",
         isAssessment: false
       }]);
       setMessageCount(0);
@@ -379,11 +379,25 @@ const Chat = () => {
             triageLevel,
             careRecommendation
           );
+
+          // Add sales pitch after assessment
+          setTimeout(() => {
+            const isMildCase = triageLevel?.toLowerCase() === "mild" || careRecommendation?.toLowerCase().includes("manage at home");
+            if (isMildCase) {
+              addBotMessage(
+                "🔍 While you can manage this condition at home, Premium Access gives you deeper insights, symptom tracking, and doctor-ready reports if you'd like more detailed information."
+              );
+            } else {
+              addBotMessage(
+                "🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?"
+              );
+            }
+            // Show upgrade prompt after sales pitch
+            setTimeout(() => setUiState(UI_STATES.UPGRADE_PROMPT), 1500);
+          }, 1500);
         } else if (isQuestion || !isAssessment) {
           addBotMessage(responseData.possible_conditions || "Can you tell me more about your symptoms?");
-        }
-
-        if (requiresUpgrade) {
+        } else if (requiresUpgrade) {
           setTimeout(() => setUiState(UI_STATES.UPGRADE_PROMPT), 1000);
         }
       }, CONFIG.THINKING_DELAY);
@@ -391,7 +405,7 @@ const Chat = () => {
       if (error.name !== 'AbortError') {
         if (CONFIG.DEBUG_MODE) console.error("API error:", error);
         setError(error.message || "I’m having trouble connecting—please try again.");
-        addBotMessage("I’m having trouble processing that—can you try again?");
+        addBotMessage("I’m sorry, I couldn’t process that right now. Please try again, or let me know how I can assist further!");
       }
     } finally {
       setLoading(false);
@@ -429,7 +443,7 @@ const Chat = () => {
               <UpgradePrompt
                 condition={latestAssessment?.condition || "your symptoms"}
                 commonName={latestAssessment?.commonName}
-                isMildCase={latestAssessment?.triageLevel?.toLowerCase() === "mild"}
+                isMildCase={latestAssessment?.triageLevel?.toLowerCase() === "mild" || latestAssessment?.recommendation?.toLowerCase().includes("manage at home")}
                 requiresUpgrade={latestResponseData?.requires_upgrade === true}
                 onDismiss={handleContinueFree}
               />
