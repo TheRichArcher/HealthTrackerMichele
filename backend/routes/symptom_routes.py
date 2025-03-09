@@ -1,8 +1,8 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
-from backend.models import User, Symptom, Report, UserTierEnum, CareRecommendationEnum
+from backend.models import User, SymptomLog, Report, UserTierEnum, CareRecommendationEnum
 from backend.extensions import db
-from backend.openai_config import clean_ai_response
+from backend.openai_config import clean_ai_response, SYSTEM_PROMPT
 import openai
 import os
 import json
@@ -10,74 +10,44 @@ import logging
 from datetime import datetime
 import time
 
-# Blueprint setup
-symptom_routes = Blueprint("symptom_routes", __name__)
+symptom_routes = Blueprint("symptom_routes", __name__, url_prefix="/api/symptoms")
 
-# Constants
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 MAX_FREE_MESSAGES = 15
-MIN_CONFIDENCE_THRESHOLD = 85  # Aligned with openai_config.py
-EMPTY_RESPONSE_RETRIES = 2
+MIN_CONFIDENCE_THRESHOLD = 90
 MAX_TOKENS = 1500
 TEMPERATURE = 0.7
 
-# Configure OpenAI API key
 openai.api_key = os.getenv("OPENAI_API_KEY")
 if not openai.api_key:
     raise ValueError("OPENAI_API_KEY environment variable not set")
 
-# Logger setup
 logger = logging.getLogger(__name__)
 
-# Mock user for unauthenticated requests
 class MockUser:
-    subscription_tier = UserTierEnum.FREE.value  # Use string value for consistency
+    subscription_tier = UserTierEnum.FREE.value
 
-# Utility functions
 def is_premium_user(user):
-    """Check if the user has premium access."""
     return getattr(user, "subscription_tier", UserTierEnum.FREE.value) in {
         UserTierEnum.PAID.value,
         UserTierEnum.ONE_TIME.value
     }
 
 def prepare_conversation_messages(symptom, conversation_history):
-    """Prepare messages for OpenAI API with system prompt and conversation context."""
-    system_prompt = f"""You are Michele, an AI medical assistant. You MUST ALWAYS respond with a valid JSON object and NO text outside of it. Your response must include:
-- "is_assessment": boolean (true if ≥{MIN_CONFIDENCE_THRESHOLD}% confidence diagnosis)
-- "is_question": boolean (true if asking a follow-up question)
-- "possible_conditions": string (question or assessment text)
-- "confidence": number (0-100)
-- "triage_level": string ("MILD", "MODERATE", "SEVERE")
-- "care_recommendation": string (brief advice)
-- "requires_upgrade": boolean (true for free-tier detailed assessments)
-
-For the first user message, always set "is_question": true and ask a follow-up question. For assessments (is_assessment=true), include:
-- "assessment": {{"conditions": [{{"name": "Medical Term (Common Name)", "confidence": number, "is_chronic": boolean}}], "triage_level": string, "care_recommendation": string}}
-
-Ask 5+ questions before diagnosing unless confidence ≥{MIN_CONFIDENCE_THRESHOLD}%. Use 'Medical Term (Common Name)' for conditions. Do not deviate from this JSON structure."""
-
-    messages = [{"role": "system", "content": system_prompt}]
-
-    # Add conversation history
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     for entry in conversation_history:
         role = "assistant" if entry.get("isBot", False) else "user"
         content = entry.get("message", "")
         messages.append({"role": role, "content": content})
-
-    # Add current symptom if not already in conversation or if last message is from bot
     if not conversation_history or conversation_history[-1].get("isBot", False):
         messages.append({"role": "user", "content": symptom})
-
     return messages
 
 def call_openai_api(messages, retry_count=0):
-    """Call OpenAI API with retry logic for rate limits and empty responses."""
     if retry_count >= MAX_RETRIES:
         logger.error("Max retries reached for OpenAI API call")
-        raise RuntimeError("Failed to get response from OpenAI after multiple attempts")
-
+        raise RuntimeError("Failed to get response from OpenAI")
     try:
         response = openai.chat.completions.create(
             model="gpt-4-turbo",
@@ -86,52 +56,14 @@ def call_openai_api(messages, retry_count=0):
             temperature=TEMPERATURE,
             max_tokens=MAX_TOKENS
         )
-        logger.debug(f"OpenAI raw response: {response}")
-
-        # Safely extract content
-        content = None
-        if response.choices and len(response.choices) > 0 and response.choices[0].message:
-            content = response.choices[0].message.content
-        
-        if not content or not isinstance(content, str):
-            logger.warning("Empty or invalid response received from OpenAI")
-            content = ""
-        else:
-            content = content.strip()
-            
-        # Try to parse as JSON
-        try:
-            json.loads(content)  # Validate JSON
-            return content
-        except json.JSONDecodeError:
-            # Log with context
-            symptom = messages[-1]['content'] if messages and len(messages) > 0 else "unknown"
-            logger.warning(f"Non-JSON response received for symptom '{symptom}': {content}")
-            
-            # Consider retrying once for non-JSON responses
-            if retry_count < 1:  # Only retry once for format issues
-                messages.append({
-                    "role": "user", 
-                    "content": "Your last response was not in valid JSON format. Please respond ONLY with valid JSON."
-                })
-                time.sleep(RETRY_DELAY)
-                return call_openai_api(messages, retry_count + 1)
-                
-            # Fallback if retry failed or skipped
-            fallback = {
-                "is_assessment": False,
-                "is_question": True,
-                "possible_conditions": content if content else "Can you tell me more about your symptoms?",
-                "confidence": 0,
-                "triage_level": "MILD",
-                "care_recommendation": "Please provide more details.",
-                "requires_upgrade": False,
-                "assessment": None  # Added for consistency
-            }
-            return json.dumps(fallback)
-
+        content = response.choices[0].message.content.strip() if response.choices else ""
+        if not content:
+            logger.warning("Empty response from OpenAI")
+            time.sleep(RETRY_DELAY)
+            return call_openai_api(messages, retry_count + 1)
+        return content
     except openai.RateLimitError:
-        wait_time = min(10, (2 ** retry_count) * RETRY_DELAY)  # Cap at 10 seconds
+        wait_time = min(10, (2 ** retry_count) * RETRY_DELAY)
         logger.warning(f"Rate limit hit. Retrying in {wait_time} seconds...")
         time.sleep(wait_time)
         return call_openai_api(messages, retry_count + 1)
@@ -143,24 +75,19 @@ def call_openai_api(messages, retry_count=0):
         raise
 
 def save_symptom_interaction(user_id, symptom_text, ai_response, care_recommendation, confidence, is_assessment):
-    """Save symptom interaction and report to the database."""
     try:
-        if isinstance(ai_response, dict):
-            response_text = json.dumps(ai_response)
-        else:
-            response_text = ai_response
-
-        new_symptom = Symptom(
+        response_text = json.dumps(ai_response) if isinstance(ai_response, dict) else ai_response
+        new_symptom = SymptomLog(
             user_id=user_id,
-            description=symptom_text,
-            response=response_text,
-            created_at=datetime.utcnow()
+            symptom_name=symptom_text,
+            notes=response_text,
+            timestamp=datetime.utcnow()
         )
         db.session.add(new_symptom)
         db.session.commit()
 
         if is_assessment:
-            care_recommendation_enum = CareRecommendationEnum.SEE_DOCTOR  # Default
+            care_recommendation_enum = CareRecommendationEnum.SEE_DOCTOR
             if "manage at home" in care_recommendation.lower():
                 care_recommendation_enum = CareRecommendationEnum.HOME_CARE
             elif "urgent" in care_recommendation.lower() or "emergency" in care_recommendation.lower():
@@ -175,7 +102,6 @@ def save_symptom_interaction(user_id, symptom_text, ai_response, care_recommenda
 
             new_report = Report(
                 user_id=user_id,
-                symptom_id=new_symptom.id,
                 title=f"Assessment Report - {datetime.utcnow().strftime('%Y-%m-%d')}",
                 content=json.dumps(report_content),
                 care_recommendation=care_recommendation_enum,
@@ -183,25 +109,18 @@ def save_symptom_interaction(user_id, symptom_text, ai_response, care_recommenda
             )
             db.session.add(new_report)
             db.session.commit()
-            logger.info(f"Created report for assessment with ID: {new_report.id} for user {user_id}")
+            logger.info(f"Created report with ID: {new_report.id} for user {user_id}")
         return True
     except Exception as e:
         logger.error(f"Error saving symptom interaction for user {user_id}: {str(e)}", exc_info=True)
         db.session.rollback()
         return False
 
-# Routes
 @symptom_routes.route("/analyze", methods=["POST"])
 def analyze_symptoms():
-    """Analyze user symptoms with tiered access and conversation history."""
-    try:
-        is_production = current_app._get_current_object().config.get("ENV") == "production"
-    except RuntimeError:
-        is_production = False
-        
     logger.info("Processing symptom analysis request")
+    is_production = current_app.config.get("ENV") == "production"
 
-    # Authentication
     auth_header = request.headers.get("Authorization")
     user_id = None
     current_user = MockUser()
@@ -215,17 +134,14 @@ def analyze_symptoms():
                 if not is_production:
                     logger.info(f"Authenticated user {user_id}, tier: {current_user.subscription_tier}")
         except Exception as e:
-            logger.warning(f"Invalid token for user: {str(e)}")
+            logger.warning(f"Invalid token: {str(e)}")
 
-    # Parse request data
     data = request.get_json() or {}
     symptom = data.get("symptom", "").strip()
     conversation_history = data.get("conversation_history", [])
     context_notes = data.get("context_notes", "")
-    one_time_report = data.get("one_time_report", False)
     reset = data.get("reset", False)
 
-    # Input validation
     if not symptom or not isinstance(symptom, str):
         logger.warning("Invalid or missing symptom input")
         return jsonify({
@@ -247,7 +163,6 @@ def analyze_symptoms():
             logger.warning(f"Invalid types in conversation history entry: {entry}")
             return jsonify({"error": "Conversation history entries must have a string 'message' and boolean 'isBot'.", "requires_upgrade": False}), 400
 
-    # Handle reset
     if reset:
         user_messages = sum(1 for msg in conversation_history if not msg.get("isBot", False))
         if not is_premium_user(current_user) and user_messages >= MAX_FREE_MESSAGES:
@@ -267,7 +182,6 @@ def analyze_symptoms():
             "requires_upgrade": False
         }), 200
 
-    # Enforce free tier message limit
     if not is_premium_user(current_user):
         user_messages = sum(1 for msg in conversation_history if not msg.get("isBot", False))
         if user_messages >= MAX_FREE_MESSAGES:
@@ -281,13 +195,17 @@ def analyze_symptoms():
                 ]
             }), 200
 
-    # Process with OpenAI
     messages = prepare_conversation_messages(symptom, conversation_history)
     try:
         response_text = call_openai_api(messages)
         result = clean_ai_response(response_text, current_user, conversation_history, symptom)
 
-        # Save interaction if authenticated
+        if not is_premium_user(current_user):
+            user_messages = sum(1 for msg in conversation_history if not msg.get("isBot", False))
+            triage_level = result.get("triage_level", "").upper()
+            if user_messages >= MAX_FREE_MESSAGES or (result.get("is_assessment") and triage_level in ["MODERATE", "SEVERE"]):
+                result["requires_upgrade"] = True
+
         if user_id and result.get("is_assessment", False):
             save_symptom_interaction(
                 user_id,
@@ -299,7 +217,6 @@ def analyze_symptoms():
             )
 
         return jsonify(result), 200
-
     except (ValueError, RuntimeError) as e:
         logger.error(f"AI processing failed: {str(e)}")
         return jsonify({
@@ -317,7 +234,7 @@ def analyze_symptoms():
 
 @symptom_routes.route("/history", methods=["GET"])
 def get_symptom_history():
-    """Retrieve symptom history for authenticated premium users."""
+    logger.info("Processing symptom history request")
     try:
         verify_jwt_in_request()
         user_id = get_jwt_identity()
@@ -329,16 +246,16 @@ def get_symptom_history():
                 "upgrade_options": [{"type": "subscription", "name": "PA Mode", "price": 9.99, "period": "month"}]
             }), 403
 
-        symptoms = Symptom.query.filter_by(user_id=user_id).order_by(Symptom.created_at.desc()).all()
+        symptoms = SymptomLog.query.filter_by(user_id=user_id).order_by(SymptomLog.timestamp.desc()).all()
         result = []
         for symptom in symptoms:
             try:
-                response_data = json.loads(symptom.response) if isinstance(symptom.response, str) else symptom.response
-                report = Report.query.filter_by(symptom_id=symptom.id).first()
+                response_data = json.loads(symptom.notes) if isinstance(symptom.notes, str) else symptom.notes
+                report = Report.query.filter_by(user_id=user_id, created_at=symptom.timestamp).first()
                 entry = {
                     "id": symptom.id,
-                    "description": symptom.description,
-                    "created_at": symptom.created_at.isoformat(),
+                    "description": symptom.symptom_name,
+                    "created_at": symptom.timestamp.isoformat(),
                     "response": response_data
                 }
                 if report:
@@ -349,8 +266,8 @@ def get_symptom_history():
                 logger.error(f"Error processing symptom {symptom.id}: {str(e)}")
                 result.append({
                     "id": symptom.id,
-                    "description": symptom.description,
-                    "created_at": symptom.created_at.isoformat(),
+                    "description": symptom.symptom_name,
+                    "created_at": symptom.timestamp.isoformat(),
                     "error": "Failed to process response"
                 })
         return jsonify(result), 200
@@ -360,7 +277,6 @@ def get_symptom_history():
 
 @symptom_routes.route("/doctor-report", methods=["POST"])
 def generate_doctor_report():
-    """Generate a one-time doctor's report for premium users."""
     logger.info("Processing doctor's report request")
     auth_header = request.headers.get("Authorization")
     user_id = None
@@ -422,13 +338,13 @@ This report was generated based on the symptoms provided. For a definitive diagn
 """
 
         if user_id:
-            symptom_record = Symptom.query.filter_by(user_id=user_id, description=symptom).order_by(Symptom.created_at.desc()).first()
+            symptom_record = SymptomLog.query.filter_by(user_id=user_id, symptom_name=symptom).order_by(SymptomLog.timestamp.desc()).first()
             if not symptom_record:
-                symptom_record = Symptom(
+                symptom_record = SymptomLog(
                     user_id=user_id,
-                    description=symptom,
-                    response="One-time doctor's report generated",
-                    created_at=datetime.utcnow()
+                    symptom_name=symptom,
+                    notes="One-time doctor's report generated",
+                    timestamp=datetime.utcnow()
                 )
                 db.session.add(symptom_record)
                 db.session.commit()
@@ -440,14 +356,13 @@ This report was generated based on the symptoms provided. For a definitive diagn
                 "one_time_purchase": True
             }
 
-            existing_report = Report.query.filter_by(symptom_id=symptom_record.id).first()
+            existing_report = Report.query.filter_by(user_id=user_id, created_at=symptom_record.timestamp).first()
             if existing_report:
                 existing_report.content = json.dumps(report_content)
                 existing_report.created_at = datetime.utcnow()
             else:
                 new_report = Report(
                     user_id=user_id,
-                    symptom_id=symptom_record.id,
                     title=f"Doctor's Report - {datetime.utcnow().strftime('%Y-%m-%d')}",
                     content=json.dumps(report_content),
                     care_recommendation=CareRecommendationEnum.SEE_DOCTOR,
@@ -461,14 +376,12 @@ This report was generated based on the symptoms provided. For a definitive diagn
             "care_recommendation": result.get("care_recommendation", "Consider seeing a doctor soon."),
             "success": True
         }), 200
-
     except Exception as e:
         logger.error(f"Error generating doctor's report for user {user_id}: {str(e)}", exc_info=True)
         return jsonify({"error": "Failed to generate doctor's report", "success": False}), 500
 
 @symptom_routes.route("/reset", methods=["POST"])
 def reset_conversation():
-    """Reset the conversation history with tiered access limits."""
     logger.info("Processing conversation reset request")
     auth_header = request.headers.get("Authorization")
     user_id = None
@@ -507,7 +420,6 @@ def reset_conversation():
 
 @symptom_routes.route("/debug", methods=["GET"])
 def debug_route():
-    """Debug endpoint to test symptom analysis."""
     logger.info("Processing debug request")
     auth_header = request.headers.get("Authorization")
     user_id = None

@@ -1,116 +1,141 @@
 // src/components/UpgradePrompt.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, memo } from 'react';
 import PropTypes from 'prop-types';
 import '../styles/UpgradePrompt.css';
 
 const UpgradePrompt = ({ condition, commonName, isMildCase, requiresUpgrade, onDismiss }) => {
-    const [loadingSubscription, setLoadingSubscription] = useState(false);
-    const [loadingOneTime, setLoadingOneTime] = useState(false);
+  const [loadingSubscription, setLoadingSubscription] = useState(false);
+  const [loadingOneTime, setLoadingOneTime] = useState(false);
 
-    // Create a display name that includes both common and medical terms
-    const displayName = commonName ? 
-        `${commonName} (${condition})` : 
-        condition;
-        
-    // Add logging for tracking issues
-    useEffect(() => {
-        console.log("Upgrade Prompt Loaded with Condition:", {
-            condition,
-            commonName,
-            isMildCase,
-            requiresUpgrade
-        });
-        
-        // Make sure Maybe Later button is visible if it exists
-        setTimeout(() => {
-            document.querySelector('.continue-free-button')?.scrollIntoView({ behavior: "smooth" });
-        }, 100);
-    }, [condition, commonName, isMildCase, requiresUpgrade]);
+  // Create a display name combining common and medical terms
+  const displayName = commonName ? `${commonName} (${condition})` : condition;
 
-    // Don't render if upgrade isn't required and it's not a mild case
-    if (!requiresUpgrade && !isMildCase) {
-        console.log("UpgradePrompt not showing - upgrade not required and not mild case");
-        return null;
+  // Log props for debugging and scroll to "Maybe Later" if present
+  useEffect(() => {
+    console.log("UpgradePrompt Loaded with Props:", {
+      condition,
+      commonName,
+      isMildCase,
+      requiresUpgrade,
+    });
+
+    if (isMildCase) {
+      const timeoutId = setTimeout(() => {
+        document.querySelector('.continue-free-button')?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+      return () => clearTimeout(timeoutId); // Cleanup timeout on unmount
     }
+  }, [condition, commonName, isMildCase, requiresUpgrade]);
 
-    return (
-        <div className="upgrade-options-inline" style={{width: '100%', display: 'block'}}>
-            <h3>
-                Based on your symptoms, I've identified {displayName} as a possible condition that may require further evaluation.
-            </h3>
-            
-            {/* Add conditional section for mild cases */}
-            {isMildCase && (
-                <p className="mild-case-note">
-                    Since this appears to be a condition you can manage at home, you can continue using the free version. 
-                    However, for more detailed insights and tracking, consider upgrading.
-                </p>
-            )}
-            
-            <p>To get more insights, you can choose one of these options:</p>
-            <ul className="premium-features-list">
-                <li>
-                    <span className="feature-name">🔹 Premium Access ($9.99/month)</span>
-                    <span className="tooltip-icon" title="Get deeper insights, track symptoms, and receive doctor-ready reports">ⓘ</span>
-                    <span className="feature-description">Unlimited symptom checks, detailed assessments, and personalized health monitoring.</span>
-                </li>
-                <li>
-                    <span className="feature-name">🔹 One-time Consultation Report ($4.99)</span>
-                    <span className="tooltip-icon" title="A comprehensive report you can share with your doctor">ⓘ</span>
-                    <span className="feature-description">Get a comprehensive analysis of your current symptoms.</span>
-                </li>
-            </ul>
-            <p>Would you like to continue with one of these options?</p>
-            <div className="upgrade-buttons">
-                <button 
-                    className={`upgrade-button subscription ${loadingSubscription ? 'loading' : ''}`}
-                    onClick={() => {
-                        if (loadingSubscription || loadingOneTime) return; // Prevent duplicate clicks
-                        setLoadingSubscription(true);
-                        // Short timeout to show loading state before navigation
-                        setTimeout(() => {
-                            window.location.href = '/subscribe';
-                        }, 300);
-                    }}
-                    disabled={loadingSubscription || loadingOneTime}
-                >
-                    {loadingSubscription ? 'Processing...' : '🩺 Get Premium Access ($9.99/month)'}
-                </button>
-                <button 
-                    className={`upgrade-button one-time ${loadingOneTime ? 'loading' : ''}`}
-                    onClick={() => {
-                        if (loadingSubscription || loadingOneTime) return; // Prevent duplicate clicks
-                        setLoadingOneTime(true);
-                        // Short timeout to show loading state before navigation
-                        setTimeout(() => {
-                            window.location.href = '/one-time-report';
-                        }, 300);
-                    }}
-                    disabled={loadingSubscription || loadingOneTime}
-                >
-                    {loadingOneTime ? 'Processing...' : '📄 Get Consultation Report ($4.99)'}
-                </button>
-                
-                {/* Only show "Maybe Later" button for mild cases */}
-                {isMildCase && (
-                    <button 
-                        className="continue-free-button"
-                        onClick={onDismiss}
-                    >
-                        Maybe Later
-                    </button>
-                )}
-            </div>
-        </div>
-    );
+  // Don’t render if neither requiresUpgrade nor isMildCase is true
+  if (!requiresUpgrade && !isMildCase) {
+    console.log("UpgradePrompt not rendering - no upgrade required and not a mild case");
+    return null;
+  }
+
+  // Handle upgrade button clicks with loading state and navigation
+  const handleSubscriptionClick = () => {
+    if (loadingSubscription || loadingOneTime) return;
+    setLoadingSubscription(true);
+    setTimeout(() => {
+      window.location.href = '/subscribe';
+    }, 300);
+  };
+
+  const handleOneTimeClick = () => {
+    if (loadingSubscription || loadingOneTime) return;
+    setLoadingOneTime(true);
+    setTimeout(() => {
+      window.location.href = '/one-time-report';
+    }, 300);
+  };
+
+  return (
+    <div className="upgrade-options-inline" role="dialog" aria-labelledby="upgrade-title">
+      <h3 id="upgrade-title">
+        Based on your symptoms, I’ve identified{' '}
+        <strong>{displayName}</strong> as a possible condition that may require further evaluation.
+      </h3>
+
+      {isMildCase && (
+        <p className="mild-case-note">
+          This appears to be a condition you can manage at home. You can continue with the free version, but upgrading offers detailed insights and tracking.
+        </p>
+      )}
+
+      <p>To unlock more insights, choose an option below:</p>
+      <ul className="premium-features-list" aria-label="Upgrade options">
+        <li>
+          <span className="feature-name">🔹 Premium Access ($9.99/month)</span>
+          <span
+            className="tooltip-icon"
+            title="Get deeper insights, track symptoms, and receive doctor-ready reports"
+            aria-label="Premium feature details"
+          >
+            ⓘ
+          </span>
+          <span className="feature-description">
+            Unlimited symptom checks, detailed assessments, and personalized health monitoring.
+          </span>
+        </li>
+        <li>
+          <span className="feature-name">🔹 One-time Consultation Report ($4.99)</span>
+          <span
+            className="tooltip-icon"
+            title="A comprehensive report you can share with your doctor"
+            aria-label="One-time report details"
+          >
+            ⓘ
+          </span>
+          <span className="feature-description">
+            A comprehensive analysis of your current symptoms.
+          </span>
+        </li>
+      </ul>
+
+      <p>Would you like to proceed with one of these options?</p>
+      <div className="upgrade-buttons">
+        <button
+          className={`upgrade-button subscription ${loadingSubscription ? 'loading' : ''}`}
+          onClick={handleSubscriptionClick}
+          disabled={loadingSubscription || loadingOneTime}
+          aria-busy={loadingSubscription}
+          aria-label="Subscribe to Premium Access for $9.99 per month"
+        >
+          {loadingSubscription ? 'Processing...' : '🩺 Get Premium Access ($9.99/month)'}
+        </button>
+        <button
+          className={`upgrade-button one-time ${loadingOneTime ? 'loading' : ''}`}
+          onClick={handleOneTimeClick}
+          disabled={loadingSubscription || loadingOneTime}
+          aria-busy={loadingOneTime}
+          aria-label="Get a one-time consultation report for $4.99"
+        >
+          {loadingOneTime ? 'Processing...' : '📄 Get Consultation Report ($4.99)'}
+        </button>
+
+        {isMildCase && (
+          <button
+            className="continue-free-button"
+            onClick={onDismiss}
+            aria-label="Continue with free version"
+          >
+            Maybe Later
+          </button>
+        )}
+      </div>
+    </div>
+  );
 };
 
+// PropTypes for type checking
 UpgradePrompt.propTypes = {
-    condition: PropTypes.string.isRequired,
-    commonName: PropTypes.string,
-    isMildCase: PropTypes.bool.isRequired,
-    requiresUpgrade: PropTypes.bool,
-    onDismiss: PropTypes.func.isRequired
+  condition: PropTypes.string.isRequired,
+  commonName: PropTypes.string,
+  isMildCase: PropTypes.bool.isRequired,
+  requiresUpgrade: PropTypes.bool,
+  onDismiss: PropTypes.func.isRequired,
 };
 
-export default UpgradePrompt;
+// Memoize to prevent unnecessary re-renders
+export default memo(UpgradePrompt);

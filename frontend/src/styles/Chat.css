@@ -1,5 +1,6 @@
 /* src/styles/Chat.css */
 
+/* Core container styles */
 .chat-container {
   display: flex;
   flex-direction: column;
@@ -10,59 +11,12 @@
   position: relative;
 }
 
-/* Reset button container - new style for the header replacement */
+/* Reset button container */
 .reset-button-container {
   display: flex;
   justify-content: flex-end;
   padding: 10px 20px;
   background-color: #f9f9f9;
-}
-
-/* Original chat header styles - kept for reference but will be replaced by navbar */
-.chat-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 20px;
-  background-color: #1e2a3a;
-  color: white;
-  border-bottom: 1px solid #2c3e50;
-  flex-wrap: wrap;
-}
-
-.chat-header-left {
-  display: flex;
-  align-items: center;
-}
-
-.chat-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  margin-right: 10px;
-  object-fit: cover;
-}
-
-.chat-header-title {
-  display: flex;
-  flex-direction: column;
-}
-
-.chat-header-name {
-  font-weight: bold;
-  font-size: 16px;
-}
-
-.chat-header-role {
-  font-size: 12px;
-  opacity: 0.8;
-}
-
-.chat-header-disclaimer {
-  font-size: 12px;
-  opacity: 0.7;
-  text-align: right;
-  margin-left: 10px;
 }
 
 .reset-button {
@@ -85,28 +39,27 @@
   cursor: not-allowed;
 }
 
+/* Messages container */
 .messages-container {
   flex: 1;
   overflow-y: auto;
   padding: 20px;
-  padding-bottom: 40px !important; /* Restored for scrolling to work */
+  padding-bottom: 40px; /* Space for input */
   display: flex;
   flex-direction: column;
-  align-items: flex-start; /* Ensures correct positioning */
-  gap: 10px; /* Reduced from 15px */
+  align-items: flex-start;
+  gap: 10px;
 }
 
 .message-row {
   display: flex;
-  margin: 24px 0 6px 0 !important; /* Increased top margin even more */
-  position: relative;
-  order: 0; /* Regular messages should appear in DOM order */
+  margin: 24px 0 6px;
   width: 100%;
-  align-items: flex-start !important; /* Ensure proper alignment */
+  align-items: flex-start;
 }
 
 .message-row:first-child {
-  margin-top: 30px !important; /* Extra margin for the first message */
+  margin-top: 30px;
 }
 
 .message-row.user {
@@ -120,25 +73,20 @@
   overflow: hidden;
   margin: 0 10px;
   flex-shrink: 0;
-  position: relative !important; /* Ensure proper positioning */
-  top: -2px !important; /* Shift avatar up slightly to prevent cropping */
 }
 
 .avatar-container img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  position: relative !important;
-  top: 0 !important;
 }
 
 .message {
   max-width: 70%;
   padding: 10px 15px;
   border-radius: 18px;
-  position: relative;
   word-wrap: break-word;
-  word-break: break-word; /* Added for better handling of long words */
+  word-break: break-word;
 }
 
 .message.bot {
@@ -154,13 +102,14 @@
 }
 
 .message-content p {
-  margin: 0 0 8px 0;
+  margin: 0 0 8px;
 }
 
 .message-content p:last-child {
   margin-bottom: 0;
 }
 
+/* Typing indicator */
 .typing-indicator {
   display: flex;
   align-items: center;
@@ -189,14 +138,11 @@
 }
 
 @keyframes bounce {
-  0%, 60%, 100% {
-    transform: translateY(0);
-  }
-  30% {
-    transform: translateY(-4px);
-  }
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-4px); }
 }
 
+/* Input container */
 .chat-input-container {
   padding: 15px;
   border-top: 1px solid #e0e0e0;
@@ -205,14 +151,12 @@
   bottom: 0;
   z-index: 10;
   width: 100%;
-  box-shadow: 0 -2px 10px rgba(0,0,0,0.05); /* Add subtle shadow for visual separation */
-  margin-top: 0; /* Ensure no top margin */
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.05);
 }
 
 .chat-input-wrapper {
   display: flex;
-  position: relative;
-  align-items: center; /* Ensure vertical alignment */
+  align-items: center;
 }
 
 .chat-input {
@@ -245,16 +189,13 @@
   border-radius: 50%;
   width: 45px;
   height: 45px;
-  min-width: 45px; /* Ensure minimum width */
-  min-height: 45px; /* Ensure minimum height */
   margin-left: 10px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: background-color 0.2s;
-  flex-shrink: 0; /* Prevent button from shrinking */
-  padding: 0; /* Remove padding that might affect size */
+  flex-shrink: 0;
 }
 
 .send-button:hover {
@@ -266,6 +207,7 @@
   cursor: not-allowed;
 }
 
+/* Error and assessment styles */
 .error-message {
   color: #d9534f;
   padding: 10px;
@@ -295,17 +237,9 @@
   color: #0056b3;
 }
 
-.confidence-high {
-  color: #28a745; /* Green for high confidence */
-}
-
-.confidence-medium {
-  color: #ffc107; /* Yellow for medium confidence */
-}
-
-.confidence-low {
-  color: #dc3545; /* Red for low confidence */
-}
+.confidence-high { color: #28a745; }
+.confidence-medium { color: #ffc107; }
+.confidence-low { color: #dc3545; }
 
 .assessment-item.care-recommendation {
   color: #d63031;
@@ -327,6 +261,7 @@
   background-color: #e4e6eb;
 }
 
+/* Error boundary */
 .error-boundary {
   display: flex;
   flex-direction: column;
@@ -347,7 +282,7 @@
   cursor: pointer;
 }
 
-/* Enhanced transitions between states */
+/* Transitions */
 .assessment-summary-inline,
 .upgrade-options-inline {
   transition: opacity 0.3s ease, transform 0.3s ease;
@@ -355,167 +290,8 @@
 }
 
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* Make assessment summary more compact */
-.assessment-summary-inline {
-  background-color: #f0f4ff;
-  border: 1px solid #d0d8ff;
-  border-radius: 8px;
-  padding: 12px;
-  margin: 8px 0; /* Reduced margin */
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-  width: 100%;
-  max-width: 100%; /* Ensure it uses full width */
-  order: 1; /* Must always be above upgrade options */
-  margin-bottom: 12px; /* Add spacing between elements */
-}
-
-.assessment-summary-inline h4 {
-  margin: 0 0 6px 0; /* Reduced bottom margin */
-  color: #2c3e50;
-  font-size: 16px;
-  display: flex;
-  align-items: center;
-}
-
-.assessment-summary-inline h4::before {
-  content: "🩺";
-  margin-right: 8px;
-}
-
-.assessment-condition {
-  margin-bottom: 6px; /* Reduced margin */
-  font-size: 14px;
-}
-
-.assessment-recommendation {
-  font-size: 14px;
-  color: #2c3e50;
-  padding-top: 6px; /* Reduced padding */
-  border-top: 1px solid rgba(0, 0, 0, 0.05);
-  margin-bottom: 0; /* Remove bottom margin */
-}
-
-/* Make upgrade prompt more compact and match screenshot */
-.upgrade-options-inline {
-  background-color: #f0f8ff;
-  border: 1px solid #b8daff;
-  border-radius: 8px;
-  padding: 12px;
-  margin: 8px 0 0 0; /* Removed bottom margin */
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
-  width: 100%;
-  max-width: 100%; /* Ensure it uses full width */
-  order: 2; /* Must always be at the bottom */
-  margin-bottom: 0 !important; /* Force no bottom margin */
-  padding-bottom: 0 !important; /* Prevent padding at bottom */
-  border-bottom: none !important; /* Ensure no border adds space */
-}
-
-.upgrade-options-inline h3 {
-  margin-top: 0;
-  margin-bottom: 8px; /* Reduced margin */
-  color: #0056b3;
-  font-size: 16px; /* Slightly smaller */
-}
-
-.upgrade-options-inline p {
-  margin: 6px 0; /* Reduced margin */
-  font-size: 14px;
-}
-
-.upgrade-options-inline ul {
-  margin: 6px 0; /* Reduced margin */
-  padding-left: 18px; /* Slightly reduced padding */
-}
-
-.upgrade-options-inline li {
-  margin-bottom: 6px; /* Reduced margin */
-  font-size: 14px;
-}
-
-/* Reduce space between buttons */
-.upgrade-buttons {
-  display: flex;
-  flex-direction: column;
-  gap: 8px; /* Reduced gap */
-  margin-top: 10px; /* Reduced margin */
-  margin-bottom: 0; /* Remove bottom margin */
-}
-
-.upgrade-button {
-  padding: 12px 15px;
-  border: none;
-  border-radius: 6px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.upgrade-button.subscription {
-  background-color: #4285f4;
-  color: white;
-}
-
-.upgrade-button.subscription:hover {
-  background-color: #3367d6;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-}
-
-.upgrade-button.one-time {
-  background-color: #34a853;
-  color: white;
-}
-
-.upgrade-button.one-time:hover {
-  background-color: #2d8e47;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-}
-
-.upgrade-button.loading {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
-/* Improved message styling */
-.message.bot.assessment-message {
-  background-color: #e8f4fd;
-  border-left: 3px solid #4285f4;
-}
-
-/* Add a subtle indicator for follow-up questions */
-.follow-up-question {
-  border-left: 3px solid #17a2b8;
-  padding-left: 12px;
-}
-
-/* Visual indicator for assessment messages */
-.assessment-indicator {
-  display: inline-flex;
-  align-items: center;
-  margin-bottom: 5px;
-  font-weight: 500;
-  color: #4285f4;
-}
-
-.assessment-indicator::before {
-  content: "🩺";
-  margin-right: 5px;
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* Loading indicator */
@@ -542,233 +318,47 @@
   to { transform: rotate(360deg); }
 }
 
-/* Chat onboarding styles */
-.chat-onboarding {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.7);
-  display: flex;
-  flex-direction: column;
+/* Message enhancements */
+.message.bot.assessment-message {
+  background-color: #e8f4fd;
+  border-left: 3px solid #4285f4;
+}
+
+.follow-up-question {
+  border-left: 3px solid #17a2b8;
+  padding-left: 12px;
+}
+
+.assessment-indicator {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  z-index: 100;
-  color: white;
-  text-align: center;
-  padding: 20px;
+  margin-bottom: 5px;
+  font-weight: 500;
+  color: #4285f4;
 }
 
-.chat-onboarding h3 {
-  font-size: 24px;
-  margin-bottom: 20px;
+.assessment-indicator::before {
+  content: "🩺";
+  margin-right: 5px;
 }
 
-.chat-onboarding p {
-  font-size: 16px;
-  max-width: 500px;
-  margin-bottom: 30px;
+/* Clean up spacing */
+.messages-container > *:not(.message-row):not(.upgrade-options-inline):not(.typing-indicator):not(.loading-indicator) {
+  margin-bottom: 0;
 }
 
-.chat-onboarding button {
-  background-color: #0084ff;
-  color: white;
-  border: none;
-  border-radius: 20px;
-  padding: 10px 20px;
-  font-size: 16px;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.chat-onboarding button:hover {
-  background-color: #0073e6;
-}
-
-/* Remove horizontal dividers or separators */
-.messages-container > hr,
-.messages-container > div.divider,
-.messages-container > div[role="separator"] {
-  display: none !important;
-}
-
-/* Target and hide any non-essential elements between upgrade options and input */
-.messages-container > *:not(.message-row):not(.upgrade-options-inline):not(.typing-indicator):not(.loading-indicator):not([ref="messagesEndRef"]) {
-  margin-bottom: 0 !important;
-}
-
-/* Ensure the last element in messages container has no bottom margin */
 .messages-container > *:last-child {
-  margin-bottom: 0 !important;
-}
-
-/* Ensure messagesEndRef is properly sized and positioned */
-[ref="messagesEndRef"] {
-  display: block !important;
-  height: 1px !important;
-  width: 100% !important;
-  margin: 0 !important;
-  padding: 0 !important;
+  margin-bottom: 0;
 }
 
 /* Mobile optimizations */
 @media (max-width: 768px) {
-  .message {
-    max-width: 80%;
-  }
-  
-  .avatar-container {
-    width: 30px;
-    height: 30px;
-    margin: 0 5px;
-  }
-  
-  .chat-header {
-    padding: 8px 12px;
-  }
-  
-  .chat-avatar {
-    width: 32px;
-    height: 32px;
-  }
-  
-  .chat-header-name {
-    font-size: 14px;
-  }
-  
-  .chat-header-role {
-    font-size: 10px;
-  }
-  
-  .chat-header-disclaimer {
-    font-size: 10px;
-    width: 100%;
-    text-align: center;
-    margin-top: 5px;
-    margin-left: 0;
-  }
-  
-  .reset-button {
-    font-size: 10px;
-    padding: 4px 8px;
-  }
-  
-  .messages-container {
-    padding: 10px;
-    padding-bottom: 40px !important; /* Consistent with desktop */
-  }
-  
-  .chat-input-container {
-    padding: 10px;
-  }
-  
-  .chat-input {
-    padding: 10px;
-    font-size: 13px;
-    height: 40px;
-  }
-  
-  .send-button {
-    width: 40px;
-    height: 40px;
-    min-width: 40px; /* Ensure minimum width */
-    min-height: 40px; /* Ensure minimum height */
-  }
-  
-  .assessment-summary-inline,
-  .upgrade-options-inline {
-    padding: 10px;
-    margin: 6px 0;
-  }
-  
-  .upgrade-options-inline {
-    margin-bottom: 0 !important;
-  }
-  
-  .upgrade-options-inline h3 {
-    font-size: 15px;
-  }
-  
-  .upgrade-button {
-    padding: 10px;
-    font-size: 13px;
-  }
-  
-  .reset-button-container {
-    padding: 8px 12px;
-  }
-}
-
-/* New styles for upgrade options and continue free button */
-.premium-features-list {
-    margin: 10px 0;
-    padding-left: 18px;
-}
-
-.feature-name {
-    font-weight: 600;
-}
-
-.tooltip-icon {
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background-color: #4285f4;
-    color: white;
-    font-size: 12px;
-    text-align: center;
-    line-height: 16px;
-    margin-left: 5px;
-    cursor: help;
-}
-
-.feature-description {
-    display: block;
-    margin-left: 5px;
-    font-size: 13px;
-    color: #555;
-}
-
-.continue-free-button {
-    padding: 12px 15px;
-    border: 1px solid #ccc;
-    border-radius: 6px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    font-size: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-top: 8px;
-    width: 100%;
-}
-
-.continue-free-button.prominent {
-    background-color: #f8f9fa;
-    color: #0056b3;
-    border: 1px solid #0056b3;
-}
-
-.continue-free-button.prominent:hover {
-    background-color: #e9ecef;
-}
-
-.continue-free-button.subtle {
-    background-color: transparent;
-    color: #6c757d;
-}
-
-.continue-free-button.subtle:hover {
-    background-color: #f8f9fa;
-}
-
-.mild-case-note {
-    background-color: #e8f4fd;
-    border-left: 3px solid #4285f4;
-    padding: 10px;
-    margin: 10px 0;
-    font-style: italic;
+  .message { max-width: 80%; }
+  .avatar-container { width: 30px; height: 30px; margin: 0 5px; }
+  .messages-container { padding: 10px; padding-bottom: 40px; }
+  .chat-input-container { padding: 10px; }
+  .chat-input { padding: 10px; font-size: 13px; height: 40px; }
+  .send-button { width: 40px; height: 40px; }
+  .reset-button-container { padding: 8px 12px; }
+  .reset-button { font-size: 10px; padding: 4px 8px; }
 }

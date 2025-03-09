@@ -1,99 +1,104 @@
 /* src/styles/UpgradePrompt.css */
+
+/* Main container for upgrade prompt within messages */
 .upgrade-options-inline {
     background-color: #f0f8ff;
     border: 1px solid #b8daff;
     border-radius: 8px;
     padding: 16px;
-    margin: 15px 0;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-    z-index: 20;
+    margin: 8px 0 0; /* Reduced bottom margin to fit Chat.css */
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+    width: 100%;
+    max-width: 100%;
     animation: fadeIn 0.3s ease-in-out;
-    width: 100%; /* Ensure full width */
-}
-
-.upgrade-prompt-container {
-    margin: 20px 0;
-    padding: 10px;
-    border-radius: 10px;
-    background-color: #f8f9fa;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-    animation: fadeIn 0.3s ease-in-out;
-    width: 100%; /* Ensure full width */
-    display: block !important; /* Force block display */
-    position: relative !important; /* Ensure proper positioning */
-    z-index: 100 !important; /* Ensure it's above other elements */
-}
-
-@keyframes fadeIn {
+    order: 2; /* Ensure it stays at bottom in Chat.jsx */
+  }
+  
+  /* Animation for smooth entry */
+  @keyframes fadeIn {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
-}
-
-.upgrade-options-inline h3 {
-    margin-top: 0;
+  }
+  
+  /* Heading styles */
+  .upgrade-options-inline h3 {
+    margin: 0 0 8px;
     color: #0056b3;
-    font-size: 18px;
-}
-
-.upgrade-options-inline p {
-    margin: 10px 0;
+    font-size: 16px;
+  }
+  
+  /* Paragraph styles */
+  .upgrade-options-inline p {
+    margin: 6px 0;
     font-size: 14px;
-}
-
-.mild-case-note {
-    background-color: #e6f7ff;
-    border-left: 3px solid #1890ff;
+  }
+  
+  /* Mild case note */
+  .mild-case-note {
+    background-color: #e8f4fd;
+    border-left: 3px solid #4285f4;
     padding: 10px;
     margin: 10px 0;
     border-radius: 4px;
-}
-
-.premium-features-list {
+    font-style: italic;
+  }
+  
+  /* Feature list */
+  .premium-features-list {
     list-style-type: none;
     padding: 0;
-    margin: 15px 0;
-}
-
-.premium-features-list li {
+    margin: 10px 0;
+  }
+  
+  .premium-features-list li {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-start;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
     padding: 8px 10px;
     background-color: #fff;
     border-radius: 6px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-}
-
-.feature-name {
+  }
+  
+  .feature-name {
     font-weight: 600;
     color: #333;
     margin-right: 8px;
     flex: 1 1 200px;
-}
-
-.tooltip-icon {
-    color: #999;
-    cursor: help;
+  }
+  
+  .tooltip-icon {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background-color: #4285f4;
+    color: white;
+    font-size: 12px;
+    text-align: center;
+    line-height: 16px;
     margin: 0 5px;
-    font-size: 0.8rem;
-}
-
-.feature-description {
+    cursor: help;
+  }
+  
+  .feature-description {
     color: #666;
-    font-size: 0.85rem;
+    font-size: 13px;
     flex: 1 1 100%;
-    margin-top: 5px;
-}
-
-.upgrade-buttons {
+    margin-top: 4px;
+  }
+  
+  /* Button container */
+  .upgrade-buttons {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    margin-top: 15px;
-}
-
-.upgrade-button {
+    gap: 8px;
+    margin-top: 10px;
+  }
+  
+  /* Shared button styles */
+  .upgrade-button {
     padding: 12px 15px;
     border: none;
     border-radius: 6px;
@@ -104,65 +109,90 @@
     display: flex;
     align-items: center;
     justify-content: center;
-}
-
-.upgrade-button.subscription {
+  }
+  
+  .upgrade-button.subscription {
     background-color: #4285f4;
     color: white;
-}
-
-.upgrade-button.subscription:hover {
+  }
+  
+  .upgrade-button.subscription:hover {
     background-color: #3367d6;
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-}
-
-.upgrade-button.one-time {
+  }
+  
+  .upgrade-button.one-time {
     background-color: #34a853;
     color: white;
-}
-
-.upgrade-button.one-time:hover {
+  }
+  
+  .upgrade-button.one-time:hover {
     background-color: #2d8e47;
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-}
-
-.upgrade-button.loading {
+  }
+  
+  .upgrade-button.loading {
     opacity: 0.7;
     cursor: not-allowed;
-}
-
-.continue-free-button {
-    padding: 10px 15px;
-    background-color: transparent;
-    border: 1px solid #ddd;
+  }
+  
+  .continue-free-button {
+    padding: 12px 15px;
+    border: 1px solid #ccc;
     border-radius: 6px;
-    color: #666;
+    font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s ease;
-    margin-top: 10px;
+    transition: all 0.2s;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: transparent;
+    color: #6c757d;
     width: 100%;
-    text-align: center;
-}
-
-.continue-free-button:hover {
-    background-color: #f1f1f1;
-    color: #333;
-}
-
-@media (max-width: 768px) {
+  }
+  
+  .continue-free-button:hover {
+    background-color: #f8f9fa;
+    color: #0056b3;
+  }
+  
+  /* Mobile optimizations */
+  @media (max-width: 768px) {
     .upgrade-options-inline {
-        padding: 12px;
-        margin: 10px 0;
+      padding: 12px;
+      margin: 6px 0 0;
     }
-    
+  
     .upgrade-options-inline h3 {
-        font-size: 16px;
+      font-size: 15px;
     }
-    
+  
+    .upgrade-options-inline p {
+      font-size: 13px;
+    }
+  
+    .premium-features-list li {
+      padding: 6px 8px;
+    }
+  
+    .feature-name {
+      flex: 1 1 150px;
+    }
+  
+    .feature-description {
+      font-size: 12px;
+    }
+  
     .upgrade-button {
-        padding: 10px;
-        font-size: 13px;
+      padding: 10px;
+      font-size: 13px;
     }
-}
+  
+    .continue-free-button {
+      padding: 10px;
+      font-size: 13px;
+    }
+  }
