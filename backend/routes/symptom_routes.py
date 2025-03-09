@@ -202,7 +202,8 @@ def analyze_symptoms():
 
         if not is_premium_user(current_user):
             user_messages = sum(1 for msg in conversation_history if not msg.get("isBot", False))
-            triage_level = result.get("triage_level", "").upper()
+            # Fixed line - safely handle None value for triage_level
+            triage_level = (result.get("triage_level") or "").upper()
             if user_messages >= MAX_FREE_MESSAGES or (result.get("is_assessment") and triage_level in ["MODERATE", "SEVERE"]):
                 result["requires_upgrade"] = True
 
