@@ -2,9 +2,9 @@ Flask==2.3.3
 flask-cors==4.0.0
 flask-sqlalchemy==3.0.5
 flask-bcrypt==1.0.1
-flask-jwt-extended==4.5.0
+flask-jwt-extended==4.5.3  # Fixed from 4.5.0 to 4.5.3
 python-dotenv==1.0.0
-openai>=1.0.0  # Keep your minimum version requirement
+openai>=1.0.0  # Kept as minimum version per your spec
 sqlalchemy==2.0.20
 bcrypt==4.0.1
 pydantic==2.5.0
