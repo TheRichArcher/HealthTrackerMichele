@@ -187,7 +187,7 @@ def analyze_symptoms():
             return jsonify({"error": "'message' must be string, 'isBot' must be boolean."}), 400
 
     if reset:
-        return reset_conversation()  # Delegate to the reset endpoint logic
+        return reset_conversation()
 
     # Count questions asked so far
     question_count = sum(1 for msg in conversation_history if msg.get("isBot") and "?" in msg.get("message", ""))
@@ -206,9 +206,13 @@ def analyze_symptoms():
 
         # Continue asking questions until 99% confidence or max questions reached
         if result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD and result.get("next_question") and question_count < MAX_QUESTIONS:
-            conversation_history.append({"message": result["next_question"], "isBot": True})
+            next_question = result["next_question"]
+            if isinstance(next_question, str) and next_question.count("?") > 1:
+                logger.warning(f"OpenAI returned multiple questions: {next_question}. Trimming to first question.")
+                next_question = next_question.split("?")[0] + "?"
+            conversation_history.append({"message": next_question, "isBot": True})
             return jsonify({
-                "response": result["next_question"],
+                "response": next_question,
                 "isBot": True,
                 "conversation_history": conversation_history
             }), 200
