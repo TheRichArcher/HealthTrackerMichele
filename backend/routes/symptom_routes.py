@@ -9,6 +9,7 @@ import json
 import logging
 from datetime import datetime
 import time
+import re
 
 symptom_routes = Blueprint("symptom_routes", __name__, url_prefix="/api/symptoms")
 
@@ -38,15 +39,45 @@ def is_premium_user(user):
 
 def prepare_conversation_messages(symptom, conversation_history):
     """Prepare the message array for OpenAI based on history and current symptom."""
-    # Modify system prompt to use 95% confidence threshold
-    modified_system_prompt = SYSTEM_PROMPT.replace(
-        "Only provide an assessment if confidence is ≥ 90%", 
-        "Only provide an assessment if confidence is ≥ 95%"
-    )
+    # Create a custom system prompt that addresses the issues
+    custom_system_prompt = """You are Michele, an AI medical assistant designed to mimic a doctor's visit. Your goal is to understand the user's symptoms through conversation and provide insights only when highly confident.
+
+CRITICAL INSTRUCTIONS:
+1. ALWAYS return a valid JSON response with these exact fields:
+   - "is_assessment": boolean (true only if confidence ≥ 95% for a diagnosis)
+   - "is_question": boolean (true if asking a follow-up question)
+   - "possible_conditions": string or array (question text if is_question, FULL CONDITION NAME if is_assessment)
+   - "confidence": number (0-100, null if no assessment)
+   - "triage_level": string ("MILD", "MODERATE", "SEVERE", null if no assessment)
+   - "care_recommendation": string (brief advice, null if no assessment)
+   - "requires_upgrade": boolean (set by backend, default false)
+   Optional:
+   - "assessment": object (if is_assessment=true, with "conditions", "triage_level", "care_recommendation")
+   - "doctors_report": string (if requested)
+
+2. For assessments (is_assessment=true):
+   - Include an "assessment" object: {"conditions": [{"name": "Medical Term (Common Name)", "confidence": number}], "triage_level": string, "care_recommendation": string}
+   - Only provide an assessment if confidence is ≥ 95%.
+   - Use 'Medical Term (Common Name)' format (e.g., "Rhinitis (Common Cold)").
+   - NEVER mask condition names with asterisks or other characters.
+
+3. Conversation flow:
+   - For the first user message, set "is_question": true and ask ONE clear follow-up question.
+   - Ask ONE clear, single question at a time until you reach ≥ 95% confidence or gather enough context. Do NOT ask multiple questions in one response—wait for the user's answer before asking another.
+   - Avoid diagnosing unless confidence meets the threshold.
+   - For potentially serious conditions (e.g., stroke, heart attack), ask differentiating questions until certain.
+   - For common conditions (e.g., common cold, sunburn), suggest home care if appropriate.
+
+4. CRITICAL SAFETY INSTRUCTION: Always follow a 'rule-out worst first' approach. For any symptom presentation, first consider and rule out life-threatening conditions before suggesting benign diagnoses.
+
+5. IMPORTANT: For chest discomfort, shortness of breath, or related symptoms, ALWAYS consider cardiovascular causes first (heart attack, angina, etc.) before respiratory conditions.
+
+6. Be concise, empathetic, and precise. Avoid guessing—ask questions if unsure.
+7. Include "doctors_report" as a formatted string only when explicitly requested."""
     
     messages = [{
         "role": "system",
-        "content": modified_system_prompt + "\n\nCRITICAL SAFETY INSTRUCTION: Always follow a 'rule-out worst first' approach. For any symptom presentation, first consider and rule out life-threatening conditions before suggesting benign diagnoses. For chest discomfort, shortness of breath, or related symptoms, ALWAYS consider cardiovascular causes first (heart attack, angina, etc.) before respiratory conditions."
+        "content": custom_system_prompt
     }]
     for entry in conversation_history:
         role = "assistant" if entry.get("isBot", False) else "user"
@@ -55,6 +86,19 @@ def prepare_conversation_messages(symptom, conversation_history):
     if not conversation_history or conversation_history[-1].get("isBot", False):
         messages.append({"role": "user", "content": symptom})
     return messages
+
+def clean_condition_name(condition_name):
+    """Clean condition name by removing asterisks and confidence percentages."""
+    if not condition_name:
+        return condition_name
+    
+    # Remove asterisks
+    cleaned = condition_name.replace("*", "")
+    
+    # Remove confidence percentages (e.g., "(95% confidence)")
+    cleaned = re.sub(r'\(\d+%\s*confidence\)', '', cleaned)
+    
+    return cleaned.strip()
 
 def call_openai_api(messages, retry_count=0):
     """Call the OpenAI API with retry logic for rate limits or errors."""
@@ -74,14 +118,31 @@ def call_openai_api(messages, retry_count=0):
         
         # Validate JSON format
         try:
-            json.loads(content)
+            parsed_json = json.loads(content)
+            
+            # Fix any asterisks in condition names
+            if "possible_conditions" in parsed_json:
+                if isinstance(parsed_json["possible_conditions"], str):
+                    parsed_json["possible_conditions"] = clean_condition_name(parsed_json["possible_conditions"])
+                elif isinstance(parsed_json["possible_conditions"], list):
+                    parsed_json["possible_conditions"] = [clean_condition_name(c) for c in parsed_json["possible_conditions"]]
+            
+            # Fix assessment object if present
+            if "assessment" in parsed_json and isinstance(parsed_json["assessment"], dict):
+                if "conditions" in parsed_json["assessment"] and isinstance(parsed_json["assessment"]["conditions"], list):
+                    for condition in parsed_json["assessment"]["conditions"]:
+                        if "name" in condition:
+                            condition["name"] = clean_condition_name(condition["name"])
+            
+            content = json.dumps(parsed_json)
+            
         except json.JSONDecodeError:
             logger.warning(f"GPT-4o returned invalid JSON: {content[:100]}...")
             if retry_count < MAX_RETRIES:
                 # Add explicit instruction to return JSON and retry
                 messages.append({
                     "role": "user", 
-                    "content": "Please respond in valid JSON format only, following the structure I specified."
+                    "content": "Please respond in valid JSON format only, following the structure I specified. Do not mask condition names with asterisks."
                 })
                 time.sleep(RETRY_DELAY)
                 return call_openai_api(messages, retry_count + 1)
@@ -102,6 +163,55 @@ def call_openai_api(messages, retry_count=0):
     except Exception as e:
         logger.error(f"Unexpected error calling OpenAI API: {str(e)}", exc_info=True)
         raise
+
+def post_process_assessment(result):
+    """Post-process assessment to ensure proper display."""
+    if not result.get("is_assessment", False):
+        return result
+    
+    # Get the condition name
+    condition_name = ""
+    if isinstance(result.get("possible_conditions"), list) and result["possible_conditions"]:
+        condition_name = result["possible_conditions"][0]
+    elif isinstance(result.get("possible_conditions"), str):
+        condition_name = result["possible_conditions"]
+    
+    # Clean the condition name
+    condition_name = clean_condition_name(condition_name)
+    
+    # Update the result with the clean condition name
+    if isinstance(result.get("possible_conditions"), list):
+        result["possible_conditions"][0] = condition_name
+    else:
+        result["possible_conditions"] = condition_name
+    
+    # Add assessment field if not present
+    if "assessment" not in result:
+        result["assessment"] = {
+            "conditions": [{"name": condition_name, "confidence": result.get("confidence", 95)}],
+            "triage_level": result.get("triage_level", "MODERATE"),
+            "care_recommendation": result.get("care_recommendation", "")
+        }
+    elif "conditions" in result["assessment"]:
+        # Ensure condition names in assessment are clean
+        for condition in result["assessment"]["conditions"]:
+            if "name" in condition:
+                condition["name"] = clean_condition_name(condition["name"])
+    
+    return result
+
+def override_confidence_threshold(result):
+    """Override the confidence threshold check to use 95% instead of 90%."""
+    if result.get("is_assessment", False) and result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD:
+        result["is_assessment"] = False
+        result["is_question"] = True
+        result["possible_conditions"] = "I need more details to be certain—can you describe any other symptoms?"
+        result["confidence"] = None
+        result["triage_level"] = None
+        result["care_recommendation"] = None
+        if "assessment" in result:
+            del result["assessment"]
+    return result
 
 def save_symptom_interaction(user_id, symptom_text, ai_response, care_recommendation, confidence, is_assessment):
     """Save symptom interaction and generate a report if it's an assessment."""
@@ -145,14 +255,6 @@ def save_symptom_interaction(user_id, symptom_text, ai_response, care_recommenda
         logger.error(f"Error saving symptom interaction for user {user_id}: {str(e)}", exc_info=True)
         db.session.rollback()
         return False
-
-def override_confidence_threshold(result):
-    """Override the confidence threshold check in clean_ai_response to use 95% instead of 90%."""
-    if result.get("is_assessment", False) and result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD:
-        result["is_assessment"] = False
-        result["is_question"] = True
-        result["possible_conditions"] = "I need more details to be certain—can you describe any other symptoms?"
-    return result
 
 @symptom_routes.route("/analyze", methods=["POST"])
 def analyze_symptoms():
@@ -212,6 +314,10 @@ def analyze_symptoms():
         # Apply our 95% confidence threshold override
         result = override_confidence_threshold(result)
         
+        # Post-process assessment to ensure proper display
+        if result.get("is_assessment", False):
+            result = post_process_assessment(result)
+        
         logger.info(f"Processed AI result: {json.dumps(result)[:200]}...")
 
         if not is_premium_user(current_user):
@@ -220,7 +326,7 @@ def analyze_symptoms():
             if result.get("is_assessment", False) and triage_level in ["MODERATE", "SEVERE"]:
                 result["requires_upgrade"] = True
 
-        # Continue asking questions if confidence is below threshold
+        # Continue asking questions if confidence is below threshold or is_question is true
         if result.get("is_question", False):
             next_question = result.get("possible_conditions", "Can you tell me more about your symptoms?")
             conversation_history.append({"message": next_question, "isBot": True})
@@ -349,6 +455,10 @@ def generate_doctor_report():
         
         # Apply our 95% confidence threshold override
         result = override_confidence_threshold(result)
+        
+        # Post-process assessment to ensure proper display
+        if result.get("is_assessment", False):
+            result = post_process_assessment(result)
 
         doctor_report = result.get("doctors_report", "")
         if not doctor_report:
@@ -470,6 +580,10 @@ def debug_route():
         # Apply our 95% confidence threshold override
         result = override_confidence_threshold(result)
         
+        # Post-process assessment to ensure proper display
+        if result.get("is_assessment", False):
+            result = post_process_assessment(result)
+            
         logger.info(f"Debug result for user {user_id or 'Anonymous'}: {json.dumps(result)[:200]}...")
         return jsonify({
             "symptom": test_symptom,
