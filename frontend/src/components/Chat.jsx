@@ -68,6 +68,9 @@ const Message = memo(({ message, onRetry, index }) => {
       const jsonStartIndex = text.indexOf('{');
       if (jsonStartIndex > 0) displayText = text.substring(0, jsonStartIndex).trim();
     }
+    
+    // Clean any "(Medical Condition)" text from messages
+    displayText = displayText.replace(/\s*\(Medical Condition\)\s*/g, '').trim();
   }
 
   const getCareRecommendation = useCallback((level) => {
@@ -273,7 +276,7 @@ const Chat = () => {
     } catch (error) {
       if (CONFIG.DEBUG_MODE) console.error("Error resetting conversation:", error);
       setError(error.message || "Failed to reset conversation—please try again.");
-      addBotMessage("I couldn’t reset the conversation—please try again or describe your symptoms.");
+      addBotMessage("I couldn't reset the conversation—please try again or describe your symptoms.");
     } finally {
       setResetting(false);
       focusInput();
@@ -335,7 +338,7 @@ const Chat = () => {
         body: JSON.stringify({
           symptom: messageToSend,
           conversation_history: conversationHistory,
-          context_notes: "Focus on the user’s input and history. Ask one clear question at a time if more info is needed.",
+          context_notes: "Focus on the user's input and history. Ask one clear question at a time if more info is needed.",
           reset: false
         }),
         signal: controller.signal
@@ -373,8 +376,9 @@ const Chat = () => {
             recommendation: careRecommendation
           });
 
+          // FIXED: Removed confidence from message text to prevent duplicate display
           addBotMessage(
-            `🩺 Likely condition: **${conditionName}** (${confidence}% confidence).\n\n${careRecommendation}`,
+            `🩺 Likely condition: **${conditionName}**.\n\n${careRecommendation}`,
             true,
             confidence,
             triageLevel,
@@ -405,8 +409,8 @@ const Chat = () => {
     } catch (error) {
       if (error.name !== 'AbortError') {
         if (CONFIG.DEBUG_MODE) console.error("API error:", error);
-        setError(error.message || "I’m having trouble connecting—please try again.");
-        addBotMessage("I’m sorry, I couldn’t process that right now. Please try again, or let me know how I can assist further!");
+        setError(error.message || "I'm having trouble connecting—please try again.");
+        addBotMessage("I'm sorry, I couldn't process that right now. Please try again, or let me know how I can assist further!");
       }
     } finally {
       setLoading(false);
