@@ -141,7 +141,7 @@ def save_symptom_interaction(user_id, symptom_text, ai_response, care_recommenda
 
 @symptom_routes.route("/analyze", methods=["POST"])
 def analyze_symptoms():
-    """Analyze user symptoms and iterate questions until 99% confidence."""
+    """Analyze user symptoms and iterate questions until 99% confidence or max questions."""
     logger.info("Processing symptom analysis request")
     is_production = current_app.config.get("ENV") == "production"
 
@@ -184,7 +184,7 @@ def analyze_symptoms():
             return jsonify({"error": "Each conversation history entry must have 'message' and 'isBot' fields."}), 400
         if not isinstance(entry["message"], str) or not isinstance(entry["isBot"], bool):
             logger.warning(f"Invalid types in conversation history entry: {entry}")
-            return jsonify({"error": "Conversation history entries must have a string 'message' and boolean 'isBot'."}), 400
+            return jsonify({"error": "'message' must be string, 'isBot' must be boolean."}), 400
 
     if reset:
         user_messages = sum(1 for msg in conversation_history if not msg.get("isBot", False))
@@ -204,24 +204,27 @@ def analyze_symptoms():
             "conversation_history": []
         }), 200
 
-    if not is_premium_user(current_user):
-        user_messages = sum(1 for msg in conversation_history if not msg.get("isBot", False))
-        if user_messages >= MAX_FREE_MESSAGES:
-            return jsonify({
-                "message": "Free message limit reached. Upgrade or reset to continue.",
-                "requires_upgrade": True,
-                "can_reset": True,
-                "upgrade_options": [
-                    {"type": "subscription", "name": "PA Mode", "price": 9.99, "period": "month"},
-                    {"type": "one_time", "name": "Doctor's Report", "price": 4.99}
-                ]
-            }), 200
-
     # Count questions asked so far
     question_count = sum(1 for msg in conversation_history if msg.get("isBot") and "Next Question" in msg.get("message", ""))
     if question_count >= MAX_QUESTIONS:
+        # Force an assessment if max questions reached
+        messages = prepare_conversation_messages(symptom, conversation_history)
+        response_text = call_openai_api(messages)
+        result = json.loads(response_text)
+        logger.info(f"Forced assessment result: {result}")
+
+        if user_id:
+            save_symptom_interaction(
+                user_id,
+                symptom,
+                result,
+                result.get("care_recommendation", ""),
+                result.get("confidence", 0),
+                True  # Force assessment
+            )
+
         return jsonify({
-            "response": "Unable to reach a confident diagnosis after multiple questions. Please consult a healthcare provider.",
+            "response": result,
             "isBot": True,
             "conversation_history": conversation_history
         }), 200
@@ -229,7 +232,7 @@ def analyze_symptoms():
     messages = prepare_conversation_messages(symptom, conversation_history)
     try:
         response_text = call_openai_api(messages)
-        result = json.loads(response_text)  # Parse JSON directly
+        result = json.loads(response_text)
         logger.info(f"Processed AI result: {result}")
 
         if not is_premium_user(current_user):
@@ -253,7 +256,7 @@ def analyze_symptoms():
                 result,
                 result.get("care_recommendation", ""),
                 result.get("confidence", 0),
-                result.get("is_assessment", False)
+                True  # Assessment
             )
 
         return jsonify({
