@@ -58,7 +58,7 @@ CRITICAL INSTRUCTIONS:
 2. For assessments (is_assessment=true):
    - Include an "assessment" object: {"conditions": [{"name": "Medical Term (Common Name)", "confidence": number}], "triage_level": string, "care_recommendation": string}
    - Only provide an assessment if confidence is ≥ 95%.
-   - Use 'Medical Term (Common Name)' format (e.g., "Rhinitis (Common Cold)").
+   - ALWAYS format condition names as "Medical Term (Common Name)" - e.g., "Allergic Rhinitis (Hay Fever)" or "Conjunctivitis (Pink Eye)"
    - NEVER mask condition names with asterisks or other characters.
 
 3. Conversation flow:
@@ -87,18 +87,20 @@ CRITICAL INSTRUCTIONS:
         messages.append({"role": "user", "content": symptom})
     return messages
 
-def clean_condition_name(condition_name):
-    """Clean condition name by removing asterisks and confidence percentages."""
+def ensure_proper_condition_format(condition_name):
+    """Ensure condition name follows the 'Medical Term (Common Name)' format."""
     if not condition_name:
-        return condition_name
+        return "Unknown Condition"
     
-    # Remove asterisks
+    # Remove any asterisks
     cleaned = condition_name.replace("*", "")
     
-    # Remove confidence percentages (e.g., "(95% confidence)")
-    cleaned = re.sub(r'\(\d+%\s*confidence\)', '', cleaned)
+    # Check if it already has the format "Something (Something Else)"
+    if re.search(r'.*\(.*\).*', cleaned):
+        return cleaned
     
-    return cleaned.strip()
+    # If no parentheses, add a generic common name
+    return f"{cleaned} (Medical Condition)"
 
 def call_openai_api(messages, retry_count=0):
     """Call the OpenAI API with retry logic for rate limits or errors."""
@@ -120,19 +122,19 @@ def call_openai_api(messages, retry_count=0):
         try:
             parsed_json = json.loads(content)
             
-            # Fix any asterisks in condition names
+            # Fix any asterisks in condition names and ensure proper format
             if "possible_conditions" in parsed_json:
                 if isinstance(parsed_json["possible_conditions"], str):
-                    parsed_json["possible_conditions"] = clean_condition_name(parsed_json["possible_conditions"])
+                    parsed_json["possible_conditions"] = ensure_proper_condition_format(parsed_json["possible_conditions"])
                 elif isinstance(parsed_json["possible_conditions"], list):
-                    parsed_json["possible_conditions"] = [clean_condition_name(c) for c in parsed_json["possible_conditions"]]
+                    parsed_json["possible_conditions"] = [ensure_proper_condition_format(c) for c in parsed_json["possible_conditions"]]
             
             # Fix assessment object if present
             if "assessment" in parsed_json and isinstance(parsed_json["assessment"], dict):
                 if "conditions" in parsed_json["assessment"] and isinstance(parsed_json["assessment"]["conditions"], list):
                     for condition in parsed_json["assessment"]["conditions"]:
                         if "name" in condition:
-                            condition["name"] = clean_condition_name(condition["name"])
+                            condition["name"] = ensure_proper_condition_format(condition["name"])
             
             content = json.dumps(parsed_json)
             
@@ -142,7 +144,7 @@ def call_openai_api(messages, retry_count=0):
                 # Add explicit instruction to return JSON and retry
                 messages.append({
                     "role": "user", 
-                    "content": "Please respond in valid JSON format only, following the structure I specified. Do not mask condition names with asterisks."
+                    "content": "Please respond in valid JSON format only, following the structure I specified. Format condition names as 'Medical Term (Common Name)' and do not mask with asterisks."
                 })
                 time.sleep(RETRY_DELAY)
                 return call_openai_api(messages, retry_count + 1)
@@ -176,10 +178,10 @@ def post_process_assessment(result):
     elif isinstance(result.get("possible_conditions"), str):
         condition_name = result["possible_conditions"]
     
-    # Clean the condition name
-    condition_name = clean_condition_name(condition_name)
+    # Ensure proper format
+    condition_name = ensure_proper_condition_format(condition_name)
     
-    # Update the result with the clean condition name
+    # Update the result with the formatted condition name
     if isinstance(result.get("possible_conditions"), list):
         result["possible_conditions"][0] = condition_name
     else:
@@ -193,10 +195,10 @@ def post_process_assessment(result):
             "care_recommendation": result.get("care_recommendation", "")
         }
     elif "conditions" in result["assessment"]:
-        # Ensure condition names in assessment are clean
+        # Ensure condition names in assessment are properly formatted
         for condition in result["assessment"]["conditions"]:
             if "name" in condition:
-                condition["name"] = clean_condition_name(condition["name"])
+                condition["name"] = ensure_proper_condition_format(condition["name"])
     
     return result
 
