@@ -352,13 +352,24 @@ const Chat = () => {
       if (CONFIG.DEBUG_MODE) console.log("API response:", responseData);
 
       setTimeout(() => {
-        const isAssessment = responseData.is_assessment === true;
-        const isQuestion = responseData.is_question === true;
         const requiresUpgrade = responseData.requires_upgrade === true;
 
         if (responseData.message) {
           addBotMessage(responseData.message);
-        } else if (isAssessment && responseData.confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD) {
+        } else if (responseData.response && responseData.isBot) {
+          // Handle questions or interim responses
+          addBotMessage(responseData.response);
+          // Update conversation history to persist the latest state
+          setMessages(prev => {
+            const updatedMessages = [...prev];
+            updatedMessages[updatedMessages.length - 1] = {
+              ...updatedMessages[updatedMessages.length - 1],
+              conversation_history: responseData.conversation_history
+            };
+            return updatedMessages;
+          });
+        } else if (responseData.confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD) {
+          // Handle assessments (when confidence hits 99%)
           const conditionName = responseData.possible_conditions || "Unknown condition";
           const triageLevel = responseData.triage_level || "unknown";
           const careRecommendation = responseData.care_recommendation || "";
@@ -395,10 +406,10 @@ const Chat = () => {
             // Show upgrade prompt after sales pitch
             setTimeout(() => setUiState(UI_STATES.UPGRADE_PROMPT), 1500);
           }, 1500);
-        } else if (isQuestion || !isAssessment) {
-          addBotMessage(responseData.possible_conditions || "Can you tell me more about your symptoms?");
         } else if (requiresUpgrade) {
           setTimeout(() => setUiState(UI_STATES.UPGRADE_PROMPT), 1000);
+        } else {
+          addBotMessage("Can you tell me more about your symptoms?");
         }
       }, CONFIG.THINKING_DELAY);
     } catch (error) {
