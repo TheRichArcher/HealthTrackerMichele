@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 from backend.models import User, SymptomLog, Report, UserTierEnum, CareRecommendationEnum
 from backend.extensions import db
-from backend.openai_config import clean_ai_response, SYSTEM_PROMPT
+from backend.openai_config import SYSTEM_PROMPT
 import openai
 import os
 import json
@@ -39,20 +39,23 @@ def is_premium_user(user):
 
 def prepare_conversation_messages(symptom, conversation_history):
     """Prepare the message array for OpenAI based on history and current symptom."""
-    messages = [{"role": "system", "content": (
-        "You are a medical assistant aiming for 99% diagnostic accuracy. Analyze the user's symptoms based on the conversation history. "
-        "Provide a possible condition with a confidence level (0-100), triage level (LOW, MODERATE, SEVERE), and care recommendation. "
-        "Consider all differentials (e.g., vertigo, heat exhaustion, heat stroke, dehydration) and environmental factors (e.g., heat, hydration). "
-        "If confidence is below 99%, suggest one specific follow-up question to reach higher certainty. Ask only one question at a time. "
-        "Return your response in this JSON format:\n"
-        "{\n"
-        "  \"possible_conditions\": [\"condition_name\"],\n"
-        "  \"confidence\": number,\n"
-        "  \"triage_level\": \"LEVEL\",\n"
-        "  \"care_recommendation\": \"recommendation\",\n"
-        "  \"next_question\": \"question or null\"\n"
-        "}"
-    )}]
+    messages = [{
+        "role": "system",
+        "content": (
+            "You are a medical assistant aiming for 99% diagnostic accuracy. Analyze the user's symptoms based on the conversation history. "
+            "Provide a possible condition with a confidence level (0-100), triage level (LOW, MODERATE, SEVERE), and care recommendation. "
+            "Consider all differentials (e.g., vertigo, heat exhaustion, heat stroke, dehydration) and environmental factors (e.g., heat, hydration). "
+            "If confidence is below 99%, suggest one specific follow-up question to reach higher certainty. Ask only one question at a time. "
+            "Always return your response in strict JSON format, even for questions:\n"
+            "{\n"
+            "  \"possible_conditions\": [\"condition_name\"],\n"
+            "  \"confidence\": number,\n"
+            "  \"triage_level\": \"LEVEL\",\n"
+            "  \"care_recommendation\": \"recommendation\",\n"
+            "  \"next_question\": \"question or null\"\n"
+            "}"
+        )
+    }]
     for entry in conversation_history:
         role = "assistant" if entry.get("isBot", False) else "user"
         content = entry.get("message", "")
@@ -75,6 +78,7 @@ def call_openai_api(messages, retry_count=0):
             max_tokens=MAX_TOKENS
         )
         content = response.choices[0].message.content.strip() if response.choices else ""
+        logger.info(f"Raw OpenAI response: {content}")
         if not content:
             logger.warning("Empty response from OpenAI")
             time.sleep(RETRY_DELAY)
@@ -165,23 +169,22 @@ def analyze_symptoms():
     if not symptom or not isinstance(symptom, str):
         logger.warning("Invalid or missing symptom input")
         return jsonify({
-            "possible_conditions": "Please describe your symptoms.",
-            "care_recommendation": "Consider seeing a doctor soon.",
-            "is_question": True,
-            "requires_upgrade": False
+            "response": "Please describe your symptoms.",
+            "isBot": True,
+            "conversation_history": conversation_history
         }), 400
 
     if not isinstance(conversation_history, list):
         logger.warning("Invalid conversation_history format")
-        return jsonify({"error": "Conversation history must be a list.", "requires_upgrade": False}), 400
+        return jsonify({"error": "Conversation history must be a list."}), 400
 
     for entry in conversation_history:
         if not isinstance(entry, dict) or "message" not in entry or "isBot" not in entry:
             logger.warning(f"Invalid conversation history entry: {entry}")
-            return jsonify({"error": "Each conversation history entry must have 'message' and 'isBot' fields.", "requires_upgrade": False}), 400
+            return jsonify({"error": "Each conversation history entry must have 'message' and 'isBot' fields."}), 400
         if not isinstance(entry["message"], str) or not isinstance(entry["isBot"], bool):
             logger.warning(f"Invalid types in conversation history entry: {entry}")
-            return jsonify({"error": "Conversation history entries must have a string 'message' and boolean 'isBot'.", "requires_upgrade": False}), 400
+            return jsonify({"error": "Conversation history entries must have a string 'message' and boolean 'isBot'."}), 400
 
     if reset:
         user_messages = sum(1 for msg in conversation_history if not msg.get("isBot", False))
@@ -196,10 +199,9 @@ def analyze_symptoms():
             }), 403
         return jsonify({
             "message": "Conversation reset successfully",
-            "possible_conditions": "Hello! I'm your AI medical assistant. Please describe your symptoms.",
-            "is_assessment": False,
-            "is_greeting": True,
-            "requires_upgrade": False
+            "response": "Hello! I'm your AI medical assistant. Please describe your symptoms.",
+            "isBot": True,
+            "conversation_history": []
         }), 200
 
     if not is_premium_user(current_user):
@@ -216,8 +218,7 @@ def analyze_symptoms():
             }), 200
 
     # Count questions asked so far
-    question_count = sum(1 for msg in conversation_history if msg.get("isBot") and "Next Question" in msg.get("content", ""))
-
+    question_count = sum(1 for msg in conversation_history if msg.get("isBot") and "Next Question" in msg.get("message", ""))
     if question_count >= MAX_QUESTIONS:
         return jsonify({
             "response": "Unable to reach a confident diagnosis after multiple questions. Please consult a healthcare provider.",
@@ -228,16 +229,17 @@ def analyze_symptoms():
     messages = prepare_conversation_messages(symptom, conversation_history)
     try:
         response_text = call_openai_api(messages)
-        result = clean_ai_response(response_text, current_user, conversation_history, symptom)
+        result = json.loads(response_text)  # Parse JSON directly
+        logger.info(f"Processed AI result: {result}")
 
         if not is_premium_user(current_user):
             user_messages = sum(1 for msg in conversation_history if not msg.get("isBot", False))
             triage_level = (result.get("triage_level") or "").upper()
-            if user_messages >= MAX_FREE_MESSAGES or (result.get("is_assessment") and triage_level in ["MODERATE", "SEVERE"]):
+            if user_messages >= MAX_FREE_MESSAGES or (result.get("is_assessment", False) and triage_level in ["MODERATE", "SEVERE"]):
                 result["requires_upgrade"] = True
 
         if result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD and result.get("next_question"):
-            conversation_history.append({"role": "assistant", "content": f"Next Question: {result['next_question']}", "isBot": True})
+            conversation_history.append({"message": f"Next Question: {result['next_question']}", "isBot": True})
             return jsonify({
                 "response": result["next_question"],
                 "isBot": True,
@@ -254,20 +256,24 @@ def analyze_symptoms():
                 result.get("is_assessment", False)
             )
 
-        return jsonify(result), 200
-    except (ValueError, RuntimeError) as e:
-        logger.error(f"AI processing failed: {str(e)}")
         return jsonify({
-            "error": "AI service unavailable. Please try again later.",
-            "requires_upgrade": False
-        }), 503
+            "response": result,
+            "isBot": True,
+            "conversation_history": conversation_history
+        }), 200
+    except json.JSONDecodeError:
+        logger.error(f"Failed to parse OpenAI response as JSON: {response_text}")
+        return jsonify({
+            "response": "I’m having trouble processing that. Can you tell me more about your symptoms?",
+            "isBot": True,
+            "conversation_history": conversation_history
+        }), 200
     except Exception as e:
-        logger.error(f"Unexpected error in symptom analysis: {str(e)}", exc_info=True)
+        logger.error(f"Error in symptom analysis: {str(e)}", exc_info=True)
         return jsonify({
-            "error": "Error processing your request. Please try again.",
-            "possible_conditions": "I apologize, but I'm having trouble processing your request right now. Please try again or seek medical attention if concerned.",
-            "care_recommendation": "Consider seeing a doctor soon.",
-            "requires_upgrade": False
+            "response": "Error processing your request. Please try again.",
+            "isBot": True,
+            "conversation_history": conversation_history
         }), 500
 
 @symptom_routes.route("/history", methods=["GET"])
@@ -347,14 +353,14 @@ def generate_doctor_report():
 
     if not symptom or not isinstance(symptom, str):
         logger.warning("Invalid or missing symptom for doctor's report")
-        return jsonify({"error": "Symptom is required.", "requires_upgrade": False}), 400
+        return jsonify({"error": "Symptom is required."}), 400
 
     messages = prepare_conversation_messages(symptom, conversation_history)
     messages[-1]["content"] += " Generate a comprehensive medical report suitable for healthcare providers."
 
     try:
         response_text = call_openai_api(messages)
-        result = clean_ai_response(response_text, current_user, conversation_history, symptom)
+        result = json.loads(response_text)
 
         doctor_report = result.get("doctors_report", "")
         if not doctor_report:
@@ -453,10 +459,9 @@ def reset_conversation():
 
     return jsonify({
         "message": "Conversation reset successfully",
-        "possible_conditions": "Hello! I'm your AI medical assistant. Please describe your symptoms.",
-        "is_assessment": False,
-        "is_greeting": True,
-        "requires_upgrade": False
+        "response": "Hello! I'm your AI medical assistant. Please describe your symptoms.",
+        "isBot": True,
+        "conversation_history": []
     }), 200
 
 @symptom_routes.route("/debug", methods=["GET"])
@@ -486,7 +491,7 @@ def debug_route():
     try:
         messages = prepare_conversation_messages(test_symptom, test_history)
         response_text = call_openai_api(messages)
-        result = clean_ai_response(response_text, current_user, test_history, test_symptom)
+        result = json.loads(response_text)
         logger.info(f"Debug result for user {user_id or 'Anonymous'}: {result}")
         return jsonify({
             "symptom": test_symptom,
