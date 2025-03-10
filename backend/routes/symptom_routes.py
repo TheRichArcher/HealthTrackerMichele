@@ -14,11 +14,11 @@ symptom_routes = Blueprint("symptom_routes", __name__, url_prefix="/api/symptoms
 # Constants
 MAX_RETRIES = 3
 RETRY_DELAY = 2
-MAX_FREE_MESSAGES = 15
-MIN_CONFIDENCE_THRESHOLD = 99  # High accuracy requirement
+MAX_FREE_MESSAGES = 15  # Kept for reference, but not enforced
+MIN_CONFIDENCE_THRESHOLD = 95  # Lowered to 95% for practicality
 MAX_TOKENS = 1500
 TEMPERATURE = 0.7
-MAX_QUESTIONS = 20  # Limit to prevent excessive questioning
+# Removed MAX_QUESTIONS to allow unlimited questions until 95% confidence
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 if not openai.api_key:
@@ -41,10 +41,10 @@ def prepare_conversation_messages(symptom, conversation_history):
     messages = [{
         "role": "system",
         "content": (
-            "You are a medical assistant aiming for 99% diagnostic accuracy. Analyze the user's symptoms based on the conversation history. "
+            "You are a medical assistant aiming for 95% diagnostic accuracy. Analyze the user's symptoms based on the conversation history. "
             "Provide a possible condition with a confidence level (0-100), triage level (LOW, MODERATE, SEVERE), and care recommendation. "
             "Consider all differentials (e.g., vertigo, heat exhaustion, heat stroke, dehydration) and environmental factors (e.g., heat, hydration). "
-            "If confidence is below 99%, suggest one specific follow-up question to reach higher certainty. Ask only one question at a time. "
+            "If confidence is below 95%, suggest one specific follow-up question to reach higher certainty. Ask only one question at a time. "
             "Always return your response in strict JSON format, even for questions:\n"
             "{\n"
             "  \"possible_conditions\": [\"condition_name\"],\n"
@@ -140,7 +140,7 @@ def save_symptom_interaction(user_id, symptom_text, ai_response, care_recommenda
 
 @symptom_routes.route("/analyze", methods=["POST"])
 def analyze_symptoms():
-    """Analyze user symptoms and iterate questions until 99% confidence or max questions."""
+    """Analyze user symptoms and iterate questions until 95% confidence."""
     logger.info("Processing symptom analysis request")
     is_production = current_app.config.get("ENV") == "production"
 
@@ -188,9 +188,6 @@ def analyze_symptoms():
     if reset:
         return reset_conversation()
 
-    # Count questions asked so far
-    question_count = sum(1 for msg in conversation_history if msg.get("isBot") and "?" in msg.get("message", ""))
-
     messages = prepare_conversation_messages(symptom, conversation_history)
     try:
         response_text = call_openai_api(messages)
@@ -200,11 +197,11 @@ def analyze_symptoms():
         if not is_premium_user(current_user):
             user_messages = sum(1 for msg in conversation_history if not msg.get("isBot", False))
             triage_level = (result.get("triage_level") or "").upper()
-            if user_messages >= MAX_FREE_MESSAGES or (result.get("confidence", 0) >= MIN_CONFIDENCE_THRESHOLD and triage_level in ["MODERATE", "SEVERE"]):
+            if result.get("confidence", 0) >= MIN_CONFIDENCE_THRESHOLD and triage_level in ["MODERATE", "SEVERE"]:
                 result["requires_upgrade"] = True
 
-        # Continue asking questions until 99% confidence or max questions reached
-        if result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD and result.get("next_question") and question_count < MAX_QUESTIONS:
+        # Continue asking questions until 95% confidence
+        if result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD and result.get("next_question"):
             next_question = result["next_question"]
             if isinstance(next_question, str) and next_question.count("?") > 1:
                 logger.warning(f"OpenAI returned multiple questions: {next_question}. Trimming to first question.")
@@ -215,8 +212,8 @@ def analyze_symptoms():
                 "isBot": True,
                 "conversation_history": conversation_history
             }), 200
-        elif result.get("confidence", 0) >= MIN_CONFIDENCE_THRESHOLD:
-            # Provide assessment if confidence is 99% or higher
+        else:
+            # Provide assessment if confidence is 95% or higher
             if user_id:
                 save_symptom_interaction(
                     user_id,
@@ -228,26 +225,6 @@ def analyze_symptoms():
                 )
             return jsonify({
                 "response": result,
-                "isBot": True,
-                "conversation_history": conversation_history
-            }), 200
-        else:
-            # Max questions reached without 99% confidence
-            conversation_history.append({
-                "message": "I’ve asked the maximum number of questions but can’t reach a confident diagnosis. Please consult a healthcare provider for further evaluation.",
-                "isBot": True
-            })
-            if user_id:
-                save_symptom_interaction(
-                    user_id,
-                    symptom,
-                    {"note": "Max questions reached, no confident diagnosis"},
-                    "Consult a healthcare provider",
-                    result.get("confidence", 0),
-                    False
-                )
-            return jsonify({
-                "response": "I’ve asked the maximum number of questions but can’t reach a confident diagnosis. Please consult a healthcare provider for further evaluation.",
                 "isBot": True,
                 "conversation_history": conversation_history
             }), 200
@@ -433,20 +410,6 @@ def reset_conversation():
                 current_user = User.query.get(user_id) or MockUser()
         except Exception as e:
             logger.warning(f"Invalid token: {str(e)}")
-
-    data = request.get_json() or {}
-    conversation_history = data.get("conversation_history", [])
-
-    user_messages = sum(1 for msg in conversation_history if not msg.get("isBot", False))
-    if not is_premium_user(current_user) and user_messages >= MAX_FREE_MESSAGES:
-        return jsonify({
-            "message": "Free users cannot reset after reaching the message limit.",
-            "requires_upgrade": True,
-            "upgrade_options": [
-                {"type": "subscription", "name": "PA Mode", "price": 9.99, "period": "month"},
-                {"type": "one_time", "name": "Doctor's Report", "price": 4.99}
-            ]
-        }), 403
 
     return jsonify({
         "message": "Conversation reset successfully",
