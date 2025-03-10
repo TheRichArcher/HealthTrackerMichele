@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 from backend.models import User, SymptomLog, Report, UserTierEnum, CareRecommendationEnum
 from backend.extensions import db
+from backend.openai_config import clean_ai_response, SYSTEM_PROMPT
 import openai
 import os
 import json
@@ -15,10 +16,9 @@ symptom_routes = Blueprint("symptom_routes", __name__, url_prefix="/api/symptoms
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 MAX_FREE_MESSAGES = 15  # Kept for reference, but not enforced
-MIN_CONFIDENCE_THRESHOLD = 95  # Lowered to 95% for practicality
+MIN_CONFIDENCE_THRESHOLD = 95  # Keeping at 95% as requested
 MAX_TOKENS = 1500
 TEMPERATURE = 0.7
-# Removed MAX_QUESTIONS to allow unlimited questions until 95% confidence
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 if not openai.api_key:
@@ -38,22 +38,15 @@ def is_premium_user(user):
 
 def prepare_conversation_messages(symptom, conversation_history):
     """Prepare the message array for OpenAI based on history and current symptom."""
+    # Modify system prompt to use 95% confidence threshold
+    modified_system_prompt = SYSTEM_PROMPT.replace(
+        "Only provide an assessment if confidence is ≥ 90%", 
+        "Only provide an assessment if confidence is ≥ 95%"
+    )
+    
     messages = [{
         "role": "system",
-        "content": (
-            "You are a medical assistant aiming for 95% diagnostic accuracy. Analyze the user's symptoms based on the conversation history. "
-            "Provide a possible condition with a confidence level (0-100), triage level (LOW, MODERATE, SEVERE), and care recommendation. "
-            "Consider all differentials (e.g., vertigo, heat exhaustion, heat stroke, dehydration) and environmental factors (e.g., heat, hydration). "
-            "If confidence is below 95%, suggest one specific follow-up question to reach higher certainty. Ask only one question at a time. "
-            "Always return your response in strict JSON format, even for questions:\n"
-            "{\n"
-            "  \"possible_conditions\": [\"condition_name\"],\n"
-            "  \"confidence\": number,\n"
-            "  \"triage_level\": \"LEVEL\",\n"
-            "  \"care_recommendation\": \"recommendation\",\n"
-            "  \"next_question\": \"question or null\"\n"
-            "}"
-        )
+        "content": modified_system_prompt + "\n\nCRITICAL SAFETY INSTRUCTION: Always follow a 'rule-out worst first' approach. For any symptom presentation, first consider and rule out life-threatening conditions before suggesting benign diagnoses. For chest discomfort, shortness of breath, or related symptoms, ALWAYS consider cardiovascular causes first (heart attack, angina, etc.) before respiratory conditions."
     }]
     for entry in conversation_history:
         role = "assistant" if entry.get("isBot", False) else "user"
@@ -70,14 +63,29 @@ def call_openai_api(messages, retry_count=0):
         raise RuntimeError("Failed to get response from OpenAI")
     try:
         response = openai.chat.completions.create(
-            model="gpt-4-turbo",
+            model="gpt-4o",  # Changed from gpt-4-turbo to gpt-4o
             messages=messages,
-            response_format={"type": "json_object"},
+            response_format={"type": "json_object"},  # Force JSON response
             temperature=TEMPERATURE,
             max_tokens=MAX_TOKENS
         )
         content = response.choices[0].message.content.strip() if response.choices else ""
-        logger.info(f"Raw OpenAI response: {content}")
+        logger.info(f"Raw OpenAI response: {content[:100]}...")  # Log first 100 chars
+        
+        # Validate JSON format
+        try:
+            json.loads(content)
+        except json.JSONDecodeError:
+            logger.warning(f"GPT-4o returned invalid JSON: {content[:100]}...")
+            if retry_count < MAX_RETRIES:
+                # Add explicit instruction to return JSON and retry
+                messages.append({
+                    "role": "user", 
+                    "content": "Please respond in valid JSON format only, following the structure I specified."
+                })
+                time.sleep(RETRY_DELAY)
+                return call_openai_api(messages, retry_count + 1)
+        
         if not content:
             logger.warning("Empty response from OpenAI")
             time.sleep(RETRY_DELAY)
@@ -138,9 +146,17 @@ def save_symptom_interaction(user_id, symptom_text, ai_response, care_recommenda
         db.session.rollback()
         return False
 
+def override_confidence_threshold(result):
+    """Override the confidence threshold check in clean_ai_response to use 95% instead of 90%."""
+    if result.get("is_assessment", False) and result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD:
+        result["is_assessment"] = False
+        result["is_question"] = True
+        result["possible_conditions"] = "I need more details to be certain—can you describe any other symptoms?"
+    return result
+
 @symptom_routes.route("/analyze", methods=["POST"])
 def analyze_symptoms():
-    """Analyze user symptoms and iterate questions until 95% confidence."""
+    """Analyze user symptoms and iterate questions until confidence threshold is met."""
     logger.info("Processing symptom analysis request")
     is_production = current_app.config.get("ENV") == "production"
 
@@ -191,21 +207,22 @@ def analyze_symptoms():
     messages = prepare_conversation_messages(symptom, conversation_history)
     try:
         response_text = call_openai_api(messages)
-        result = json.loads(response_text)
-        logger.info(f"Processed AI result: {result}")
+        result = clean_ai_response(response_text, current_user, conversation_history, symptom)
+        
+        # Apply our 95% confidence threshold override
+        result = override_confidence_threshold(result)
+        
+        logger.info(f"Processed AI result: {json.dumps(result)[:200]}...")
 
         if not is_premium_user(current_user):
             user_messages = sum(1 for msg in conversation_history if not msg.get("isBot", False))
             triage_level = (result.get("triage_level") or "").upper()
-            if result.get("confidence", 0) >= MIN_CONFIDENCE_THRESHOLD and triage_level in ["MODERATE", "SEVERE"]:
+            if result.get("is_assessment", False) and triage_level in ["MODERATE", "SEVERE"]:
                 result["requires_upgrade"] = True
 
-        # Continue asking questions until 95% confidence
-        if result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD and result.get("next_question"):
-            next_question = result["next_question"]
-            if isinstance(next_question, str) and next_question.count("?") > 1:
-                logger.warning(f"OpenAI returned multiple questions: {next_question}. Trimming to first question.")
-                next_question = next_question.split("?")[0] + "?"
+        # Continue asking questions if confidence is below threshold
+        if result.get("is_question", False):
+            next_question = result.get("possible_conditions", "Can you tell me more about your symptoms?")
             conversation_history.append({"message": next_question, "isBot": True})
             return jsonify({
                 "response": next_question,
@@ -213,8 +230,8 @@ def analyze_symptoms():
                 "conversation_history": conversation_history
             }), 200
         else:
-            # Provide assessment if confidence is 95% or higher
-            if user_id:
+            # Provide assessment
+            if user_id and result.get("is_assessment", False):
                 save_symptom_interaction(
                     user_id,
                     symptom,
@@ -230,9 +247,9 @@ def analyze_symptoms():
             }), 200
 
     except json.JSONDecodeError:
-        logger.error(f"Failed to parse OpenAI response as JSON: {response_text}")
+        logger.error(f"Failed to parse OpenAI response as JSON: {response_text[:200]}...")
         return jsonify({
-            "response": "I’m having trouble processing that. Can you tell me more about your symptoms?",
+            "response": "I'm having trouble processing that. Can you tell me more about your symptoms?",
             "isBot": True,
             "conversation_history": conversation_history
         }), 200
@@ -328,7 +345,10 @@ def generate_doctor_report():
 
     try:
         response_text = call_openai_api(messages)
-        result = json.loads(response_text)
+        result = clean_ai_response(response_text, current_user, conversation_history, symptom)
+        
+        # Apply our 95% confidence threshold override
+        result = override_confidence_threshold(result)
 
         doctor_report = result.get("doctors_report", "")
         if not doctor_report:
@@ -445,8 +465,12 @@ def debug_route():
     try:
         messages = prepare_conversation_messages(test_symptom, test_history)
         response_text = call_openai_api(messages)
-        result = json.loads(response_text)
-        logger.info(f"Debug result for user {user_id or 'Anonymous'}: {result}")
+        result = clean_ai_response(response_text, current_user, test_history, test_symptom)
+        
+        # Apply our 95% confidence threshold override
+        result = override_confidence_threshold(result)
+        
+        logger.info(f"Debug result for user {user_id or 'Anonymous'}: {json.dumps(result)[:200]}...")
         return jsonify({
             "symptom": test_symptom,
             "processed_result": result,

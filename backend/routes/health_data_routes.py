@@ -7,6 +7,7 @@ from datetime import datetime
 import openai
 import os
 import time
+import json
 
 # Logger setup
 logger = logging.getLogger("health_data_routes")
@@ -35,12 +36,14 @@ def call_openai_api(messages, retry_count=0):
         return "Unable to generate insights at this time."
     try:
         response = openai.chat.completions.create(
-            model="gpt-4-turbo",
+            model="gpt-4o",  # Changed from gpt-4-turbo to gpt-4o
             messages=messages,
             temperature=TEMPERATURE,
             max_tokens=MAX_TOKENS
         )
         content = response.choices[0].message.content.strip() if response.choices else ""
+        logger.info(f"Raw OpenAI response: {content[:100]}...")  # Log first 100 chars
+        
         if not content:
             logger.warning("Empty response from OpenAI")
             time.sleep(RETRY_DELAY)

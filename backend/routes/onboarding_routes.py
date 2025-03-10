@@ -35,7 +35,7 @@ CONFIDENCE_THRESHOLD = 90
 CONFIDENCE_INCREMENT = 15
 MAX_QUESTIONS_PER_SESSION = 20
 SEVERITY_SCORE_THRESHOLD = 9
-MODEL_NAME = "gpt-4-turbo"
+MODEL_NAME = "gpt-4o"  # Changed from gpt-4-turbo to gpt-4o
 MAX_TOKENS = 400
 DEFAULT_TEMPERATURE = 0.7
 
@@ -83,7 +83,7 @@ def send_openai_request(prompt: str) -> str:
             response = client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=[
-                    {"role": "system", "content": "You are a medical assistant helping with symptom analysis."},
+                    {"role": "system", "content": "You are a medical assistant helping with symptom analysis. Focus on asking clear, specific questions to understand the patient's condition. For chest pain or shortness of breath, prioritize questions about cardiovascular symptoms."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=MAX_TOKENS,
@@ -98,6 +98,7 @@ def send_openai_request(prompt: str) -> str:
                 time.sleep(RETRY_DELAY)
                 continue
 
+            logger.debug(f"OpenAI response: {response_text[:100]}...")  # Log first 100 chars
             return response_text
 
         except openai.RateLimitError as e:
@@ -189,7 +190,9 @@ def onboarding():
 
         system_instruction = (
             "You are a knowledgeable medical assistant guiding a patient through diagnostic questions. "
-            "Ask one specific follow-up question at a time. Avoid repeated questions on the same topic unless necessary."
+            "Ask one specific follow-up question at a time. Avoid repeated questions on the same topic unless necessary. "
+            "For chest pain, shortness of breath, or cardiovascular symptoms, prioritize questions about heart-related conditions. "
+            "For symptoms like dizziness or headache, ask about environmental factors like heat exposure."
         )
         prompt = (
             f"The patient mentioned: '{initial_symptom}'.\n"
