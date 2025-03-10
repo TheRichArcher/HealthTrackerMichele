@@ -1,10 +1,15 @@
 // src/components/MessageItem.jsx
 import React, { memo, useCallback } from 'react';
 import PropTypes from 'prop-types';
-import '../styles/MessageItem.css'; // We'll create this file next
+import '../styles/MessageItem.css';
 
 const MessageItem = memo(({ message, onRetry, index, hideAssessmentDetails }) => {
     const { sender, text, confidence, careRecommendation, isAssessment, triageLevel } = message;
+
+    // Clean any "(Medical Condition)" text from messages
+    const cleanBotMessage = (messageText) => {
+        return messageText.replace(/\s*\(Medical Condition\)\s*/g, '').trim();
+    };
 
     const getCareRecommendation = useCallback((level) => {
         switch(level?.toLowerCase()) {
@@ -22,14 +27,18 @@ const MessageItem = memo(({ message, onRetry, index, hideAssessmentDetails }) =>
         <img src="/user-avatar.png" alt="User" />
     );
 
+    // Clean the message text if it's from the bot
+    const displayText = sender === 'bot' ? cleanBotMessage(text) : text;
+
     return (
         <div className={`message-row ${sender === 'user' ? 'user' : ''}`}>
             <div className="avatar-container">
                 {avatarContent}
             </div>
             <div className={`message ${sender}`}>
+                {isAssessment && <div className="assessment-indicator">Assessment</div>}
                 <div className="message-content">
-                    {text.split('\n').map((line, i) => (
+                    {displayText.split('\n').map((line, i) => (
                         <p key={i}>{line}</p>
                     ))}
                 </div>
@@ -38,7 +47,11 @@ const MessageItem = memo(({ message, onRetry, index, hideAssessmentDetails }) =>
                     <div className="assessment-info">
                         {confidence && (
                             <div 
-                                className="assessment-item confidence"
+                                className={`assessment-item confidence ${
+                                    confidence >= 95 ? 'confidence-high' : 
+                                    confidence >= 70 ? 'confidence-medium' : 
+                                    'confidence-low'
+                                }`}
                                 title="Confidence indicates how likely this condition matches your symptoms based on available information"
                             >
                                 Confidence: {confidence}%

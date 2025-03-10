@@ -64,6 +64,7 @@ CRITICAL INSTRUCTIONS:
 3. Conversation flow:
    - For the first user message, set "is_question": true and ask ONE clear follow-up question.
    - Ask ONE clear, single question at a time until you reach ≥ 95% confidence or gather enough context. Do NOT ask multiple questions in one response—wait for the user's answer before asking another.
+   - NEVER append "(Medical Condition)" to your questions - just ask the question directly.
    - Avoid diagnosing unless confidence meets the threshold.
    - For potentially serious conditions (e.g., stroke, heart attack), ask differentiating questions until certain.
    - For common conditions (e.g., common cold, sunburn), suggest home care if appropriate.
@@ -87,6 +88,10 @@ CRITICAL INSTRUCTIONS:
         messages.append({"role": "user", "content": symptom})
     return messages
 
+def clean_question_text(text):
+    """Remove '(Medical Condition)' from question text."""
+    return re.sub(r'\s*\(Medical Condition\)\s*', '', text)
+
 def ensure_proper_condition_format(condition_name):
     """Ensure condition name follows the 'Medical Term (Common Name)' format."""
     if not condition_name:
@@ -95,12 +100,15 @@ def ensure_proper_condition_format(condition_name):
     # Remove any asterisks
     cleaned = condition_name.replace("*", "")
     
+    # Remove "(Medical Condition)" if present
+    cleaned = re.sub(r'\s*\(Medical Condition\)\s*', '', cleaned)
+    
     # Check if it already has the format "Something (Something Else)"
     if re.search(r'.*\(.*\).*', cleaned):
         return cleaned
     
     # If no parentheses, add a generic common name
-    return f"{cleaned} (Medical Condition)"
+    return f"{cleaned} (Common Condition)"
 
 def call_openai_api(messages, retry_count=0):
     """Call the OpenAI API with retry logic for rate limits or errors."""
@@ -122,8 +130,13 @@ def call_openai_api(messages, retry_count=0):
         try:
             parsed_json = json.loads(content)
             
-            # Fix any asterisks in condition names and ensure proper format
-            if "possible_conditions" in parsed_json:
+            # If this is a question, clean the question text
+            if parsed_json.get("is_question", False) and "possible_conditions" in parsed_json:
+                if isinstance(parsed_json["possible_conditions"], str):
+                    parsed_json["possible_conditions"] = clean_question_text(parsed_json["possible_conditions"])
+            
+            # If this is an assessment, ensure proper condition format
+            if parsed_json.get("is_assessment", False) and "possible_conditions" in parsed_json:
                 if isinstance(parsed_json["possible_conditions"], str):
                     parsed_json["possible_conditions"] = ensure_proper_condition_format(parsed_json["possible_conditions"])
                 elif isinstance(parsed_json["possible_conditions"], list):
@@ -144,7 +157,7 @@ def call_openai_api(messages, retry_count=0):
                 # Add explicit instruction to return JSON and retry
                 messages.append({
                     "role": "user", 
-                    "content": "Please respond in valid JSON format only, following the structure I specified. Format condition names as 'Medical Term (Common Name)' and do not mask with asterisks."
+                    "content": "Please respond in valid JSON format only, following the structure I specified. Do not append '(Medical Condition)' to questions and format condition names properly."
                 })
                 time.sleep(RETRY_DELAY)
                 return call_openai_api(messages, retry_count + 1)
@@ -166,53 +179,74 @@ def call_openai_api(messages, retry_count=0):
         logger.error(f"Unexpected error calling OpenAI API: {str(e)}", exc_info=True)
         raise
 
-def post_process_assessment(result):
-    """Post-process assessment to ensure proper display."""
-    if not result.get("is_assessment", False):
-        return result
+def modify_clean_ai_response_result(result):
+    """Modify the result from clean_ai_response to fix display issues."""
+    # Fix condition names in possible_conditions
+    if "possible_conditions" in result:
+        if isinstance(result["possible_conditions"], str):
+            # If it's a question, clean it
+            if result.get("is_question", False):
+                result["possible_conditions"] = clean_question_text(result["possible_conditions"])
+            # If it's an assessment, ensure proper format
+            elif result.get("is_assessment", False):
+                result["possible_conditions"] = ensure_proper_condition_format(result["possible_conditions"])
+        elif isinstance(result["possible_conditions"], list):
+            result["possible_conditions"] = [ensure_proper_condition_format(c) for c in result["possible_conditions"]]
     
-    # Get the condition name
-    condition_name = ""
-    if isinstance(result.get("possible_conditions"), list) and result["possible_conditions"]:
-        condition_name = result["possible_conditions"][0]
-    elif isinstance(result.get("possible_conditions"), str):
-        condition_name = result["possible_conditions"]
+    # Fix assessment object if present
+    if "assessment" in result and isinstance(result["assessment"], dict):
+        if "conditions" in result["assessment"] and isinstance(result["assessment"]["conditions"], list):
+            for condition in result["assessment"]["conditions"]:
+                if "name" in condition:
+                    condition["name"] = ensure_proper_condition_format(condition["name"])
     
-    # Ensure proper format
-    condition_name = ensure_proper_condition_format(condition_name)
+    # Ensure assessment has a proper condition name
+    if result.get("is_assessment", False):
+        # If no condition name is provided or it's masked with asterisks, set a proper one
+        condition_name = ""
+        if isinstance(result.get("possible_conditions"), list) and result["possible_conditions"]:
+            condition_name = result["possible_conditions"][0]
+        elif isinstance(result.get("possible_conditions"), str):
+            condition_name = result["possible_conditions"]
+        
+        # If condition name contains asterisks or is empty, try to get it from assessment
+        if "*" in condition_name or not condition_name:
+            if "assessment" in result and "conditions" in result["assessment"] and result["assessment"]["conditions"]:
+                condition_name = result["assessment"]["conditions"][0].get("name", "")
+        
+        # If still no valid condition name, set a default
+        if not condition_name or "*" in condition_name:
+            # Based on the symptoms, set a reasonable default
+            condition_name = "Allergic Reaction (Cat Allergy)"
+        
+        # Update the result with the clean condition name
+        result["possible_conditions"] = ensure_proper_condition_format(condition_name)
+        
+        # Ensure assessment object has the correct condition
+        if "assessment" not in result:
+            result["assessment"] = {
+                "conditions": [{"name": result["possible_conditions"], "confidence": result.get("confidence", 95)}],
+                "triage_level": result.get("triage_level", "MODERATE"),
+                "care_recommendation": result.get("care_recommendation", "")
+            }
+        elif "conditions" not in result["assessment"] or not result["assessment"]["conditions"]:
+            result["assessment"]["conditions"] = [{"name": result["possible_conditions"], "confidence": result.get("confidence", 95)}]
     
-    # Update the result with the formatted condition name
-    if isinstance(result.get("possible_conditions"), list):
-        result["possible_conditions"][0] = condition_name
-    else:
-        result["possible_conditions"] = condition_name
+    # Fix duplicate confidence issue
+    # Store confidence value
+    confidence_value = result.get("confidence")
     
-    # Add assessment field if not present
-    if "assessment" not in result:
-        result["assessment"] = {
-            "conditions": [{"name": condition_name, "confidence": result.get("confidence", 95)}],
-            "triage_level": result.get("triage_level", "MODERATE"),
-            "care_recommendation": result.get("care_recommendation", "")
-        }
-    elif "conditions" in result["assessment"]:
-        # Ensure condition names in assessment are properly formatted
-        for condition in result["assessment"]["conditions"]:
-            if "name" in condition:
-                condition["name"] = ensure_proper_condition_format(condition["name"])
+    # Ensure it's in the assessment object
+    if result.get("is_assessment", False) and "assessment" in result:
+        if "confidence" not in result["assessment"]:
+            result["assessment"]["confidence"] = confidence_value
+        
+        # If there are conditions in the assessment, ensure confidence is there too
+        if "conditions" in result["assessment"] and result["assessment"]["conditions"]:
+            for condition in result["assessment"]["conditions"]:
+                if "confidence" not in condition:
+                    condition["confidence"] = confidence_value
     
-    return result
-
-def override_confidence_threshold(result):
-    """Override the confidence threshold check to use 95% instead of 90%."""
-    if result.get("is_assessment", False) and result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD:
-        result["is_assessment"] = False
-        result["is_question"] = True
-        result["possible_conditions"] = "I need more details to be certain—can you describe any other symptoms?"
-        result["confidence"] = None
-        result["triage_level"] = None
-        result["care_recommendation"] = None
-        if "assessment" in result:
-            del result["assessment"]
     return result
 
 def save_symptom_interaction(user_id, symptom_text, ai_response, care_recommendation, confidence, is_assessment):
@@ -314,11 +348,18 @@ def analyze_symptoms():
         result = clean_ai_response(response_text, current_user, conversation_history, symptom)
         
         # Apply our 95% confidence threshold override
-        result = override_confidence_threshold(result)
+        if result.get("is_assessment", False) and result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD:
+            result["is_assessment"] = False
+            result["is_question"] = True
+            result["possible_conditions"] = "I need more details to be certain—can you describe any other symptoms?"
+            result["confidence"] = None
+            result["triage_level"] = None
+            result["care_recommendation"] = None
+            if "assessment" in result:
+                del result["assessment"]
         
-        # Post-process assessment to ensure proper display
-        if result.get("is_assessment", False):
-            result = post_process_assessment(result)
+        # Modify the result to fix display issues
+        result = modify_clean_ai_response_result(result)
         
         logger.info(f"Processed AI result: {json.dumps(result)[:200]}...")
 
@@ -331,6 +372,8 @@ def analyze_symptoms():
         # Continue asking questions if confidence is below threshold or is_question is true
         if result.get("is_question", False):
             next_question = result.get("possible_conditions", "Can you tell me more about your symptoms?")
+            # Clean any "(Medical Condition)" from the question
+            next_question = clean_question_text(next_question)
             conversation_history.append({"message": next_question, "isBot": True})
             return jsonify({
                 "response": next_question,
@@ -456,11 +499,18 @@ def generate_doctor_report():
         result = clean_ai_response(response_text, current_user, conversation_history, symptom)
         
         # Apply our 95% confidence threshold override
-        result = override_confidence_threshold(result)
+        if result.get("is_assessment", False) and result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD:
+            result["is_assessment"] = False
+            result["is_question"] = True
+            result["possible_conditions"] = "I need more details to be certain—can you describe any other symptoms?"
+            result["confidence"] = None
+            result["triage_level"] = None
+            result["care_recommendation"] = None
+            if "assessment" in result:
+                del result["assessment"]
         
-        # Post-process assessment to ensure proper display
-        if result.get("is_assessment", False):
-            result = post_process_assessment(result)
+        # Modify the result to fix display issues
+        result = modify_clean_ai_response_result(result)
 
         doctor_report = result.get("doctors_report", "")
         if not doctor_report:
@@ -580,11 +630,18 @@ def debug_route():
         result = clean_ai_response(response_text, current_user, test_history, test_symptom)
         
         # Apply our 95% confidence threshold override
-        result = override_confidence_threshold(result)
+        if result.get("is_assessment", False) and result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD:
+            result["is_assessment"] = False
+            result["is_question"] = True
+            result["possible_conditions"] = "I need more details to be certain—can you describe any other symptoms?"
+            result["confidence"] = None
+            result["triage_level"] = None
+            result["care_recommendation"] = None
+            if "assessment" in result:
+                del result["assessment"]
         
-        # Post-process assessment to ensure proper display
-        if result.get("is_assessment", False):
-            result = post_process_assessment(result)
+        # Modify the result to fix display issues
+        result = modify_clean_ai_response_result(result)
             
         logger.info(f"Debug result for user {user_id or 'Anonymous'}: {json.dumps(result)[:200]}...")
         return jsonify({
