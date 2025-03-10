@@ -2,7 +2,6 @@ from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 from backend.models import User, SymptomLog, Report, UserTierEnum, CareRecommendationEnum
 from backend.extensions import db
-from backend.openai_config import SYSTEM_PROMPT
 import openai
 import os
 import json
@@ -451,7 +450,7 @@ def reset_conversation():
 
     return jsonify({
         "message": "Conversation reset successfully",
-        "response": "Hello! I'm your AI medical assistant. Please describe your symptoms.",
+        "response": "Hi, I'm Michele—your AI medical assistant. Think of me as that doctor you absolutely trust, here to listen, guide, and help you make sense of your symptoms. While I can't replace a real doctor, I can give you insights, ask the right questions, and help you feel more in control of your health.\n\nYou can start by describing your symptoms like:\n• \"I've had a headache for two days\"\n• \"My throat is sore and I have a fever\"\n• \"I have a rash on my arm that's itchy\"",
         "isBot": True,
         "conversation_history": []
     }), 200

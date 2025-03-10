@@ -22,7 +22,7 @@ const CONFIG = {
   SCROLL_DEBOUNCE_DELAY: 100,
   LOCAL_STORAGE_KEY: 'healthtracker_chat_messages',
   DEBUG_MODE: process.env.NODE_ENV === 'development',
-  MIN_CONFIDENCE_THRESHOLD: 90,
+  MIN_CONFIDENCE_THRESHOLD: 99, // Aligned with backend
   MESSAGE_DELAY: 1000
 };
 
@@ -270,7 +270,6 @@ const Chat = () => {
       setLatestAssessment(null);
       setLatestResponseData(null);
       saveMessages([WELCOME_MESSAGE]);
-      addBotMessage(data.response || "Conversation reset successfully—how can I assist you now?");
     } catch (error) {
       if (CONFIG.DEBUG_MODE) console.error("Error resetting conversation:", error);
       setError(error.message || "Failed to reset conversation—please try again.");
