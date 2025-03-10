@@ -22,7 +22,7 @@ const CONFIG = {
   SCROLL_DEBOUNCE_DELAY: 100,
   LOCAL_STORAGE_KEY: 'healthtracker_chat_messages',
   DEBUG_MODE: process.env.NODE_ENV === 'development',
-  MIN_CONFIDENCE_THRESHOLD: 99, // Aligned with backend
+  MIN_CONFIDENCE_THRESHOLD: 95, // Aligned with backend
   MESSAGE_DELAY: 1000
 };
 
