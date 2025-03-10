@@ -16,7 +16,7 @@ symptom_routes = Blueprint("symptom_routes", __name__, url_prefix="/api/symptoms
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 MAX_FREE_MESSAGES = 15
-MIN_CONFIDENCE_THRESHOLD = 99  # Updated to 99% for high accuracy
+MIN_CONFIDENCE_THRESHOLD = 99  # High accuracy requirement
 MAX_TOKENS = 1500
 TEMPERATURE = 0.7
 MAX_QUESTIONS = 20  # Limit to prevent excessive questioning
@@ -187,47 +187,10 @@ def analyze_symptoms():
             return jsonify({"error": "'message' must be string, 'isBot' must be boolean."}), 400
 
     if reset:
-        user_messages = sum(1 for msg in conversation_history if not msg.get("isBot", False))
-        if not is_premium_user(current_user) and user_messages >= MAX_FREE_MESSAGES:
-            return jsonify({
-                "message": "Free users cannot reset after reaching the message limit.",
-                "requires_upgrade": True,
-                "upgrade_options": [
-                    {"type": "subscription", "name": "PA Mode", "price": 9.99, "period": "month"},
-                    {"type": "one_time", "name": "Doctor's Report", "price": 4.99}
-                ]
-            }), 403
-        return jsonify({
-            "message": "Conversation reset successfully",
-            "response": "Hello! I'm your AI medical assistant. Please describe your symptoms.",
-            "isBot": True,
-            "conversation_history": []
-        }), 200
+        return reset_conversation()  # Delegate to the reset endpoint logic
 
     # Count questions asked so far
-    question_count = sum(1 for msg in conversation_history if msg.get("isBot") and "Next Question" in msg.get("message", ""))
-    if question_count >= MAX_QUESTIONS:
-        # Force an assessment if max questions reached
-        messages = prepare_conversation_messages(symptom, conversation_history)
-        response_text = call_openai_api(messages)
-        result = json.loads(response_text)
-        logger.info(f"Forced assessment result: {result}")
-
-        if user_id:
-            save_symptom_interaction(
-                user_id,
-                symptom,
-                result,
-                result.get("care_recommendation", ""),
-                result.get("confidence", 0),
-                True  # Force assessment
-            )
-
-        return jsonify({
-            "response": result,
-            "isBot": True,
-            "conversation_history": conversation_history
-        }), 200
+    question_count = sum(1 for msg in conversation_history if msg.get("isBot") and "?" in msg.get("message", ""))
 
     messages = prepare_conversation_messages(symptom, conversation_history)
     try:
@@ -238,32 +201,54 @@ def analyze_symptoms():
         if not is_premium_user(current_user):
             user_messages = sum(1 for msg in conversation_history if not msg.get("isBot", False))
             triage_level = (result.get("triage_level") or "").upper()
-            if user_messages >= MAX_FREE_MESSAGES or (result.get("is_assessment", False) and triage_level in ["MODERATE", "SEVERE"]):
+            if user_messages >= MAX_FREE_MESSAGES or (result.get("confidence", 0) >= MIN_CONFIDENCE_THRESHOLD and triage_level in ["MODERATE", "SEVERE"]):
                 result["requires_upgrade"] = True
 
-        if result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD and result.get("next_question"):
-            conversation_history.append({"message": f"Next Question: {result['next_question']}", "isBot": True})
+        # Continue asking questions until 99% confidence or max questions reached
+        if result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD and result.get("next_question") and question_count < MAX_QUESTIONS:
+            conversation_history.append({"message": result["next_question"], "isBot": True})
             return jsonify({
                 "response": result["next_question"],
                 "isBot": True,
                 "conversation_history": conversation_history
             }), 200
+        elif result.get("confidence", 0) >= MIN_CONFIDENCE_THRESHOLD:
+            # Provide assessment if confidence is 99% or higher
+            if user_id:
+                save_symptom_interaction(
+                    user_id,
+                    symptom,
+                    result,
+                    result.get("care_recommendation", ""),
+                    result.get("confidence", 0),
+                    True
+                )
+            return jsonify({
+                "response": result,
+                "isBot": True,
+                "conversation_history": conversation_history
+            }), 200
+        else:
+            # Max questions reached without 99% confidence
+            conversation_history.append({
+                "message": "I’ve asked the maximum number of questions but can’t reach a confident diagnosis. Please consult a healthcare provider for further evaluation.",
+                "isBot": True
+            })
+            if user_id:
+                save_symptom_interaction(
+                    user_id,
+                    symptom,
+                    {"note": "Max questions reached, no confident diagnosis"},
+                    "Consult a healthcare provider",
+                    result.get("confidence", 0),
+                    False
+                )
+            return jsonify({
+                "response": "I’ve asked the maximum number of questions but can’t reach a confident diagnosis. Please consult a healthcare provider for further evaluation.",
+                "isBot": True,
+                "conversation_history": conversation_history
+            }), 200
 
-        if user_id and result.get("is_assessment", False):
-            save_symptom_interaction(
-                user_id,
-                symptom,
-                result,
-                result.get("care_recommendation", ""),
-                result.get("confidence", 0),
-                True  # Assessment
-            )
-
-        return jsonify({
-            "response": result,
-            "isBot": True,
-            "conversation_history": conversation_history
-        }), 200
     except json.JSONDecodeError:
         logger.error(f"Failed to parse OpenAI response as JSON: {response_text}")
         return jsonify({

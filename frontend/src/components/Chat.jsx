@@ -12,7 +12,7 @@ const UI_STATES = {
 };
 
 const CONFIG = {
-  MAX_FREE_MESSAGES: 15,
+  MAX_FREE_MESSAGES: 15, // Kept for reference, but disabled in logic
   THINKING_DELAY: 1000,
   API_TIMEOUT: 10000,
   API_URL: `${import.meta.env.VITE_API_URL || '/api'}/symptoms/analyze`,
@@ -242,6 +242,8 @@ const Chat = () => {
   const handleResetConversation = async () => {
     if (loading || resetting) return;
     setResetting(true);
+    setError(null);
+
     try {
       const token = localStorage.getItem('jwt_token');
       const response = await fetch(CONFIG.RESET_URL, {
@@ -252,30 +254,30 @@ const Chat = () => {
         },
         body: JSON.stringify({ conversation_history: messages.map(msg => ({ message: msg.text, isBot: msg.sender === 'bot' })) })
       });
+
+      const data = await response.json();
+
       if (!response.ok) {
-        if (response.status === 403) throw new Error("Upgrade required to reset conversation.");
+        if (response.status === 403) throw new Error(data.message || "Upgrade required to reset conversation.");
         throw new Error(`Reset failed: ${response.status}`);
       }
-      const data = await response.json();
-      setMessages([{
-        sender: 'bot',
-        text: "Hi, I'm Michele—your AI medical assistant. Think of me as that doctor you absolutely trust, here to listen, guide, and help you make sense of your symptoms. While I can't replace a real doctor, I can give you insights, ask the right questions, and help you feel more in control of your health.\n\nYou can start by describing your symptoms like:\n• \"I've had a headache for two days\"\n• \"My throat is sore and I have a fever\"\n• \"I have a rash on my arm that's itchy\"",
-        isAssessment: false
-      }]);
+
+      setMessages([WELCOME_MESSAGE]);
       setMessageCount(0);
       setError(null);
       setInputError(null);
       setUiState(UI_STATES.DEFAULT);
       setLatestAssessment(null);
       setLatestResponseData(null);
-      saveMessages(messages);
-      focusInput();
+      saveMessages([WELCOME_MESSAGE]);
+      addBotMessage(data.response || "Conversation reset successfully—how can I assist you now?");
     } catch (error) {
       if (CONFIG.DEBUG_MODE) console.error("Error resetting conversation:", error);
       setError(error.message || "Failed to reset conversation—please try again.");
-      addBotMessage("I couldn’t reset the conversation—try again?");
+      addBotMessage("I couldn’t reset the conversation—please try again or describe your symptoms.");
     } finally {
       setResetting(false);
+      focusInput();
     }
   };
 
@@ -356,24 +358,13 @@ const Chat = () => {
 
         if (responseData.message) {
           addBotMessage(responseData.message);
-        } else if (responseData.response && responseData.isBot) {
-          // Handle questions or interim responses
+        } else if (responseData.response && typeof responseData.response === 'string') {
           addBotMessage(responseData.response);
-          // Update conversation history to persist the latest state
-          setMessages(prev => {
-            const updatedMessages = [...prev];
-            updatedMessages[updatedMessages.length - 1] = {
-              ...updatedMessages[updatedMessages.length - 1],
-              conversation_history: responseData.conversation_history
-            };
-            return updatedMessages;
-          });
-        } else if (responseData.confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD) {
-          // Handle assessments (when confidence hits 99%)
-          const conditionName = responseData.possible_conditions || "Unknown condition";
-          const triageLevel = responseData.triage_level || "unknown";
-          const careRecommendation = responseData.care_recommendation || "";
-          const confidence = responseData.confidence || 0;
+        } else if (responseData.response && responseData.response.confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD) {
+          const conditionName = responseData.response.possible_conditions?.[0] || "Unknown condition";
+          const triageLevel = responseData.response.triage_level || "unknown";
+          const careRecommendation = responseData.response.care_recommendation || "";
+          const confidence = responseData.response.confidence || 0;
 
           setLatestAssessment({
             condition: conditionName,
@@ -391,7 +382,6 @@ const Chat = () => {
             careRecommendation
           );
 
-          // Add sales pitch after assessment
           setTimeout(() => {
             const isMildCase = triageLevel?.toLowerCase() === "mild" || careRecommendation?.toLowerCase().includes("manage at home");
             if (isMildCase) {
@@ -403,13 +393,14 @@ const Chat = () => {
                 "🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?"
               );
             }
-            // Show upgrade prompt after sales pitch
             setTimeout(() => setUiState(UI_STATES.UPGRADE_PROMPT), 1500);
           }, 1500);
         } else if (requiresUpgrade) {
-          setTimeout(() => setUiState(UI_STATES.UPGRADE_PROMPT), 1000);
+          if (latestAssessment) {
+            setTimeout(() => setUiState(UI_STATES.UPGRADE_PROMPT), 1000);
+          }
         } else {
-          addBotMessage("Can you tell me more about your symptoms?");
+          addBotMessage(responseData.response?.next_question || "Can you tell me more about your symptoms?");
         }
       }, CONFIG.THINKING_DELAY);
     } catch (error) {
