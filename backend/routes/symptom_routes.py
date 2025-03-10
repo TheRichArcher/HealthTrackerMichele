@@ -12,12 +12,14 @@ import time
 
 symptom_routes = Blueprint("symptom_routes", __name__, url_prefix="/api/symptoms")
 
+# Constants
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 MAX_FREE_MESSAGES = 15
-MIN_CONFIDENCE_THRESHOLD = 90
+MIN_CONFIDENCE_THRESHOLD = 99  # Updated to 99% for high accuracy
 MAX_TOKENS = 1500
 TEMPERATURE = 0.7
+MAX_QUESTIONS = 20  # Limit to prevent excessive questioning
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 if not openai.api_key:
@@ -29,13 +31,28 @@ class MockUser:
     subscription_tier = UserTierEnum.FREE.value
 
 def is_premium_user(user):
+    """Check if the user has a premium subscription."""
     return getattr(user, "subscription_tier", UserTierEnum.FREE.value) in {
         UserTierEnum.PAID.value,
         UserTierEnum.ONE_TIME.value
     }
 
 def prepare_conversation_messages(symptom, conversation_history):
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    """Prepare the message array for OpenAI based on history and current symptom."""
+    messages = [{"role": "system", "content": (
+        "You are a medical assistant aiming for 99% diagnostic accuracy. Analyze the user's symptoms based on the conversation history. "
+        "Provide a possible condition with a confidence level (0-100), triage level (LOW, MODERATE, SEVERE), and care recommendation. "
+        "Consider all differentials (e.g., vertigo, heat exhaustion, heat stroke, dehydration) and environmental factors (e.g., heat, hydration). "
+        "If confidence is below 99%, suggest one specific follow-up question to reach higher certainty. Ask only one question at a time. "
+        "Return your response in this JSON format:\n"
+        "{\n"
+        "  \"possible_conditions\": [\"condition_name\"],\n"
+        "  \"confidence\": number,\n"
+        "  \"triage_level\": \"LEVEL\",\n"
+        "  \"care_recommendation\": \"recommendation\",\n"
+        "  \"next_question\": \"question or null\"\n"
+        "}"
+    )}]
     for entry in conversation_history:
         role = "assistant" if entry.get("isBot", False) else "user"
         content = entry.get("message", "")
@@ -45,6 +62,7 @@ def prepare_conversation_messages(symptom, conversation_history):
     return messages
 
 def call_openai_api(messages, retry_count=0):
+    """Call the OpenAI API with retry logic for rate limits or errors."""
     if retry_count >= MAX_RETRIES:
         logger.error("Max retries reached for OpenAI API call")
         raise RuntimeError("Failed to get response from OpenAI")
@@ -75,6 +93,7 @@ def call_openai_api(messages, retry_count=0):
         raise
 
 def save_symptom_interaction(user_id, symptom_text, ai_response, care_recommendation, confidence, is_assessment):
+    """Save symptom interaction and generate a report if it's an assessment."""
     try:
         response_text = json.dumps(ai_response) if isinstance(ai_response, dict) else ai_response
         new_symptom = SymptomLog(
@@ -118,6 +137,7 @@ def save_symptom_interaction(user_id, symptom_text, ai_response, care_recommenda
 
 @symptom_routes.route("/analyze", methods=["POST"])
 def analyze_symptoms():
+    """Analyze user symptoms and iterate questions until 99% confidence."""
     logger.info("Processing symptom analysis request")
     is_production = current_app.config.get("ENV") == "production"
 
@@ -195,6 +215,16 @@ def analyze_symptoms():
                 ]
             }), 200
 
+    # Count questions asked so far
+    question_count = sum(1 for msg in conversation_history if msg.get("isBot") and "Next Question" in msg.get("content", ""))
+
+    if question_count >= MAX_QUESTIONS:
+        return jsonify({
+            "response": "Unable to reach a confident diagnosis after multiple questions. Please consult a healthcare provider.",
+            "isBot": True,
+            "conversation_history": conversation_history
+        }), 200
+
     messages = prepare_conversation_messages(symptom, conversation_history)
     try:
         response_text = call_openai_api(messages)
@@ -202,10 +232,17 @@ def analyze_symptoms():
 
         if not is_premium_user(current_user):
             user_messages = sum(1 for msg in conversation_history if not msg.get("isBot", False))
-            # Fixed line - safely handle None value for triage_level
             triage_level = (result.get("triage_level") or "").upper()
             if user_messages >= MAX_FREE_MESSAGES or (result.get("is_assessment") and triage_level in ["MODERATE", "SEVERE"]):
                 result["requires_upgrade"] = True
+
+        if result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD and result.get("next_question"):
+            conversation_history.append({"role": "assistant", "content": f"Next Question: {result['next_question']}", "isBot": True})
+            return jsonify({
+                "response": result["next_question"],
+                "isBot": True,
+                "conversation_history": conversation_history
+            }), 200
 
         if user_id and result.get("is_assessment", False):
             save_symptom_interaction(
@@ -235,6 +272,7 @@ def analyze_symptoms():
 
 @symptom_routes.route("/history", methods=["GET"])
 def get_symptom_history():
+    """Retrieve the user's symptom history."""
     logger.info("Processing symptom history request")
     try:
         verify_jwt_in_request()
@@ -278,6 +316,7 @@ def get_symptom_history():
 
 @symptom_routes.route("/doctor-report", methods=["POST"])
 def generate_doctor_report():
+    """Generate a doctor report for premium or one-time purchase users."""
     logger.info("Processing doctor's report request")
     auth_header = request.headers.get("Authorization")
     user_id = None
@@ -383,6 +422,7 @@ This report was generated based on the symptoms provided. For a definitive diagn
 
 @symptom_routes.route("/reset", methods=["POST"])
 def reset_conversation():
+    """Reset the conversation history."""
     logger.info("Processing conversation reset request")
     auth_header = request.headers.get("Authorization")
     user_id = None
@@ -421,6 +461,7 @@ def reset_conversation():
 
 @symptom_routes.route("/debug", methods=["GET"])
 def debug_route():
+    """Debug endpoint for testing symptom analysis."""
     logger.info("Processing debug request")
     auth_header = request.headers.get("Authorization")
     user_id = None
