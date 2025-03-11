@@ -13,7 +13,7 @@ const UI_STATES = {
 
 const CONFIG = {
   MAX_FREE_MESSAGES: 15, // Kept for reference, but disabled in logic
-  THINKING_DELAY: 1000,
+  THINKING_DELAY: 300, // Reduced from 1000ms to 300ms
   API_TIMEOUT: 10000,
   API_URL: `${import.meta.env.VITE_API_URL || '/api'}/symptoms/analyze`,
   RESET_URL: `${import.meta.env.VITE_API_URL || '/api'}/symptoms/reset`,
@@ -23,7 +23,7 @@ const CONFIG = {
   LOCAL_STORAGE_KEY: 'healthtracker_chat_messages',
   DEBUG_MODE: process.env.NODE_ENV === 'development',
   MIN_CONFIDENCE_THRESHOLD: 95, // Aligned with backend
-  MESSAGE_DELAY: 1000
+  MESSAGE_DELAY: 500 // Reduced from 1000ms to 500ms
 };
 
 const WELCOME_MESSAGE = {
@@ -230,10 +230,14 @@ const Chat = () => {
 
   const addBotMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null) => {
     setTyping(true);
+    
+    // Reduce the delay based on message length
     const wordCount = message.split(/\s+/).length;
-    const thinkingDelay = Math.min(1000 + (wordCount * 30), 3000);
-
+    const thinkingDelay = Math.min(500 + (wordCount * 15), 1500); // Reduced from 1000+(wordCount*30), 3000
+    
+    // Use requestAnimationFrame to ensure smooth UI updates
     setTimeout(() => {
+      // Add message to state
       setMessages(prev => [...prev, {
         sender: 'bot',
         text: message,
@@ -242,13 +246,15 @@ const Chat = () => {
         triageLevel,
         careRecommendation
       }]);
+      
+      // Remove typing indicator after message is added
       setTyping(false);
       
-      // Ensure we scroll to bottom after the message is added and rendered
-      setTimeout(() => {
+      // Use requestAnimationFrame to ensure DOM is updated before scrolling
+      requestAnimationFrame(() => {
         scrollToBottomImmediate();
         focusInput();
-      }, 100);
+      });
     }, thinkingDelay);
   }, [scrollToBottomImmediate, focusInput]);
 
@@ -336,8 +342,12 @@ const Chat = () => {
     if (!retryMessage) setUserInput('');
     setLoading(true);
     setTyping(true);
-    focusInput();
-    scrollToBottomImmediate();
+    
+    // Use requestAnimationFrame for smoother scrolling after user message
+    requestAnimationFrame(() => {
+      scrollToBottomImmediate();
+      focusInput();
+    });
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -385,86 +395,90 @@ const Chat = () => {
         });
       }
 
-      setTimeout(() => {
-        const requiresUpgrade = responseData.requires_upgrade === true;
+      // Process the response immediately without additional delay
+      const requiresUpgrade = responseData.requires_upgrade === true;
 
-        if (responseData.message) {
-          addBotMessage(responseData.message);
-        } else if (typeof responseData.response === 'string') {
-          addBotMessage(responseData.response);
-        } else if (responseData.response && responseData.response.is_assessment) {
-          console.log("Processing assessment:", responseData.response);
-          
-          const conditionName = responseData.response.possible_conditions || "Unknown condition";
-          const triageLevel = responseData.response.triage_level || "unknown";
-          const careRecommendation = responseData.response.care_recommendation || "";
-          
-          // Extract confidence with fallbacks to ensure we always have a valid value
-          const confidence = responseData.response.confidence || 
-                            (responseData.response.assessment?.confidence) || 
-                            (responseData.response.assessment?.conditions?.[0]?.confidence) || 
-                            95; // Default to 95% if no confidence is provided
+      if (responseData.message) {
+        addBotMessage(responseData.message);
+      } else if (typeof responseData.response === 'string') {
+        addBotMessage(responseData.response);
+      } else if (responseData.response && responseData.response.is_assessment) {
+        console.log("Processing assessment:", responseData.response);
+        
+        const conditionName = responseData.response.possible_conditions || "Unknown condition";
+        const triageLevel = responseData.response.triage_level || "unknown";
+        const careRecommendation = responseData.response.care_recommendation || "";
+        
+        // Extract confidence with fallbacks to ensure we always have a valid value
+        const confidence = responseData.response.confidence || 
+                          (responseData.response.assessment?.confidence) || 
+                          (responseData.response.assessment?.conditions?.[0]?.confidence) || 
+                          95; // Default to 95% if no confidence is provided
 
-          // Extract medical term and common name
-          let medicalTerm = "";
-          let commonName = "";
-          
-          if (typeof conditionName === 'string') {
-            // Try to extract from format "Medical Term (Common Name)"
-            const match = conditionName.match(/([^(]+)\s*\(([^)]+)\)/);
-            if (match) {
-              medicalTerm = match[1].trim();
-              commonName = match[2].trim();
-            } else {
-              // If no parentheses, use the whole string as medical term
-              medicalTerm = conditionName.replace(/\*/g, '').trim();
-              commonName = medicalTerm; // Default to same if no common name found
-            }
+        // Extract medical term and common name
+        let medicalTerm = "";
+        let commonName = "";
+        
+        if (typeof conditionName === 'string') {
+          // Try to extract from format "Medical Term (Common Name)"
+          const match = conditionName.match(/([^(]+)\s*\(([^)]+)\)/);
+          if (match) {
+            medicalTerm = match[1].trim();
+            commonName = match[2].trim();
           } else {
-            medicalTerm = "Unknown condition";
-            commonName = "Unknown condition";
-          }
-          
-          setLatestAssessment({
-            condition: medicalTerm,
-            commonName: commonName,
-            confidence,
-            triageLevel,
-            recommendation: careRecommendation
-          });
-
-          // Format the assessment message with the requested format
-          const assessmentMessage = `🩺 Likely condition: ${commonName} **${medicalTerm}** ${confidence}% Confidence Level\n\n${careRecommendation}`;
-          
-          addBotMessage(
-            assessmentMessage,
-            true,
-            confidence,
-            triageLevel,
-            careRecommendation
-          );
-
-          setTimeout(() => {
-            const isMildCase = triageLevel?.toLowerCase() === "mild" || careRecommendation?.toLowerCase().includes("manage at home");
-            if (isMildCase) {
-              addBotMessage(
-                "🔍 While you can manage this condition at home, Premium Access gives you deeper insights, symptom tracking, and doctor-ready reports if you'd like more detailed information."
-              );
-            } else {
-              addBotMessage(
-                "🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?"
-              );
-            }
-            setTimeout(() => setUiState(UI_STATES.UPGRADE_PROMPT), 1500);
-          }, 1500);
-        } else if (requiresUpgrade) {
-          if (latestAssessment) {
-            setTimeout(() => setUiState(UI_STATES.UPGRADE_PROMPT), 1000);
+            // If no parentheses, use the whole string as medical term
+            medicalTerm = conditionName.replace(/\*/g, '').trim();
+            commonName = medicalTerm; // Default to same if no common name found
           }
         } else {
-          addBotMessage(responseData.response?.next_question || responseData.response?.possible_conditions || "Can you tell me more about your symptoms?");
+          medicalTerm = "Unknown condition";
+          commonName = "Unknown condition";
         }
-      }, CONFIG.THINKING_DELAY);
+        
+        setLatestAssessment({
+          condition: medicalTerm,
+          commonName: commonName,
+          confidence,
+          triageLevel,
+          recommendation: careRecommendation
+        });
+
+        // Format the assessment message with the requested format
+        const assessmentMessage = `🩺 Likely condition: ${commonName} **${medicalTerm}** ${confidence}% Confidence Level\n\n${careRecommendation}`;
+        
+        addBotMessage(
+          assessmentMessage,
+          true,
+          confidence,
+          triageLevel,
+          careRecommendation
+        );
+
+        // Add upgrade message immediately after assessment
+        const isMildCase = triageLevel?.toLowerCase() === "mild" || careRecommendation?.toLowerCase().includes("manage at home");
+        
+        // Add a small delay before showing the upgrade message
+        setTimeout(() => {
+          if (isMildCase) {
+            addBotMessage(
+              "🔍 While you can manage this condition at home, Premium Access gives you deeper insights, symptom tracking, and doctor-ready reports if you'd like more detailed information."
+            );
+          } else {
+            addBotMessage(
+              "🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?"
+            );
+          }
+          
+          // Show upgrade prompt immediately after the message
+          setTimeout(() => setUiState(UI_STATES.UPGRADE_PROMPT), 500); // Reduced from 1500ms to 500ms
+        }, 500); // Reduced from 1500ms to 500ms
+      } else if (requiresUpgrade) {
+        if (latestAssessment) {
+          setUiState(UI_STATES.UPGRADE_PROMPT); // Show immediately without delay
+        }
+      } else {
+        addBotMessage(responseData.response?.next_question || responseData.response?.possible_conditions || "Can you tell me more about your symptoms?");
+      }
     } catch (error) {
       if (error.name !== 'AbortError') {
         if (CONFIG.DEBUG_MODE) console.error("API error:", error);
@@ -473,8 +487,8 @@ const Chat = () => {
       }
     } finally {
       setLoading(false);
-      // Ensure typing indicator is always cleared after a delay
-      setTimeout(() => setTyping(false), CONFIG.THINKING_DELAY + 500);
+      // Ensure typing indicator is always cleared after a short delay
+      setTimeout(() => setTyping(false), 300); // Reduced from 500ms to 300ms
     }
   };
 
