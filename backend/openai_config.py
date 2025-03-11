@@ -1,5 +1,6 @@
 import json
 import logging
+import random
 from typing import Dict, Optional
 from flask import current_app
 from backend.models import User, UserTierEnum  # Explicitly import User
@@ -17,7 +18,7 @@ CRITICAL INSTRUCTIONS:
 1. ALWAYS return a valid JSON response with these exact fields:
    - "is_assessment": boolean (true only if confidence ≥ 95% for a diagnosis)
    - "is_question": boolean (true if asking a follow-up question)
-   - "possible_conditions": string (question text if is_question, condition name/description if is_assessment)
+   - "possible_conditions": string (question text if is_question, condition name/description if is_assessment) - NEVER RETURN NULL FOR THIS FIELD
    - "confidence": number (0-100, null if no assessment)
    - "triage_level": string ("MILD", "MODERATE", "SEVERE", null if no assessment)
    - "care_recommendation": string (brief advice, null if no assessment)
@@ -44,8 +45,14 @@ CRITICAL INSTRUCTIONS:
 
 5. IMPORTANT: For chest discomfort, shortness of breath, or related symptoms, ALWAYS consider cardiovascular causes first (heart attack, angina, etc.) before respiratory conditions.
 
-6. Be concise, empathetic, and precise. Avoid guessing—ask questions if unsure.
-7. Include "doctors_report" as a formatted string only when explicitly requested.
+6. CRITICAL ERROR PREVENTION:
+   - NEVER return null or empty values for "possible_conditions"
+   - If you're asking a question, "is_question" MUST be true
+   - If you're providing an assessment, "is_assessment" MUST be true
+   - Either "is_question" or "is_assessment" must be true, never both or neither
+
+7. Be concise, empathetic, and precise. Avoid guessing—ask questions if unsure.
+8. Include "doctors_report" as a formatted string only when explicitly requested.
 """
 
 def clean_ai_response(
@@ -111,6 +118,43 @@ def clean_ai_response(
             if parsed_json[field] is None and field not in ["confidence", "triage_level", "care_recommendation"]:
                 logger.warning(f"Field '{field}' is None, setting to default")
                 parsed_json[field] = default
+        
+        # CRITICAL FIX: Handle inconsistent state where possible_conditions is null
+        # but is_question is false, which causes the fallback loop
+        if not parsed_json["possible_conditions"] or parsed_json["possible_conditions"] == "":
+            logger.warning("possible_conditions is null or empty - fixing inconsistent state")
+            
+            # If this is not an assessment, it must be a question
+            if not parsed_json["is_assessment"]:
+                parsed_json["is_question"] = True
+                
+                # Generate a better question based on conversation context
+                if conversation_history and len(conversation_history) > 2:
+                    # Extract symptoms mentioned so far
+                    user_messages = [msg["message"].lower() for msg in conversation_history if not msg.get("isBot", True)]
+                    combined_text = " ".join(user_messages)
+                    
+                    # Check for specific symptoms to ask targeted questions
+                    if "burn" in combined_text and ("pee" in combined_text or "urin" in combined_text):
+                        parsed_json["possible_conditions"] = "How severe is the burning sensation when you urinate, on a scale from 1-10?"
+                    elif "frequent" in combined_text or "urgency" in combined_text:
+                        parsed_json["possible_conditions"] = "How often do you feel the need to urinate compared to your normal pattern?"
+                    else:
+                        # Check if we've already asked generic questions
+                        bot_messages = [msg["message"].lower() for msg in conversation_history[-5:] if msg.get("isBot", True)]
+                        if any("tell me more about your symptoms" in msg for msg in bot_messages):
+                            # Avoid repeating generic questions
+                            varied_questions = [
+                                "Let me try a different approach. When did these symptoms first begin?",
+                                "Has anything made your symptoms better or worse?",
+                                "How has this affected your daily activities?",
+                                "Have you tried any treatments or remedies so far?"
+                            ]
+                            parsed_json["possible_conditions"] = random.choice(varied_questions)
+                        else:
+                            parsed_json["possible_conditions"] = "Could you describe your main symptoms in more detail?"
+                else:
+                    parsed_json["possible_conditions"] = "Could you describe your symptoms in more detail?"
 
         # Enforce mutual exclusivity of is_assessment and is_question
         if parsed_json["is_assessment"] and parsed_json["is_question"]:
@@ -179,7 +223,7 @@ def clean_ai_response(
         return {
             "is_assessment": False,
             "is_question": is_question,
-            "possible_conditions": response_text.strip() if is_question else "Can you tell me more about your symptoms?",
+            "possible_conditions": response_text.strip() if is_question else "I'm having trouble understanding. Can you describe your symptoms differently?",
             "confidence": None,
             "triage_level": None,
             "care_recommendation": None,
@@ -190,7 +234,7 @@ def clean_ai_response(
         return {
             "is_assessment": False,
             "is_question": True,
-            "possible_conditions": "Something went wrong—can you try again?",
+            "possible_conditions": "I encountered an issue processing your information. Could you try describing your symptoms again?",
             "confidence": None,
             "triage_level": None,
             "care_recommendation": None,
