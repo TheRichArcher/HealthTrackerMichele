@@ -76,7 +76,7 @@ const Message = memo(({ message, onRetry, index }) => {
     // Remove confidence percentage from text to avoid duplication
     displayText = displayText.replace(/\(\d+%\s*confidence\)/g, '').trim();
     
-    // Remove asterisks from condition names but preserve bold formatting
+    // Handle markdown-style formatting
     displayText = displayText.replace(/\*\*([^*]+)\*\*/g, (match, p1) => {
       return `**${p1.replace(/\*/g, '')}**`;
     });
@@ -112,13 +112,8 @@ const Message = memo(({ message, onRetry, index }) => {
         <div className="message-content">
           {displayText.split('\n').map((line, i) => <p key={i}>{line}</p>)}
         </div>
-        {sender === 'bot' && isAssessment && (confidence || careRecommendation || triageLevel) && (
+        {sender === 'bot' && isAssessment && (careRecommendation || triageLevel) && (
           <div className="assessment-info">
-            {confidence && (
-              <div className={`assessment-item confidence ${confidenceClass}`} title="Confidence level">
-                Confidence: {confidence}%
-              </div>
-            )}
             {(careRecommendation || triageLevel) && (
               <div className="assessment-item care-recommendation" title="Care recommendation">
                 {careRecommendation || getCareRecommendation(triageLevel)}
@@ -248,10 +243,14 @@ const Chat = () => {
         careRecommendation
       }]);
       setTyping(false);
-      debouncedScrollToBottom();
-      focusInput();
+      
+      // Ensure we scroll to bottom after the message is added and rendered
+      setTimeout(() => {
+        scrollToBottomImmediate();
+        focusInput();
+      }, 100);
     }, thinkingDelay);
-  }, [debouncedScrollToBottom, focusInput]);
+  }, [scrollToBottomImmediate, focusInput]);
 
   const handleRetry = useCallback(async (messageIndex) => {
     const originalMessage = messages[messageIndex - 1];
@@ -401,21 +400,39 @@ const Chat = () => {
           const careRecommendation = responseData.response.care_recommendation || "";
           const confidence = responseData.response.confidence || 0;
 
-          const cleanConditionName = typeof conditionName === 'string' ? 
-            conditionName.replace(/\*/g, '').trim() : 
-            "Unknown condition";
+          // Extract medical term and common name
+          let medicalTerm = "";
+          let commonName = "";
+          
+          if (typeof conditionName === 'string') {
+            // Try to extract from format "Medical Term (Common Name)"
+            const match = conditionName.match(/([^(]+)\s*\(([^)]+)\)/);
+            if (match) {
+              medicalTerm = match[1].trim();
+              commonName = match[2].trim();
+            } else {
+              // If no parentheses, use the whole string as medical term
+              medicalTerm = conditionName.replace(/\*/g, '').trim();
+              commonName = medicalTerm; // Default to same if no common name found
+            }
+          } else {
+            medicalTerm = "Unknown condition";
+            commonName = "Unknown condition";
+          }
           
           setLatestAssessment({
-            condition: cleanConditionName,
-            commonName: typeof cleanConditionName === 'string' ? 
-              cleanConditionName.match(/\((.*?)\)/)?.[1] || null : null,
+            condition: medicalTerm,
+            commonName: commonName,
             confidence,
             triageLevel,
             recommendation: careRecommendation
           });
 
+          // Format the assessment message with the requested format
+          const assessmentMessage = `🩺 Likely condition: ${commonName} **${medicalTerm}** ${confidence}% Confidence Level\n\n${careRecommendation}`;
+          
           addBotMessage(
-            `🩺 Likely condition: **${cleanConditionName}**.\n\n${careRecommendation}`,
+            assessmentMessage,
             true,
             confidence,
             triageLevel,
