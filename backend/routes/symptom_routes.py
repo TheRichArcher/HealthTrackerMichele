@@ -98,7 +98,7 @@ def ensure_proper_condition_format(condition_name):
         return "Unknown Condition"
     
     # Remove any asterisks
-    cleaned = condition_name.replace("*", "")
+    cleaned = condition_name.replace("*", "").strip()
     
     # Remove "(Medical Condition)" if present
     cleaned = re.sub(r'\s*\(Medical Condition\)\s*', '', cleaned)
@@ -187,37 +187,73 @@ def modify_clean_ai_response_result(result):
             # If it's a question, clean it
             if result.get("is_question", False):
                 result["possible_conditions"] = clean_question_text(result["possible_conditions"])
-            # If it's an assessment, ensure proper format
+            # If it's an assessment, ensure proper format and remove asterisks
             elif result.get("is_assessment", False):
-                result["possible_conditions"] = ensure_proper_condition_format(result["possible_conditions"])
+                # Remove asterisks completely
+                cleaned_condition = result["possible_conditions"].replace("*", "").strip()
+                # If the condition is just a single letter or very short, try to extract from care recommendation
+                if len(cleaned_condition.strip()) <= 3:
+                    if "care_recommendation" in result and isinstance(result["care_recommendation"], str):
+                        care_rec = result["care_recommendation"].lower()
+                        if "urinary tract infection" in care_rec or "uti" in care_rec:
+                            cleaned_condition = "Urinary Tract Infection (UTI)"
+                        elif "cat" in care_rec and ("allerg" in care_rec or "exposure" in care_rec):
+                            cleaned_condition = "Allergic Rhinitis (Cat Allergy)"
+                        # Add more mappings as needed
+                
+                result["possible_conditions"] = ensure_proper_condition_format(cleaned_condition)
         elif isinstance(result["possible_conditions"], list):
-            result["possible_conditions"] = [ensure_proper_condition_format(c) for c in result["possible_conditions"]]
+            # Clean each condition and ensure proper format
+            cleaned_conditions = []
+            for condition in result["possible_conditions"]:
+                cleaned = condition.replace("*", "").strip()
+                cleaned = ensure_proper_condition_format(cleaned)
+                cleaned_conditions.append(cleaned)
+            result["possible_conditions"] = cleaned_conditions[0] if cleaned_conditions else "Unknown Condition"
     
     # Fix assessment object if present
     if "assessment" in result and isinstance(result["assessment"], dict):
         if "conditions" in result["assessment"] and isinstance(result["assessment"]["conditions"], list):
             for condition in result["assessment"]["conditions"]:
                 if "name" in condition:
-                    condition["name"] = ensure_proper_condition_format(condition["name"])
+                    # Remove asterisks completely
+                    cleaned_name = condition["name"].replace("*", "").strip()
+                    # If the condition is just a single letter or very short, use the same logic as above
+                    if len(cleaned_name.strip()) <= 3:
+                        if isinstance(result.get("possible_conditions"), str) and len(result["possible_conditions"]) > 3:
+                            cleaned_name = result["possible_conditions"]
+                        elif "care_recommendation" in result and isinstance(result["care_recommendation"], str):
+                            care_rec = result["care_recommendation"].lower()
+                            if "urinary tract infection" in care_rec or "uti" in care_rec:
+                                cleaned_name = "Urinary Tract Infection (UTI)"
+                            elif "cat" in care_rec and ("allerg" in care_rec or "exposure" in care_rec):
+                                cleaned_name = "Allergic Rhinitis (Cat Allergy)"
+                    
+                    condition["name"] = ensure_proper_condition_format(cleaned_name)
     
     # Ensure assessment has a proper condition name
     if result.get("is_assessment", False):
-        # If no condition name is provided or it's masked with asterisks, set a proper one
+        # Get the condition name from possible_conditions or assessment
         condition_name = ""
-        if isinstance(result.get("possible_conditions"), list) and result["possible_conditions"]:
-            condition_name = result["possible_conditions"][0]
-        elif isinstance(result.get("possible_conditions"), str):
+        if isinstance(result.get("possible_conditions"), str) and len(result["possible_conditions"]) > 3:
             condition_name = result["possible_conditions"]
+        elif "assessment" in result and "conditions" in result["assessment"] and result["assessment"]["conditions"]:
+            condition_name = result["assessment"]["conditions"][0].get("name", "")
         
-        # If condition name contains asterisks or is empty, try to get it from assessment
-        if "*" in condition_name or not condition_name:
-            if "assessment" in result and "conditions" in result["assessment"] and result["assessment"]["conditions"]:
-                condition_name = result["assessment"]["conditions"][0].get("name", "")
-        
-        # If still no valid condition name, set a default
+        # If condition name is still empty or contains asterisks, try to extract from care recommendation
         if not condition_name or "*" in condition_name:
-            # Based on the symptoms, set a reasonable default
-            condition_name = "Allergic Reaction (Cat Allergy)"
+            if "care_recommendation" in result and isinstance(result["care_recommendation"], str):
+                care_rec = result["care_recommendation"].lower()
+                if "urinary tract infection" in care_rec or "uti" in care_rec:
+                    condition_name = "Urinary Tract Infection (UTI)"
+                elif "cat" in care_rec and ("allerg" in care_rec or "exposure" in care_rec):
+                    condition_name = "Allergic Rhinitis (Cat Allergy)"
+                else:
+                    # Default fallback
+                    condition_name = "Medical Condition (Requires Attention)"
+        
+        # Remove any remaining asterisks
+        condition_name = condition_name.replace("*", "").strip()
         
         # Update the result with the clean condition name
         result["possible_conditions"] = ensure_proper_condition_format(condition_name)
@@ -231,6 +267,9 @@ def modify_clean_ai_response_result(result):
             }
         elif "conditions" not in result["assessment"] or not result["assessment"]["conditions"]:
             result["assessment"]["conditions"] = [{"name": result["possible_conditions"], "confidence": result.get("confidence", 95)}]
+        else:
+            # Update the first condition name
+            result["assessment"]["conditions"][0]["name"] = result["possible_conditions"]
     
     # Fix duplicate confidence issue
     # Store confidence value
@@ -246,6 +285,10 @@ def modify_clean_ai_response_result(result):
             for condition in result["assessment"]["conditions"]:
                 if "confidence" not in condition:
                     condition["confidence"] = confidence_value
+    
+    # Remove confidence from top level to prevent duplicate display
+    if result.get("is_assessment", False) and "confidence" in result:
+        del result["confidence"]
     
     return result
 

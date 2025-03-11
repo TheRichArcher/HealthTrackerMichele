@@ -63,6 +63,7 @@ const Message = memo(({ message, onRetry, index }) => {
 
   let displayText = text;
   if (sender === 'bot' && text) {
+    // Clean any JSON content
     if (text.includes("<json>")) displayText = text.split("<json>")[0].trim();
     else if (text.includes('"assessment"') || text.includes('"conditions"')) {
       const jsonStartIndex = text.indexOf('{');
@@ -71,6 +72,14 @@ const Message = memo(({ message, onRetry, index }) => {
     
     // Clean any "(Medical Condition)" text from messages
     displayText = displayText.replace(/\s*\(Medical Condition\)\s*/g, '').trim();
+    
+    // Remove confidence percentage from text to avoid duplication
+    displayText = displayText.replace(/\(\d+%\s*confidence\)/g, '').trim();
+    
+    // Remove asterisks from condition names but preserve bold formatting
+    displayText = displayText.replace(/\*\*([^*]+)\*\*/g, (match, p1) => {
+      return `**${p1.replace(/\*/g, '')}**`;
+    });
   }
 
   const getCareRecommendation = useCallback((level) => {
@@ -368,17 +377,20 @@ const Chat = () => {
           const careRecommendation = responseData.response.care_recommendation || "";
           const confidence = responseData.response.confidence || 0;
 
+          // Clean condition name - remove any asterisks and ensure proper formatting
+          const cleanConditionName = conditionName.replace(/\*/g, '').trim();
+          
           setLatestAssessment({
-            condition: conditionName,
-            commonName: conditionName.match(/\((.*?)\)/)?.[1] || null,
+            condition: cleanConditionName,
+            commonName: cleanConditionName.match(/\((.*?)\)/)?.[1] || null,
             confidence,
             triageLevel,
             recommendation: careRecommendation
           });
 
-          // FIXED: Removed confidence from message text to prevent duplicate display
+          // FIXED: Removed confidence from message text
           addBotMessage(
-            `🩺 Likely condition: **${conditionName}**.\n\n${careRecommendation}`,
+            `🩺 Likely condition: **${cleanConditionName}**.\n\n${careRecommendation}`,
             true,
             confidence,
             triageLevel,
