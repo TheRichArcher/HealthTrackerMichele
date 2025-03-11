@@ -398,7 +398,12 @@ const Chat = () => {
           const conditionName = responseData.response.possible_conditions || "Unknown condition";
           const triageLevel = responseData.response.triage_level || "unknown";
           const careRecommendation = responseData.response.care_recommendation || "";
-          const confidence = responseData.response.confidence || 0;
+          
+          // Extract confidence with fallbacks to ensure we always have a valid value
+          const confidence = responseData.response.confidence || 
+                            (responseData.response.assessment?.confidence) || 
+                            (responseData.response.assessment?.conditions?.[0]?.confidence) || 
+                            95; // Default to 95% if no confidence is provided
 
           // Extract medical term and common name
           let medicalTerm = "";
@@ -512,6 +517,9 @@ const Chat = () => {
               <UpgradePrompt
                 condition={latestAssessment?.condition || "your symptoms"}
                 commonName={latestAssessment?.commonName}
+                confidence={latestAssessment?.confidence}
+                triageLevel={latestAssessment?.triageLevel}
+                recommendation={latestAssessment?.recommendation}
                 isMildCase={latestAssessment?.triageLevel?.toLowerCase() === "mild" || latestAssessment?.recommendation?.toLowerCase().includes("manage at home")}
                 requiresUpgrade={latestResponseData?.requires_upgrade === true}
                 onDismiss={handleContinueFree}
