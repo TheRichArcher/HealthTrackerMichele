@@ -374,7 +374,17 @@ const Chat = () => {
       const responseData = await response.json();
       setLatestResponseData(responseData);
 
-      if (CONFIG.DEBUG_MODE) console.log("API response:", responseData);
+      if (CONFIG.DEBUG_MODE) {
+        console.log("API response:", responseData);
+        console.log("API response structure:", {
+          hasResponse: !!responseData.response,
+          responseType: typeof responseData.response,
+          isAssessment: responseData.response?.is_assessment,
+          isQuestion: responseData.response?.is_question,
+          confidence: responseData.response?.confidence,
+          possibleConditions: responseData.response?.possible_conditions
+        });
+      }
 
       setTimeout(() => {
         const requiresUpgrade = responseData.requires_upgrade === true;
@@ -383,17 +393,22 @@ const Chat = () => {
           addBotMessage(responseData.message);
         } else if (typeof responseData.response === 'string') {
           addBotMessage(responseData.response);
-        } else if (responseData.response && responseData.response.confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD) {
+        } else if (responseData.response && responseData.response.is_assessment) {
+          console.log("Processing assessment:", responseData.response);
+          
           const conditionName = responseData.response.possible_conditions || "Unknown condition";
           const triageLevel = responseData.response.triage_level || "unknown";
           const careRecommendation = responseData.response.care_recommendation || "";
           const confidence = responseData.response.confidence || 0;
 
-          const cleanConditionName = conditionName.replace(/\*/g, '').trim();
+          const cleanConditionName = typeof conditionName === 'string' ? 
+            conditionName.replace(/\*/g, '').trim() : 
+            "Unknown condition";
           
           setLatestAssessment({
             condition: cleanConditionName,
-            commonName: cleanConditionName.match(/\((.*?)\)/)?.[1] || null,
+            commonName: typeof cleanConditionName === 'string' ? 
+              cleanConditionName.match(/\((.*?)\)/)?.[1] || null : null,
             confidence,
             triageLevel,
             recommendation: careRecommendation
@@ -425,7 +440,7 @@ const Chat = () => {
             setTimeout(() => setUiState(UI_STATES.UPGRADE_PROMPT), 1000);
           }
         } else {
-          addBotMessage(responseData.response?.next_question || responseData.response || "Can you tell me more about your symptoms?");
+          addBotMessage(responseData.response?.next_question || responseData.response?.possible_conditions || "Can you tell me more about your symptoms?");
         }
       }, CONFIG.THINKING_DELAY);
     } catch (error) {
@@ -436,6 +451,8 @@ const Chat = () => {
       }
     } finally {
       setLoading(false);
+      // Ensure typing indicator is always cleared after a delay
+      setTimeout(() => setTyping(false), CONFIG.THINKING_DELAY + 500);
     }
   };
 
