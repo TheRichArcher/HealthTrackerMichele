@@ -170,6 +170,7 @@ const Chat = () => {
   const [uiState, setUiState] = useState(UI_STATES.DEFAULT);
   const [latestAssessment, setLatestAssessment] = useState(null);
   const [latestResponseData, setLatestResponseData] = useState(null);
+  const [hasFinalAssessment, setHasFinalAssessment] = useState(false); // New state
 
   const messagesEndRef = useRef(null);
   const abortControllerRef = useRef(null);
@@ -206,6 +207,16 @@ const Chat = () => {
   useEffect(() => {
     debouncedScrollToBottom();
   }, [messages, typing, debouncedScrollToBottom]);
+
+  useEffect(() => {
+    // Check for final assessment on messages change
+    const hasAssessment = messages.some(msg => 
+      msg.sender === 'bot' && 
+      msg.isAssessment && 
+      msg.confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD
+    );
+    setHasFinalAssessment(hasAssessment);
+  }, [messages]);
 
   useEffect(() => {
     return () => {
@@ -281,6 +292,7 @@ const Chat = () => {
       setUiState(UI_STATES.DEFAULT);
       setLatestAssessment(null);
       setLatestResponseData(null);
+      setHasFinalAssessment(false); // Reset assessment state
       saveMessages([WELCOME_MESSAGE]);
     } catch (error) {
       if (CONFIG.DEBUG_MODE) console.error("Error resetting conversation:", error);
@@ -369,15 +381,14 @@ const Chat = () => {
 
         if (responseData.message) {
           addBotMessage(responseData.message);
-        } else if (responseData.response && typeof responseData.response === 'string') {
+        } else if (typeof responseData.response === 'string') {
           addBotMessage(responseData.response);
         } else if (responseData.response && responseData.response.confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD) {
-          const conditionName = responseData.response.possible_conditions?.[0] || "Unknown condition";
+          const conditionName = responseData.response.possible_conditions || "Unknown condition";
           const triageLevel = responseData.response.triage_level || "unknown";
           const careRecommendation = responseData.response.care_recommendation || "";
           const confidence = responseData.response.confidence || 0;
 
-          // Clean condition name - remove any asterisks and ensure proper formatting
           const cleanConditionName = conditionName.replace(/\*/g, '').trim();
           
           setLatestAssessment({
@@ -388,7 +399,6 @@ const Chat = () => {
             recommendation: careRecommendation
           });
 
-          // FIXED: Removed confidence from message text
           addBotMessage(
             `🩺 Likely condition: **${cleanConditionName}**.\n\n${careRecommendation}`,
             true,
@@ -415,7 +425,7 @@ const Chat = () => {
             setTimeout(() => setUiState(UI_STATES.UPGRADE_PROMPT), 1000);
           }
         } else {
-          addBotMessage(responseData.response?.next_question || "Can you tell me more about your symptoms?");
+          addBotMessage(responseData.response?.next_question || responseData.response || "Can you tell me more about your symptoms?");
         }
       }, CONFIG.THINKING_DELAY);
     } catch (error) {
@@ -454,6 +464,14 @@ const Chat = () => {
           {messages.map((msg, index) => (
             <Message key={index} message={msg} onRetry={handleRetry} index={index} />
           ))}
+
+          {hasFinalAssessment && !typing && !loading && (
+            <div className="assessment-notice">
+              <p>
+                An assessment has been completed. To discuss new symptoms, please reset the conversation.
+              </p>
+            </div>
+          )}
 
           {uiState === UI_STATES.UPGRADE_PROMPT && (
             <div className="upgrade-prompt-container">
@@ -497,8 +515,8 @@ const Chat = () => {
               value={userInput}
               onChange={(e) => { setUserInput(e.target.value); setInputError(null); }}
               onKeyDown={handleKeyDown}
-              placeholder="Describe your symptoms..."
-              disabled={loading || resetting}
+              placeholder={hasFinalAssessment ? "Reset to discuss new symptoms" : "Describe your symptoms..."}
+              disabled={loading || resetting || hasFinalAssessment}
               maxLength={CONFIG.MAX_MESSAGE_LENGTH}
               aria-label="Symptom input"
               aria-invalid={!!inputError}
@@ -508,7 +526,7 @@ const Chat = () => {
             <button
               className="send-button"
               onClick={() => handleSendMessage()}
-              disabled={loading || resetting || !userInput.trim()}
+              disabled={loading || resetting || !userInput.trim() || hasFinalAssessment}
               aria-label="Send message"
             >
               Send

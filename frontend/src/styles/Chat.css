@@ -342,6 +342,18 @@
   margin-right: 5px;
 }
 
+/* Assessment notice */
+.assessment-notice {
+  background-color: #e6f7fa;
+  border: 1px solid #b3e5fc;
+  border-radius: 8px;
+  padding: 10px;
+  margin: 10px 0;
+  text-align: center;
+  font-style: italic;
+  color: #0288d1;
+}
+
 /* Clean up spacing */
 .messages-container > *:not(.message-row):not(.upgrade-options-inline):not(.typing-indicator):not(.loading-indicator) {
   margin-bottom: 0;

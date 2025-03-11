@@ -385,6 +385,36 @@ def analyze_symptoms():
     if reset:
         return reset_conversation()
 
+    # Check for prior high-confidence assessment in conversation history
+    prior_assessment = None
+    for entry in reversed(conversation_history):
+        if entry.get("isBot", False):
+            try:
+                # The message might be a stringified JSON or plain text
+                message_content = entry["message"]
+                if isinstance(message_content, str) and message_content.startswith("{"):
+                    message_data = json.loads(message_content)
+                    if (message_data.get("is_assessment", False) and
+                        message_data.get("confidence", 0) >= MIN_CONFIDENCE_THRESHOLD):
+                        prior_assessment = message_data
+                        break
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.warning(f"Failed to parse conversation history entry: {entry}, error: {str(e)}")
+                continue
+
+    if prior_assessment and not reset:
+        logger.info("Found prior high-confidence assessment, reusing it")
+        response_text = f"🩺 Previous assessment: **{prior_assessment.get('possible_conditions', 'Unknown condition')}**.\n\n{prior_assessment.get('care_recommendation', 'Consider seeing a doctor soon.')}"
+        if not is_premium_user(current_user):
+            triage_level = (prior_assessment.get("triage_level") or "").upper()
+            if triage_level in ["MODERATE", "SEVERE"]:
+                prior_assessment["requires_upgrade"] = True
+        return jsonify({
+            "response": response_text,
+            "isBot": True,
+            "conversation_history": conversation_history
+        }), 200
+
     messages = prepare_conversation_messages(symptom, conversation_history)
     try:
         response_text = call_openai_api(messages)
@@ -412,6 +442,27 @@ def analyze_symptoms():
             if result.get("is_assessment", False) and triage_level in ["MODERATE", "SEVERE"]:
                 result["requires_upgrade"] = True
 
+        # Update conversation history with the full result if it's an assessment
+        if result.get("is_assessment", False):
+            conversation_history.append({
+                "message": json.dumps(result),
+                "isBot": True
+            })
+            if user_id:
+                save_symptom_interaction(
+                    user_id,
+                    symptom,
+                    result,
+                    result.get("care_recommendation", ""),
+                    result.get("confidence", 0),
+                    True
+                )
+            return jsonify({
+                "response": result,
+                "isBot": True,
+                "conversation_history": conversation_history
+            }), 200
+
         # Continue asking questions if confidence is below threshold or is_question is true
         if result.get("is_question", False):
             next_question = result.get("possible_conditions", "Can you tell me more about your symptoms?")
@@ -424,7 +475,7 @@ def analyze_symptoms():
                 "conversation_history": conversation_history
             }), 200
         else:
-            # Provide assessment
+            # Provide assessment (shouldn't reach here due to prior check, but kept for safety)
             if user_id and result.get("is_assessment", False):
                 save_symptom_interaction(
                     user_id,
@@ -434,6 +485,7 @@ def analyze_symptoms():
                     result.get("confidence", 0),
                     True
                 )
+            conversation_history.append({"message": json.dumps(result), "isBot": True})
             return jsonify({
                 "response": result,
                 "isBot": True,

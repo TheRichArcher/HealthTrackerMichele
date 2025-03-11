@@ -57,21 +57,12 @@ CRITICAL INSTRUCTIONS:
 
 def clean_ai_response(
     response_text: str,
-    user: Optional[User] = None,  # Use User directly now that it's imported
+    user: Optional[User] = None,
     conversation_history: Optional[list] = None,
     symptom: str = ""
 ) -> Dict:
     """
     Process OpenAI API response, ensuring valid JSON output.
-
-    Args:
-        response_text: Raw response string from OpenAI.
-        user: User object (optional) for tier-based logic.
-        conversation_history: List of prior messages (optional).
-        symptom: Current symptom input (optional).
-
-    Returns:
-        Dict: Processed JSON response adhering to SYSTEM_PROMPT structure.
     """
     # Log input details
     is_production = current_app.config.get("ENV") == "production"
@@ -119,31 +110,50 @@ def clean_ai_response(
                 logger.warning(f"Field '{field}' is None, setting to default")
                 parsed_json[field] = default
         
+        # Check for prior high-confidence assessment
+        has_prior_assessment = False
+        if conversation_history:
+            for entry in reversed(conversation_history):
+                if entry.get("isBot", False):
+                    try:
+                        message_content = entry["message"]
+                        if isinstance(message_content, str) and message_content.startswith("{"):
+                            message_data = json.loads(message_content)
+                            if (message_data.get("is_assessment", False) and
+                                message_data.get("confidence", 0) >= MIN_CONFIDENCE_THRESHOLD):
+                                has_prior_assessment = True
+                                break
+                    except (json.JSONDecodeError, KeyError):
+                        continue
+
+        # If there's a prior assessment, avoid generating new questions
+        if has_prior_assessment and not parsed_json.get("is_assessment", False):
+            logger.info("Prior high-confidence assessment found, avoiding new questions")
+            parsed_json["is_question"] = False
+            parsed_json["possible_conditions"] = "Assessment already provided. Please reset the conversation or consult a doctor if symptoms persist."
+            parsed_json["confidence"] = None
+            parsed_json["triage_level"] = None
+            parsed_json["care_recommendation"] = None
+
         # CRITICAL FIX: Handle inconsistent state where possible_conditions is null
-        # but is_question is false, which causes the fallback loop
         if not parsed_json["possible_conditions"] or parsed_json["possible_conditions"] == "":
             logger.warning("possible_conditions is null or empty - fixing inconsistent state")
             
-            # If this is not an assessment, it must be a question
             if not parsed_json["is_assessment"]:
                 parsed_json["is_question"] = True
                 
                 # Generate a better question based on conversation context
                 if conversation_history and len(conversation_history) > 2:
-                    # Extract symptoms mentioned so far
                     user_messages = [msg["message"].lower() for msg in conversation_history if not msg.get("isBot", True)]
                     combined_text = " ".join(user_messages)
                     
-                    # Check for specific symptoms to ask targeted questions
                     if "burn" in combined_text and ("pee" in combined_text or "urin" in combined_text):
                         parsed_json["possible_conditions"] = "How severe is the burning sensation when you urinate, on a scale from 1-10?"
                     elif "frequent" in combined_text or "urgency" in combined_text:
                         parsed_json["possible_conditions"] = "How often do you feel the need to urinate compared to your normal pattern?"
                     else:
-                        # Check if we've already asked generic questions
                         bot_messages = [msg["message"].lower() for msg in conversation_history[-5:] if msg.get("isBot", True)]
                         if any("tell me more about your symptoms" in msg for msg in bot_messages):
-                            # Avoid repeating generic questions
                             varied_questions = [
                                 "Let me try a different approach. When did these symptoms first begin?",
                                 "Has anything made your symptoms better or worse?",
@@ -152,7 +162,7 @@ def clean_ai_response(
                             ]
                             parsed_json["possible_conditions"] = random.choice(varied_questions)
                         else:
-                            parsed_json["possible_conditions"] = "Could you describe your main symptoms in more detail?"
+                            parsed_json["possible_conditions"] = "Could you describe your symptoms in more detail?"
                 else:
                     parsed_json["possible_conditions"] = "Could you describe your symptoms in more detail?"
 
@@ -181,14 +191,10 @@ def clean_ai_response(
                     if "conditions" in parsed_json["assessment"] and isinstance(parsed_json["assessment"]["conditions"], list):
                         for condition in parsed_json["assessment"]["conditions"]:
                             if "name" in condition:
-                                # Remove asterisks from condition names
                                 condition["name"] = condition["name"].replace("*", "").strip()
                 
-                # Clean possible_conditions
                 if isinstance(parsed_json["possible_conditions"], str):
-                    # Remove asterisks from condition names
                     parsed_json["possible_conditions"] = parsed_json["possible_conditions"].replace("*", "").strip()
-                    # Remove (Medical Condition) placeholders
                     parsed_json["possible_conditions"] = parsed_json["possible_conditions"].replace("(Medical Condition)", "").strip()
                 elif isinstance(parsed_json["possible_conditions"], list):
                     cleaned_conditions = []
@@ -202,23 +208,19 @@ def clean_ai_response(
         if parsed_json["is_question"]:
             question_text = parsed_json["possible_conditions"]
             if isinstance(question_text, str):
-                # Remove (Medical Condition) placeholders from questions
                 question_text = question_text.replace("(Medical Condition)", "").strip()
                 if question_text.count("?") > 1:
                     logger.warning(f"Multiple questions detected in: {question_text}")
-                    # Take the first question only
                     first_question = question_text.split("?")[0] + "?"
                     parsed_json["possible_conditions"] = first_question
                 else:
                     parsed_json["possible_conditions"] = question_text
 
-        # Log processed response
         logger.info(f"Processed response: {json.dumps(parsed_json, indent=2)}")
         return parsed_json
 
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse response as JSON: {str(e)}")
-        # Fallback to text-based parsing
         is_question = "?" in response_text
         return {
             "is_assessment": False,
