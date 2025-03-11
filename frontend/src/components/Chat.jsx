@@ -166,12 +166,10 @@ const Chat = () => {
   const [latestAssessment, setLatestAssessment] = useState(null);
   const [latestResponseData, setLatestResponseData] = useState(null);
   const [hasFinalAssessment, setHasFinalAssessment] = useState(false); // New state
-  const [showDuplicateAssessment, setShowDuplicateAssessment] = useState(false); // Control duplicate assessment
 
   const messagesEndRef = useRef(null);
   const abortControllerRef = useRef(null);
   const inputRef = useRef(null);
-  const assessmentRef = useRef(null);
 
   const focusInput = useCallback(debounce(() => {
     if (inputRef.current) inputRef.current.focus();
@@ -193,21 +191,6 @@ const Chat = () => {
     if (messagesEndRef.current) messagesEndRef.current.scrollIntoView({ behavior: "auto" });
   }, []);
 
-  const scrollToAssessment = useCallback(() => {
-    if (assessmentRef.current) {
-      assessmentRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-    } else {
-      // Find the assessment message
-      const assessmentElements = document.querySelectorAll('.assessment-indicator');
-      if (assessmentElements.length > 0) {
-        const lastAssessment = assessmentElements[assessmentElements.length - 1];
-        lastAssessment.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      } else {
-        scrollToBottomImmediate();
-      }
-    }
-  }, [scrollToBottomImmediate]);
-
   useEffect(() => {
     focusInput();
   }, [focusInput]);
@@ -217,11 +200,8 @@ const Chat = () => {
   }, [messages, typing, saveMessages]);
 
   useEffect(() => {
-    // Only scroll to bottom for non-assessment messages
-    if (!hasFinalAssessment) {
-      debouncedScrollToBottom();
-    }
-  }, [messages, typing, debouncedScrollToBottom, hasFinalAssessment]);
+    debouncedScrollToBottom();
+  }, [messages, typing, debouncedScrollToBottom]);
 
   useEffect(() => {
     // Check for final assessment on messages change
@@ -230,15 +210,8 @@ const Chat = () => {
       msg.isAssessment && 
       msg.confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD
     );
-    
-    if (hasAssessment && !hasFinalAssessment) {
-      setHasFinalAssessment(true);
-      // Scroll to assessment when it first appears
-      setTimeout(scrollToAssessment, 300);
-    } else if (!hasAssessment) {
-      setHasFinalAssessment(false);
-    }
-  }, [messages, scrollToAssessment, hasFinalAssessment]);
+    setHasFinalAssessment(hasAssessment);
+  }, [messages]);
 
   useEffect(() => {
     return () => {
@@ -279,9 +252,7 @@ const Chat = () => {
       
       // Use requestAnimationFrame to ensure DOM is updated before scrolling
       requestAnimationFrame(() => {
-        if (!isAssessment) {
-          scrollToBottomImmediate();
-        }
+        scrollToBottomImmediate();
         focusInput();
       });
     }, thinkingDelay);
@@ -327,7 +298,6 @@ const Chat = () => {
       setLatestAssessment(null);
       setLatestResponseData(null);
       setHasFinalAssessment(false); // Reset assessment state
-      setShowDuplicateAssessment(false); // Reset duplicate assessment flag
       saveMessages([WELCOME_MESSAGE]);
     } catch (error) {
       if (CONFIG.DEBUG_MODE) console.error("Error resetting conversation:", error);
@@ -412,6 +382,10 @@ const Chat = () => {
 
       const responseData = await response.json();
       setLatestResponseData(responseData);
+      
+      // Immediately clear loading and typing states to prevent stuck spinner
+      setLoading(false);
+      setTyping(false);
 
       if (CONFIG.DEBUG_MODE) {
         console.log("API response:", responseData);
@@ -425,7 +399,7 @@ const Chat = () => {
         });
       }
 
-      // Process the response immediately without additional delay
+      // Process the response immediately
       const requiresUpgrade = responseData.requires_upgrade === true;
 
       if (responseData.message) {
@@ -476,65 +450,47 @@ const Chat = () => {
         // Format the assessment message with the requested format
         const assessmentMessage = `🩺 Likely condition: ${commonName} **${medicalTerm}** ${confidence}% Confidence Level\n\n${careRecommendation}`;
         
-        // Add the assessment message
-        setMessages(prev => [...prev, {
-          sender: 'bot',
-          text: assessmentMessage,
-          isAssessment: true,
+        addBotMessage(
+          assessmentMessage,
+          true,
           confidence,
           triageLevel,
           careRecommendation
-        }]);
-        
-        // Set flag to not show duplicate assessment in upgrade prompt
-        setShowDuplicateAssessment(true);
-        
+        );
+
         // Add a small delay before showing the upgrade message
         setTimeout(() => {
           const isMildCase = triageLevel?.toLowerCase() === "mild" || careRecommendation?.toLowerCase().includes("manage at home");
           
-          // Add the sales pitch message
-          const salesPitchMessage = isMildCase
-            ? "🔍 While you can manage this condition at home, Premium Access gives you deeper insights, symptom tracking, and doctor-ready reports if you'd like more detailed information."
-            : "🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?";
+          if (isMildCase) {
+            addBotMessage(
+              "🔍 While you can manage this condition at home, Premium Access gives you deeper insights, symptom tracking, and doctor-ready reports if you'd like more detailed information."
+            );
+          } else {
+            addBotMessage(
+              "🔍 For a more comprehensive understanding of your condition, I recommend upgrading. Premium Access lets you track symptoms over time, while the Consultation Report gives you a detailed breakdown for your doctor. Which option works best for you?"
+            );
+          }
           
-          setMessages(prev => [...prev, {
-            sender: 'bot',
-            text: salesPitchMessage,
-            isAssessment: false,
-            confidence: null,
-            triageLevel: null,
-            careRecommendation: null
-          }]);
-          
-          // After adding both messages, set UI state and scroll to assessment
-          setTimeout(() => {
-            setUiState(UI_STATES.UPGRADE_PROMPT);
-            setTyping(false);
-            setLoading(false);
-            scrollToAssessment();
-          }, 300);
+          // Show upgrade prompt after the message
+          setTimeout(() => setUiState(UI_STATES.UPGRADE_PROMPT), 500);
         }, 500);
       } else if (requiresUpgrade) {
         if (latestAssessment) {
-          setUiState(UI_STATES.UPGRADE_PROMPT); // Show immediately without delay
-          setTyping(false);
-          setLoading(false);
+          setUiState(UI_STATES.UPGRADE_PROMPT);
         }
       } else {
         addBotMessage(responseData.response?.next_question || responseData.response?.possible_conditions || "Can you tell me more about your symptoms?");
       }
     } catch (error) {
+      // Always clear loading and typing states on error
+      setLoading(false);
+      setTyping(false);
+      
       if (error.name !== 'AbortError') {
         if (CONFIG.DEBUG_MODE) console.error("API error:", error);
         setError(error.message || "I'm having trouble connecting—please try again.");
         addBotMessage("I'm sorry, I couldn't process that right now. Please try again, or let me know how I can assist further!");
-      }
-    } finally {
-      if (!responseData?.response?.is_assessment) {
-        setLoading(false);
-        // Ensure typing indicator is always cleared after a short delay
-        setTimeout(() => setTyping(false), 300); // Reduced from 500ms to 300ms
       }
     }
   };
@@ -561,17 +517,9 @@ const Chat = () => {
         </div>
 
         <div className="messages-container" role="log" aria-live="polite">
-          {messages.map((msg, index) => {
-            // If this is an assessment message, store a ref to it
-            if (msg.isAssessment) {
-              return (
-                <div ref={assessmentRef} key={index}>
-                  <Message message={msg} onRetry={handleRetry} index={index} />
-                </div>
-              );
-            }
-            return <Message key={index} message={msg} onRetry={handleRetry} index={index} />;
-          })}
+          {messages.map((msg, index) => (
+            <Message key={index} message={msg} onRetry={handleRetry} index={index} />
+          ))}
 
           {hasFinalAssessment && !typing && !loading && (
             <div className="assessment-notice">
@@ -592,7 +540,6 @@ const Chat = () => {
                 isMildCase={latestAssessment?.triageLevel?.toLowerCase() === "mild" || latestAssessment?.recommendation?.toLowerCase().includes("manage at home")}
                 requiresUpgrade={latestResponseData?.requires_upgrade === true}
                 onDismiss={handleContinueFree}
-                showDuplicateAssessment={!showDuplicateAssessment} // Only show assessment in prompt if not already in chat
               />
             </div>
           )}
