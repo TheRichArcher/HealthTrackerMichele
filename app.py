@@ -54,6 +54,11 @@ def create_app():
     DATABASE_URL = os.getenv('DATABASE_URL')
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
+    
+    # Change from postgresql:// to postgresql+psycopg:// to use psycopg v3
+    if DATABASE_URL.startswith("postgresql://"):
+        DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://")
+        
     app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 
     # Initialize extensions
