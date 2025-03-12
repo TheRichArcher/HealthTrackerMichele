@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import './SubscriptionPage.css';
+import '../styles/SubscriptionPage.css';
 
 const API_BASE_URL = 'https://healthtrackermichele.onrender.com/api';
 
