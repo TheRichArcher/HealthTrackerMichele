@@ -28,7 +28,7 @@ def create_app():
         static_url_path=''  # Serve static files from root
     )
 
-    # Configure app
+    # Configure app with values from environment variables
     app.config.update(
         JWT_SECRET_KEY=os.getenv('JWT_SECRET_KEY'),
         JWT_ACCESS_TOKEN_EXPIRES=timedelta(seconds=int(os.getenv('JWT_ACCESS_TOKEN_EXPIRES', 3600))),
@@ -54,7 +54,6 @@ def create_app():
     DATABASE_URL = os.getenv('DATABASE_URL')
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
-
     app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 
     # Initialize extensions
@@ -92,18 +91,19 @@ def create_app():
     from backend.routes.library_routes import library_routes
     from backend.routes.onboarding_routes import onboarding_routes
     from backend.routes.data_exporter import data_exporter
+    from backend.routes.subscription_routes import subscription_bp
 
     # Register blueprints with proper URL prefixes
-    # Note: Blueprint registration centralizes all URL prefixing for consistent route management
     blueprints = [
         (symptom_routes, '/api/symptoms'),
         (health_data_routes, '/api/health-data'),
         (report_routes, '/api/reports'),
         (user_routes, '/api'),
-        (utils_health_bp, '/api'),  # Changed to '/api' to standardize route prefixing
+        (utils_health_bp, '/api'),
         (library_routes, '/api/library'),
         (onboarding_routes, '/api/onboarding'),
-        (data_exporter, '/api/export')
+        (data_exporter, '/api/export'),
+        (subscription_bp, '/api/subscription')
     ]
 
     for blueprint, url_prefix in blueprints:
@@ -176,4 +176,4 @@ application = app
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     app.logger.info(f'Starting server on port {port}')
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=os.getenv('DEBUG', 'False') == 'True')

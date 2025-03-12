@@ -2,14 +2,15 @@ Flask==2.3.3
 flask-cors==4.0.0
 flask-sqlalchemy==3.0.5
 flask-bcrypt==1.0.1
-flask-jwt-extended==4.5.3  # Fixed from 4.5.0 to 4.5.3
+flask-jwt-extended==4.5.3
 python-dotenv==1.0.0
-openai>=1.0.0  # Kept as minimum version per your spec
+openai==1.42.0
 sqlalchemy==2.0.20
 bcrypt==4.0.1
-pydantic==2.5.0
+pydantic==2.9.2
 requests==2.31.0
 werkzeug==2.3.7
 gunicorn==21.2.0
 flask-migrate==4.0.5
-psycopg2-binary==2.9.7
+psycopg[binary]==3.2.1
+stripe==10.2.0

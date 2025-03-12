@@ -23,13 +23,11 @@ const AuthPage = () => {
 
     const from = location.state?.from?.pathname || '/dashboard';
 
-    // Reset error message on input change
     const handleInputChange = useCallback((setter) => (e) => {
         setError(null);
         setter(e.target.value.trim());
     }, []);
 
-    // Validate input fields
     const validateInputs = useCallback(() => {
         if (username.length < MIN_USERNAME_LENGTH) {
             setError(`Username must be at least ${MIN_USERNAME_LENGTH} characters long.`);
@@ -42,14 +40,12 @@ const AuthPage = () => {
         return true;
     }, [username, password]);
 
-    // Toggle between login and signup
     const toggleMode = useCallback(() => {
         setIsLogin((prev) => !prev);
         setError(null);
         setMessage('');
     }, []);
 
-    // Handle form submission
     const handleSubmit = useCallback(async (e) => {
         e.preventDefault();
         setError(null);
@@ -58,10 +54,10 @@ const AuthPage = () => {
         if (!validateInputs()) return;
 
         setIsLoading(true);
-        const endpoint = isLogin ? 'login' : 'signup';
+        const endpoint = isLogin ? 'login' : 'users'; // Adjusted to match backend
 
         try {
-            const response = await fetch(`${API_BASE_URL}/auth/${endpoint}`, {
+            const response = await fetch(`${API_BASE_URL}/${endpoint}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password }),
@@ -79,7 +75,6 @@ const AuthPage = () => {
             setMessage(`${isLogin ? 'Login' : 'Signup'} successful! Redirecting...`);
 
             await checkAuth();
-
             setTimeout(() => navigate(from, { replace: true }), 1000);
         } catch (error) {
             console.error(`${isLogin ? 'Login' : 'Signup'} error:`, error);
@@ -90,7 +85,6 @@ const AuthPage = () => {
         }
     }, [isLogin, username, password, validateInputs, checkAuth, navigate, from]);
 
-    // Show loading spinner after a short delay
     useEffect(() => {
         let timer;
         if (isLoading) {

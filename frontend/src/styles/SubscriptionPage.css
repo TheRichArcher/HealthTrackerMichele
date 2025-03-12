@@ -1,0 +1,75 @@
+.subscription-container {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 20px;
+    text-align: center;
+    font-family: Arial, sans-serif;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    margin-top: 2rem;
+}
+
+.subscription-container h2 {
+    font-size: 24px;
+    margin-bottom: 20px;
+    color: #333;
+}
+
+.subscription-container p {
+    font-size: 16px;
+    margin-bottom: 10px;
+    color: #555;
+}
+
+.current-plan {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 5px;
+    padding: 10px;
+    margin-bottom: 20px;
+    font-weight: bold;
+}
+
+.error {
+    color: #d9534f;
+    font-weight: bold;
+}
+
+.subscription-buttons {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+}
+
+.subscription-button {
+    padding: 10px 20px;
+    font-size: 16px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.subscription-button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+.subscription-button:hover:not(:disabled) {
+    background-color: #0056b3;
+}
+
+@media (max-width: 768px) {
+    .subscription-buttons {
+        flex-direction: column;
+        align-items: center;
+    }
+    
+    .subscription-button {
+        width: 100%;
+        max-width: 300px;
+    }
+}

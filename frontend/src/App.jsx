@@ -1,6 +1,6 @@
 import React, { Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './context/AuthContext';  // ✅ Added `useAuth`
+import { AuthProvider, useAuth } from './context/AuthContext';
 
 // Component Imports
 import Chat from './components/Chat';
@@ -11,18 +11,18 @@ import Onboarding from './components/Onboarding';
 import SymptomLogger from './components/SymptomLogger';
 import Report from './components/Report';
 import AuthPage from './components/AuthPage';
+import SubscriptionPage from './components/SubscriptionPage'; // ✅ Added
 import Navbar from './components/Navbar';
 import LoadingSpinner from './components/LoadingSpinner';
-import ProtectedRoute from './components/ProtectedRoute';
 
 // Styles
 import './styles/App.css';
 import './styles/Chat.css';
-import './styles/navbar.css'; // Added navbar.css import LAST to ensure it overrides other styles
+import './styles/navbar.css';
 
 // Protected Route Wrapper
 const PrivateRoute = ({ children }) => {
-    const { isAuthenticated, isLoading } = useAuth();  // ✅ useAuth now properly imported
+    const { isAuthenticated, isLoading } = useAuth();
 
     if (isLoading) {
         return <LoadingSpinner message="Checking authentication..." />;
@@ -89,6 +89,26 @@ const App = () => {
                                 </PrivateRoute>
                             } 
                         />
+                        <Route 
+                            path="/subscription" 
+                            element={
+                                <PrivateRoute>
+                                    <SubscriptionPage />
+                                </PrivateRoute>
+                            } 
+                        /> {/* ✅ Added */}
+                        <Route 
+                            path="/success" 
+                            element={
+                                <PrivateRoute>
+                                    <SubscriptionPage />
+                                </PrivateRoute>
+                            } 
+                        /> {/* ✅ Added for Stripe success */}
+                        <Route 
+                            path="/cancel" 
+                            element={<div>Payment cancelled. <Link to="/subscription">Try again</Link></div>} 
+                        /> {/* ✅ Added for Stripe cancel */}
 
                         {/* Redirects */}
                         <Route path="/login" element={<Navigate to="/auth" replace />} />

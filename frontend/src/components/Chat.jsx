@@ -1,6 +1,9 @@
 import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import PropTypes from 'prop-types';
 import { debounce } from 'lodash';
+import { useAuth } from '../context/AuthContext';
+import axios from 'axios';
+import UpgradePrompt from './UpgradePrompt';
 import '../styles/Chat.css';
 
 console.log("CHAT.JSX LOADED AT", new Date().toISOString());
@@ -11,7 +14,7 @@ const UI_STATES = {
 };
 
 const CONFIG = {
-  MAX_FREE_MESSAGES: 15, // Kept for reference, but disabled in logic
+  MAX_FREE_MESSAGES: 5, // Adjusted for subscription limits
   THINKING_DELAY: 300, // Reduced from 1000ms to 300ms
   API_TIMEOUT: 10000,
   API_URL: `${import.meta.env.VITE_API_URL || '/api'}/symptoms/analyze`,
@@ -62,28 +65,19 @@ class ChatErrorBoundary extends React.Component {
   }
 }
 
-const Message = memo(({ message, onRetry, index, onUpgradeAction }) => {
-  const { sender, text, confidence, careRecommendation, isAssessment, triageLevel, isUpgradeOptions, isMildCase } = message;
+const Message = memo(({ message, onRetry, index }) => {
+  const { sender, text, confidence, careRecommendation, isAssessment, triageLevel } = message;
 
   let displayText = text;
   if (sender === 'bot' && text) {
-    // Clean any JSON content
     if (text.includes("<json>")) displayText = text.split("<json>")[0].trim();
     else if (text.includes('"assessment"') || text.includes('"conditions"')) {
       const jsonStartIndex = text.indexOf('{');
       if (jsonStartIndex > 0) displayText = text.substring(0, jsonStartIndex).trim();
     }
-    
-    // Clean any "(Medical Condition)" text from messages
     displayText = displayText.replace(/\s*\(Medical Condition\)\s*/g, '').trim();
-    
-    // Remove confidence percentage from text to avoid duplication
     displayText = displayText.replace(/\(\d+%\s*confidence\)/g, '').trim();
-    
-    // Handle markdown-style formatting
-    displayText = displayText.replace(/\*\*([^*]+)\*\*/g, (match, p1) => {
-      return `**${p1.replace(/\*/g, '')}**`;
-    });
+    displayText = displayText.replace(/\*\*([^*]+)\*\*/g, (match, p1) => `**${p1.replace(/\*/g, '')}**`);
   }
 
   const getCareRecommendation = useCallback((level) => {
@@ -106,55 +100,6 @@ const Message = memo(({ message, onRetry, index, onUpgradeAction }) => {
     if (confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD) confidenceClass = 'confidence-high';
     else if (confidence >= 70) confidenceClass = 'confidence-medium';
     else confidenceClass = 'confidence-low';
-  }
-
-  // Handle upgrade options rendering
-  if (isUpgradeOptions) {
-    return (
-      <div className="message-row">
-        <div className="avatar-container">{avatarContent}</div>
-        <div className="message bot upgrade-options">
-          <div className="message-content">
-            <p className="upgrade-intro">{displayText}</p>
-            
-            <div className="upgrade-options-container">
-              <div className="upgrade-option">
-                <h4>💎 Premium Access ($9.99/month)</h4>
-                <p>Unlimited checks, detailed assessments, and health monitoring.</p>
-              </div>
-              
-              <div className="upgrade-option">
-                <h4>📄 One-time Report ($4.99)</h4>
-                <p>A detailed analysis of your current condition.</p>
-              </div>
-              
-              <div className="upgrade-buttons">
-                <button 
-                  className="upgrade-button premium"
-                  onClick={() => onUpgradeAction('premium')}
-                >
-                  Get Premium ($9.99/month)
-                </button>
-                <button 
-                  className="upgrade-button report"
-                  onClick={() => onUpgradeAction('report')}
-                >
-                  Get Report ($4.99)
-                </button>
-                {isMildCase && (
-                  <button 
-                    className="upgrade-button maybe-later"
-                    onClick={() => onUpgradeAction('later')}
-                  >
-                    Maybe Later
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
   }
 
   return (
@@ -202,8 +147,7 @@ Message.propTypes = {
     isMildCase: PropTypes.bool
   }).isRequired,
   onRetry: PropTypes.func.isRequired,
-  index: PropTypes.number.isRequired,
-  onUpgradeAction: PropTypes.func
+  index: PropTypes.number.isRequired
 };
 
 const Chat = () => {
@@ -226,8 +170,10 @@ const Chat = () => {
   const [uiState, setUiState] = useState(UI_STATES.DEFAULT);
   const [latestAssessment, setLatestAssessment] = useState(null);
   const [latestResponseData, setLatestResponseData] = useState(null);
-  const [hasFinalAssessment, setHasFinalAssessment] = useState(false); // New state
+  const [hasFinalAssessment, setHasFinalAssessment] = useState(false);
+  const [subscriptionTier, setSubscriptionTier] = useState(null);
 
+  const { isAuthenticated } = useAuth();
   const messagesEndRef = useRef(null);
   const abortControllerRef = useRef(null);
   const inputRef = useRef(null);
@@ -254,7 +200,15 @@ const Chat = () => {
 
   useEffect(() => {
     focusInput();
-  }, [focusInput]);
+    if (isAuthenticated) {
+      const token = localStorage.getItem('jwt_token');
+      axios.get(`${import.meta.env.VITE_API_URL || '/api'}/subscription/status`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+        .then(res => setSubscriptionTier(res.data.subscription_tier))
+        .catch(err => console.error('Failed to fetch subscription status:', err));
+    }
+  }, [focusInput, isAuthenticated]);
 
   useEffect(() => {
     if (messages.length > 0 && !typing) saveMessages(messages);
@@ -265,7 +219,6 @@ const Chat = () => {
   }, [messages, typing, debouncedScrollToBottom]);
 
   useEffect(() => {
-    // Check for final assessment on messages change
     const hasAssessment = messages.some(msg => 
       msg.sender === 'bot' && 
       msg.isAssessment && 
@@ -289,16 +242,11 @@ const Chat = () => {
     return null;
   }, []);
 
-  const addBotMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null, isUpgradeOptions = false, isMildCase = false) => {
+  const addBotMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null) => {
     setTyping(true);
-    
-    // Reduce the delay based on message length
     const wordCount = message.split(/\s+/).length;
-    const thinkingDelay = Math.min(500 + (wordCount * 15), 1500); // Reduced from 1000+(wordCount*30), 3000
-    
-    // Use requestAnimationFrame to ensure smooth UI updates
+    const thinkingDelay = Math.min(500 + (wordCount * 15), 1500);
     setTimeout(() => {
-      // Add message to state
       setMessages(prev => [...prev, {
         sender: 'bot',
         text: message,
@@ -306,14 +254,9 @@ const Chat = () => {
         confidence,
         triageLevel,
         careRecommendation,
-        isUpgradeOptions,
-        isMildCase
+        isUpgradeOptions: false
       }]);
-      
-      // Remove typing indicator after message is added
       setTyping(false);
-      
-      // Use requestAnimationFrame to ensure DOM is updated before scrolling
       requestAnimationFrame(() => {
         scrollToBottomImmediate();
         focusInput();
@@ -321,21 +264,9 @@ const Chat = () => {
     }, thinkingDelay);
   }, [scrollToBottomImmediate, focusInput]);
 
-  const handleUpgradeAction = useCallback((action) => {
-    switch (action) {
-      case 'premium':
-        window.location.href = '/subscribe';
-        break;
-      case 'report':
-        window.location.href = '/one-time-report';
-        break;
-      case 'later':
-        addBotMessage("No problem! Let me know if you have any other questions or symptoms to discuss.");
-        setUiState(UI_STATES.DEFAULT);
-        break;
-      default:
-        break;
-    }
+  const handleDismissUpgrade = useCallback(() => {
+    addBotMessage("No problem! Let me know if you have any other questions or symptoms to discuss.");
+    setUiState(UI_STATES.DEFAULT);
   }, [addBotMessage]);
 
   const handleRetry = useCallback(async (messageIndex) => {
@@ -377,7 +308,7 @@ const Chat = () => {
       setUiState(UI_STATES.DEFAULT);
       setLatestAssessment(null);
       setLatestResponseData(null);
-      setHasFinalAssessment(false); // Reset assessment state
+      setHasFinalAssessment(false);
       saveMessages([WELCOME_MESSAGE]);
     } catch (error) {
       if (CONFIG.DEBUG_MODE) console.error("Error resetting conversation:", error);
@@ -398,6 +329,28 @@ const Chat = () => {
     }
     if (loading) return;
 
+    if (isAuthenticated && subscriptionTier === 'free' && messageCount >= CONFIG.MAX_FREE_MESSAGES) {
+      setError("Free message limit reached. Please upgrade.");
+      addBotMessage("You've reached the free message limit. Upgrade for unlimited access!");
+      setTimeout(() => {
+        setMessages(prev => [...prev, {
+          sender: 'bot',
+          text: '',
+          isAssessment: false,
+          isUpgradeOptions: true,
+          upgradeProps: {
+            condition: "Message Limit",
+            commonName: "Free Tier",
+            isMildCase: true,
+            requiresUpgrade: true,
+            onDismiss: handleDismissUpgrade
+          }
+        }]);
+        setUiState(UI_STATES.ASSESSMENT_COMPLETE);
+      }, CONFIG.UPGRADE_OPTIONS_DELAY);
+      return;
+    }
+
     const newMessageCount = messageCount + 1;
     setMessageCount(newMessageCount);
     setError(null);
@@ -415,8 +368,7 @@ const Chat = () => {
     if (!retryMessage) setUserInput('');
     setLoading(true);
     setTyping(true);
-    
-    // Use requestAnimationFrame for smoother scrolling after user message
+
     requestAnimationFrame(() => {
       scrollToBottomImmediate();
       focusInput();
@@ -455,8 +407,6 @@ const Chat = () => {
 
       const responseData = await response.json();
       setLatestResponseData(responseData);
-      
-      // Immediately clear loading and typing states to prevent stuck spinner
       setLoading(false);
       setTyping(false);
 
@@ -472,7 +422,6 @@ const Chat = () => {
         });
       }
 
-      // Process the response immediately
       const requiresUpgrade = responseData.requires_upgrade === true;
 
       if (responseData.message) {
@@ -481,37 +430,31 @@ const Chat = () => {
         addBotMessage(responseData.response);
       } else if (responseData.response && responseData.response.is_assessment) {
         console.log("Processing assessment:", responseData.response);
-        
+
         const conditionName = responseData.response.possible_conditions || "Unknown condition";
         const triageLevel = responseData.response.triage_level || "unknown";
         const careRecommendation = responseData.response.care_recommendation || "";
-        
-        // Extract confidence with fallbacks to ensure we always have a valid value
         const confidence = responseData.response.confidence || 
                           (responseData.response.assessment?.confidence) || 
                           (responseData.response.assessment?.conditions?.[0]?.confidence) || 
-                          95; // Default to 95% if no confidence is provided
+                          95;
 
-        // Extract medical term and common name
         let medicalTerm = "";
         let commonName = "";
-        
         if (typeof conditionName === 'string') {
-          // Try to extract from format "Medical Term (Common Name)"
           const match = conditionName.match(/([^(]+)\s*\(([^)]+)\)/);
           if (match) {
             medicalTerm = match[1].trim();
             commonName = match[2].trim();
           } else {
-            // If no parentheses, use the whole string as medical term
             medicalTerm = conditionName.replace(/\*/g, '').trim();
-            commonName = medicalTerm; // Default to same if no common name found
+            commonName = medicalTerm;
           }
         } else {
           medicalTerm = "Unknown condition";
           commonName = "Unknown condition";
         }
-        
+
         setLatestAssessment({
           condition: medicalTerm,
           commonName: commonName,
@@ -520,79 +463,67 @@ const Chat = () => {
           recommendation: careRecommendation
         });
 
-        // 1. First, add just the assessment message
         const assessmentMessage = `I've identified ${commonName} (${medicalTerm}) as a possible condition.\n\nConfidence: ${confidence}%`;
-        
-        addBotMessage(
-          assessmentMessage,
-          true,
-          confidence,
-          null, // No triage level yet
-          null  // No care recommendation yet
-        );
+        addBotMessage(assessmentMessage, true, confidence, null, null);
 
-        // 2. After delay, add the care recommendation
         setTimeout(() => {
           const recommendationMessage = `Severity: ${triageLevel.toUpperCase()}\nRecommendation: ${careRecommendation}`;
-          
           addBotMessage(recommendationMessage);
-          
-          // 3. After another delay, add the sales pitch
+
           setTimeout(() => {
             const isMildCase = triageLevel?.toLowerCase() === "mild" || careRecommendation?.toLowerCase().includes("manage at home");
             const salesPitchMessage = isMildCase
               ? "Good news—it looks manageable at home! Upgrade for detailed insights."
               : "For deeper analysis and next steps, consider upgrading:";
-            
             addBotMessage(salesPitchMessage);
-            
-            // 4. After another delay, add the upgrade options
+
             setTimeout(() => {
-              const upgradeOptionsMessage = "Ready to unlock more?";
-              
-              addBotMessage(
-                upgradeOptionsMessage,
-                false,
-                null,
-                null,
-                null,
-                true, // isUpgradeOptions
-                isMildCase // isMildCase
-              );
-              
-              // 5. Finally, after another delay, set the UI state to assessment complete
-              setTimeout(() => {
-                setUiState(UI_STATES.ASSESSMENT_COMPLETE);
-              }, CONFIG.UPGRADE_OPTIONS_DELAY);
-            }, CONFIG.SALES_PITCH_DELAY);
-          }, CONFIG.RECOMMENDATION_DELAY);
+              setMessages(prev => [...prev, {
+                sender: 'bot',
+                text: '',
+                isAssessment: false,
+                isUpgradeOptions: true,
+                upgradeProps: {
+                  condition: medicalTerm,
+                  commonName: commonName,
+                  isMildCase: isMildCase,
+                  requiresUpgrade: requiresUpgrade,
+                  confidence,
+                  triageLevel,
+                  recommendation: careRecommendation,
+                  onDismiss: handleDismissUpgrade
+                }
+              }]);
+              setUiState(UI_STATES.ASSESSMENT_COMPLETE);
+            }, CONFIG.UPGRADE_OPTIONS_DELAY);
+          }, CONFIG.SALES_PITCH_DELAY);
         }, CONFIG.ASSESSMENT_DELAY);
-      } else if (requiresUpgrade) {
-        if (latestAssessment) {
-          // Add upgrade options message
-          const isMildCase = latestAssessment.triageLevel?.toLowerCase() === "mild" || 
-                            latestAssessment.recommendation?.toLowerCase().includes("manage at home");
-          
-          addBotMessage(
-            "Ready to unlock more?",
-            false,
-            null,
-            null,
-            null,
-            true, // isUpgradeOptions
-            isMildCase // isMildCase
-          );
-          
-          setUiState(UI_STATES.ASSESSMENT_COMPLETE);
-        }
+      } else if (requiresUpgrade && latestAssessment) {
+        const isMildCase = latestAssessment.triageLevel?.toLowerCase() === "mild" || 
+                          latestAssessment.recommendation?.toLowerCase().includes("manage at home");
+        setMessages(prev => [...prev, {
+          sender: 'bot',
+          text: '',
+          isAssessment: false,
+          isUpgradeOptions: true,
+          upgradeProps: {
+            condition: latestAssessment.condition,
+            commonName: latestAssessment.commonName,
+            isMildCase: isMildCase,
+            requiresUpgrade: true,
+            confidence: latestAssessment.confidence,
+            triageLevel: latestAssessment.triageLevel,
+            recommendation: latestAssessment.recommendation,
+            onDismiss: handleDismissUpgrade
+          }
+        }]);
+        setUiState(UI_STATES.ASSESSMENT_COMPLETE);
       } else {
         addBotMessage(responseData.response?.next_question || responseData.response?.possible_conditions || "Can you tell me more about your symptoms?");
       }
     } catch (error) {
-      // Always clear loading and typing states on error
       setLoading(false);
       setTyping(false);
-      
       if (error.name !== 'AbortError') {
         if (CONFIG.DEBUG_MODE) console.error("API error:", error);
         setError(error.message || "I'm having trouble connecting—please try again.");
@@ -624,13 +555,16 @@ const Chat = () => {
 
         <div className="messages-container" role="log" aria-live="polite">
           {messages.map((msg, index) => (
-            <Message 
-              key={index} 
-              message={msg} 
-              onRetry={handleRetry} 
-              index={index} 
-              onUpgradeAction={handleUpgradeAction}
-            />
+            msg.isUpgradeOptions ? (
+              <UpgradePrompt key={index} {...msg.upgradeProps} />
+            ) : (
+              <Message 
+                key={index} 
+                message={msg} 
+                onRetry={handleRetry} 
+                index={index} 
+              />
+            )
           ))}
 
           {hasFinalAssessment && !typing && !loading && uiState === UI_STATES.ASSESSMENT_COMPLETE && (

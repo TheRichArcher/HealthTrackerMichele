@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import '../styles/navbar.css';
 
 const PUBLIC_NAV_ITEMS = [
-    { path: '/', label: 'Chat' }
+    { path: '/', label: 'Chat' },
 ];
 
 const PRIVATE_NAV_ITEMS = [
@@ -12,7 +12,8 @@ const PRIVATE_NAV_ITEMS = [
     { path: '/symptom-logger', label: 'Log Symptoms' },
     { path: '/report', label: 'Reports' },
     { path: '/medical-info', label: 'Medical Info' },
-    { path: '/library', label: 'Library' }
+    { path: '/library', label: 'Library' },
+    { path: '/subscription', label: 'Subscription' }, // Added for subscription upgrades
 ];
 
 const LogoutModal = memo(({ onConfirm, onCancel }) => (
@@ -21,6 +22,7 @@ const LogoutModal = memo(({ onConfirm, onCancel }) => (
         onClick={onCancel}
         role="dialog"
         aria-labelledby="logout-title"
+        aria-modal="true"
     >
         <div 
             className="modal-content" 
@@ -57,6 +59,10 @@ const Navbar = () => {
     const navigate = useNavigate();
     const location = useLocation();
 
+    const toggleMenu = useCallback(() => {
+        setIsMenuOpen((prev) => !prev);
+    }, []);
+
     const closeMenu = useCallback(() => {
         setIsMenuOpen(false);
     }, []);
@@ -90,7 +96,7 @@ const Navbar = () => {
                 <div className="navbar-brand">
                     <img 
                         src="/doctor-avatar.png" 
-                        alt="HealthTracker AI" 
+                        alt="HealthTracker AI Logo" 
                         className="navbar-avatar"
                         onError={(e) => { e.target.onerror = null; e.target.src = '/default-avatar.png'; }}
                     />
@@ -99,7 +105,6 @@ const Navbar = () => {
                         <span className="navbar-role">AI Medical Assistant</span>
                     </div>
                     
-                    {/* Add disclaimer for chat pages */}
                     {location.pathname === '/' && (
                         <span className="navbar-disclaimer">
                             For informational purposes only. Not a substitute for professional medical advice.
@@ -108,9 +113,9 @@ const Navbar = () => {
                     
                     <button 
                         className="navbar-burger"
-                        aria-label="menu"
+                        aria-label={isMenuOpen ? "Close menu" : "Open menu"}
                         aria-expanded={isMenuOpen}
-                        onClick={() => setIsMenuOpen(!isMenuOpen)}
+                        onClick={toggleMenu}
                     >
                         <span aria-hidden="true" />
                         <span aria-hidden="true" />
@@ -126,7 +131,7 @@ const Navbar = () => {
                         <Link
                             key={item.path}
                             to={item.path}
-                            className="nav-button chat-button"
+                            className={`nav-button ${item.path === '/' ? 'chat-button' : ''}`}
                             onClick={handleNavClick}
                         >
                             {item.label}

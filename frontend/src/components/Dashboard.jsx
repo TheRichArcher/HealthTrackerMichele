@@ -3,8 +3,9 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getLocalStorageItem } from '../utils/utils';
+import UpgradePrompt from './UpgradePrompt';
+import '../styles/Dashboard.css';
 
-// API URL handling with warning for missing environment variable
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://healthtrackermichele.onrender.com/api';
 if (!import.meta.env.VITE_API_URL) {
     console.warn('VITE_API_URL not set in environment variables, using fallback URL');
@@ -12,27 +13,32 @@ if (!import.meta.env.VITE_API_URL) {
 
 const Dashboard = () => {
   const [userData, setUserData] = useState(null);
+  const [subscriptionTier, setSubscriptionTier] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const navigate = useNavigate();
   const { isAuthenticated, isLoading, logout } = useAuth();
 
-  const fetchUserData = async () => {
+  const fetchData = async () => {
     if (!isAuthenticated) {
-      navigate('/login');
+      navigate('/auth');
       return;
     }
 
     try {
       const token = getLocalStorageItem('access_token');
-      const response = await axios.get(`${API_BASE_URL}/users/me`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const [userResponse, subResponse] = await Promise.all([
+        axios.get(`${API_BASE_URL}/users/me`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }),
+        axios.get(`${API_BASE_URL}/subscription/status`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+      ]);
 
-      setUserData(response.data);
+      setUserData(userResponse.data);
+      setSubscriptionTier(subResponse.data.subscription_tier);
       setError(null);
     } catch (err) {
       console.error('Error fetching user data:', err);
@@ -43,11 +49,10 @@ const Dashboard = () => {
   };
 
   useEffect(() => {
-    // Only fetch user data if authentication check is complete and user is authenticated
     if (!isLoading && isAuthenticated) {
-      fetchUserData();
+      fetchData();
     }
-  }, [isLoading, isAuthenticated]); // Dependencies now include both auth states
+  }, [isLoading, isAuthenticated]);
 
   const handleLogoutConfirm = () => {
     setShowLogoutConfirm(true);
@@ -56,24 +61,24 @@ const Dashboard = () => {
   const handleLogout = async () => {
     setShowLogoutConfirm(false);
     await logout();
-    navigate('/login');
+    navigate('/auth');
   };
 
   const LogoutConfirmDialog = () => (
-    <div style={styles.modalOverlay}>
-      <div style={styles.modalContent}>
+    <div className="modal-overlay">
+      <div className="modal-content">
         <h3>Confirm Logout</h3>
         <p>Are you sure you want to log out?</p>
-        <div style={styles.modalButtons}>
+        <div className="modal-buttons">
           <button 
             onClick={handleLogout}
-            style={{...styles.actionButton, ...styles.logoutButton}}
+            className="btn btn-danger"
           >
             Yes, Logout
           </button>
           <button 
             onClick={() => setShowLogoutConfirm(false)}
-            style={styles.cancelButton}
+            className="btn btn-secondary"
           >
             Cancel
           </button>
@@ -82,33 +87,32 @@ const Dashboard = () => {
     </div>
   );
 
-  // Show loading state while authentication is being checked
   if (isLoading) {
     return (
-      <div style={styles.loading}>
-        <div style={styles.spinner}></div>
+      <div className="loading">
+        <div className="spinner"></div>
         <p>Loading dashboard...</p>
       </div>
     );
   }
 
   return (
-    <div className="dashboard-container" style={styles.container}>
-      <h1 style={styles.title}>Dashboard</h1>
+    <div className="dashboard-container">
+      <h1 className="dashboard-title">Dashboard</h1>
 
       {loading && (
-        <div style={styles.loading}>
-          <div style={styles.spinner}></div>
+        <div className="loading">
+          <div className="spinner"></div>
           <p>Loading dashboard...</p>
         </div>
       )}
 
       {error && (
-        <div style={styles.errorContainer}>
-          <p style={styles.error}>{error}</p>
+        <div className="error-container">
+          <p className="error">{error}</p>
           <button 
-            onClick={fetchUserData} 
-            style={styles.retryButton}
+            onClick={fetchData} 
+            className="retry-button"
           >
             Retry
           </button>
@@ -116,35 +120,46 @@ const Dashboard = () => {
       )}
 
       {userData && (
-        <div style={styles.content}>
-          <div style={styles.welcomeSection}>
+        <div className="dashboard-content">
+          <div className="welcome-section">
             <h2>Welcome, {userData.username}!</h2>
             <p>Account created: {new Date(userData.created_at).toLocaleDateString()}</p>
+            <p>Subscription Tier: <strong>{subscriptionTier ? subscriptionTier.toUpperCase() : 'Loading...'}</strong></p>
           </div>
 
-          <div style={styles.actionsGrid}>
-            <h2 style={styles.sectionTitle}>Quick Actions</h2>
-            <div style={styles.buttonGrid}>
+          <div className="actions-grid">
+            <h2 className="section-title">Quick Actions</h2>
+            <div className="button-grid">
               <button 
                 onClick={() => navigate('/symptom-logger')} 
-                style={styles.actionButton}
+                className="action-button"
               >
                 Log New Symptom
               </button>
               <button 
-                onClick={() => navigate('/reports')} 
-                style={styles.actionButton}
+                onClick={() => navigate('/report')} // Fixed from /reports
+                className="action-button"
               >
                 View Reports
               </button>
               <button 
                 onClick={handleLogoutConfirm} 
-                style={{...styles.actionButton, ...styles.logoutButton}}
+                className="action-button logout-button"
               >
                 Logout
               </button>
             </div>
           </div>
+
+          {subscriptionTier === 'free' && (
+            <UpgradePrompt
+              condition="Your Plan"
+              commonName="Free Tier"
+              isMildCase={true}
+              requiresUpgrade={true}
+              onDismiss={() => console.log('Upgrade prompt dismissed')}
+            />
+          )}
         </div>
       )}
 
@@ -152,7 +167,5 @@ const Dashboard = () => {
     </div>
   );
 };
-
-// Styles remain exactly the same...
 
 export default Dashboard;
