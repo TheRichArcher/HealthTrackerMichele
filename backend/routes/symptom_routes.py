@@ -7,6 +7,7 @@ import openai
 import os
 import json
 import logging
+import httpx
 from datetime import datetime
 import time
 import re
@@ -21,8 +22,13 @@ MIN_CONFIDENCE_THRESHOLD = 95  # Keeping at 95% as requested
 MAX_TOKENS = 1500
 TEMPERATURE = 0.7
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
-if not openai.api_key:
+# Configure OpenAI client with explicit proxy disable
+http_client = httpx.Client(proxies=None)  # Explicitly disable proxies to avoid Render's system-level proxies
+openai_client = openai.OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY"),
+    http_client=http_client
+)
+if not openai_client.api_key:
     raise ValueError("OPENAI_API_KEY environment variable not set")
 
 logger = logging.getLogger(__name__)
@@ -116,7 +122,7 @@ def call_openai_api(messages, retry_count=0):
         logger.error("Max retries reached for OpenAI API call")
         raise RuntimeError("Failed to get response from OpenAI")
     try:
-        response = openai.chat.completions.create(
+        response = openai_client.chat.completions.create(  # Use openai_client instead of openai.chat.completions.create
             model="gpt-4o",  # Changed from gpt-4-turbo to gpt-4o
             messages=messages,
             response_format={"type": "json_object"},  # Force JSON response

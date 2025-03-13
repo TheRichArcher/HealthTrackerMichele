@@ -11,7 +11,7 @@ import Onboarding from './components/Onboarding';
 import SymptomLogger from './components/SymptomLogger';
 import Report from './components/Report';
 import AuthPage from './components/AuthPage';
-import SubscriptionPage from './components/SubscriptionPage'; // ✅ Added
+import SubscriptionPage from './components/SubscriptionPage';
 import Navbar from './components/Navbar';
 import LoadingSpinner from './components/LoadingSpinner';
 
@@ -96,7 +96,7 @@ const App = () => {
                                     <SubscriptionPage />
                                 </PrivateRoute>
                             } 
-                        /> {/* ✅ Added */}
+                        /> 
                         <Route 
                             path="/success" 
                             element={
@@ -104,11 +104,11 @@ const App = () => {
                                     <SubscriptionPage />
                                 </PrivateRoute>
                             } 
-                        /> {/* ✅ Added for Stripe success */}
+                        /> 
                         <Route 
                             path="/cancel" 
                             element={<div>Payment cancelled. <Link to="/subscription">Try again</Link></div>} 
-                        /> {/* ✅ Added for Stripe cancel */}
+                        /> 
 
                         {/* Redirects */}
                         <Route path="/login" element={<Navigate to="/auth" replace />} />
