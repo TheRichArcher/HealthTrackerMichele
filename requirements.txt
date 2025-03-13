@@ -14,4 +14,4 @@ gunicorn==21.2.0
 flask-migrate==4.0.5
 psycopg[binary]==3.2.6
 stripe==10.2.0
-httpx==0.28.1  # Added to ensure compatibility with OpenAI client
+httpx==0.29.0  # Added to ensure compatibility with OpenAI client
