@@ -23,11 +23,11 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True, nullable=False)
     username = db.Column(db.String(50), unique=True, nullable=False)
-    password = db.Column(db.String(128), nullable=False)  # Changed from password_hash to match DB
+    password = db.Column(db.String(128), nullable=False)
     subscription_tier = db.Column(db.Enum(UserTierEnum), default=UserTierEnum.FREE, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    deleted_at = db.Column(db.DateTime, nullable=True)  # Added to match DB
+    deleted_at = db.Column(db.DateTime, nullable=True)
 
     # Relationships
     symptoms = db.relationship('SymptomLog', backref='user', lazy='dynamic')
@@ -36,11 +36,11 @@ class User(db.Model):
 
     def set_password(self, password):
         """Hash and set the user's password."""
-        self.password = bcrypt.generate_password_hash(password).decode('utf-8')  # Changed to match DB column name
+        self.password = bcrypt.generate_password_hash(password).decode('utf-8')
 
     def check_password(self, password):
         """Verify the user's password."""
-        return bcrypt.check_password_hash(self.password, password)  # Changed to match DB column name
+        return bcrypt.check_password_hash(self.password, password)
     
     @classmethod
     def without_deleted(cls):
@@ -85,7 +85,7 @@ class SymptomLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     symptom_name = db.Column(db.String(255), nullable=False)
-    notes = db.Column(db.Text, nullable=True)  # Stores AI response or additional details
+    notes = db.Column(db.Text, nullable=True)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     def to_dict(self):
@@ -105,7 +105,7 @@ class Report(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     title = db.Column(db.String(255), nullable=False)
-    content = db.Column(db.Text, nullable=False)  # JSON string with assessment details
+    content = db.Column(db.Text, nullable=False)
     care_recommendation = db.Column(db.Enum(CareRecommendationEnum), default=CareRecommendationEnum.SEE_DOCTOR, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
@@ -126,8 +126,8 @@ class HealthData(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    data_type = db.Column(db.String(50), nullable=False)  # e.g., 'heart_rate', 'blood_pressure'
-    value = db.Column(db.String(100), nullable=False)  # JSON or string value
+    data_type = db.Column(db.String(50), nullable=False)
+    value = db.Column(db.String(100), nullable=False)
     recorded_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     def to_dict(self):

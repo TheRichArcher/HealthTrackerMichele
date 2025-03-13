@@ -137,7 +137,7 @@ const Dashboard = () => {
                 Log New Symptom
               </button>
               <button 
-                onClick={() => navigate('/report')} // Fixed from /reports
+                onClick={() => navigate('/report')}
                 className="action-button"
               >
                 View Reports

@@ -21,8 +21,8 @@ def export_symptom_logs():
             logger.warning("Export attempt without user_id")
             return jsonify({"error": "User ID is required"}), 400
 
-        # Verify user exists
-        user = User.query.get(user_id)
+        # Verify user exists (using without_deleted to exclude soft-deleted users)
+        user = User.without_deleted().get(user_id)
         if not user:
             logger.warning(f"Export attempt for non-existent user ID: {user_id}")
             return jsonify({"error": "User not found"}), 404
@@ -92,8 +92,8 @@ def export_health_data():
             logger.warning("Health data export attempt without user_id")
             return jsonify({"error": "User ID is required"}), 400
 
-        # Verify user exists
-        user = User.query.get(user_id)
+        # Verify user exists (using without_deleted to exclude soft-deleted users)
+        user = User.without_deleted().get(user_id)
         if not user:
             logger.warning(f"Health data export attempt for non-existent user ID: {user_id}")
             return jsonify({"error": "User not found"}), 404
@@ -153,8 +153,8 @@ def export_all_data():
             logger.warning("Complete data export attempt without user_id")
             return jsonify({"error": "User ID is required"}), 400
 
-        # Verify user exists
-        user = User.query.get(user_id)
+        # Verify user exists (using without_deleted to exclude soft-deleted users)
+        user = User.without_deleted().get(user_id)
         if not user:
             logger.warning(f"All data export attempt for non-existent user ID: {user_id}")
             return jsonify({"error": "User not found"}), 404
