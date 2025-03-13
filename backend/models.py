@@ -22,6 +22,7 @@ class User(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True, nullable=False)
+    username = db.Column(db.String(50), unique=True, nullable=True)  # Added username field
     password_hash = db.Column(db.String(128), nullable=False)
     subscription_tier = db.Column(db.Enum(UserTierEnum), default=UserTierEnum.FREE, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -45,6 +46,7 @@ class User(db.Model):
         return {
             'id': self.id,
             'email': self.email,
+            'username': self.username,
             'subscription_tier': self.subscription_tier.value,
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat()

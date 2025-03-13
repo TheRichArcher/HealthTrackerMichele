@@ -64,7 +64,9 @@ def export_symptom_logs():
         byte_output = io.BytesIO(csv_output.getvalue().encode('utf-8'))
         
         # Generate a filename with timestamp
-        filename = f"symptom_logs_{user.username}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+        # Use username if available, otherwise use email
+        display_name = user.username or user.email.split('@')[0]
+        filename = f"symptom_logs_{display_name}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
         
         logger.info(f"Successfully generated symptom log export for user ID: {user_id}")
         
@@ -113,7 +115,7 @@ def export_health_data():
         # Write data rows
         for data in health_data:
             csv_writer.writerow([
-                data.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                data.recorded_at.strftime("%Y-%m-%d %H:%M:%S"),
                 data.data_type,
                 data.value
             ])
@@ -123,7 +125,9 @@ def export_health_data():
         byte_output = io.BytesIO(csv_output.getvalue().encode('utf-8'))
         
         # Generate a filename with timestamp
-        filename = f"health_data_{user.username}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+        # Use username if available, otherwise use email
+        display_name = user.username or user.email.split('@')[0]
+        filename = f"health_data_{display_name}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
         
         logger.info(f"Successfully generated health data export for user ID: {user_id}")
         
@@ -148,6 +152,12 @@ def export_all_data():
         if not user_id:
             logger.warning("Complete data export attempt without user_id")
             return jsonify({"error": "User ID is required"}), 400
+
+        # Verify user exists
+        user = User.query.get(user_id)
+        if not user:
+            logger.warning(f"All data export attempt for non-existent user ID: {user_id}")
+            return jsonify({"error": "User not found"}), 404
 
         # This is a placeholder for a more complex export function
         # that would combine multiple data types into a ZIP file

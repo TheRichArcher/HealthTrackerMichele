@@ -4,12 +4,12 @@ import { setLocalStorageItem } from '../utils/utils';
 import { useAuth } from '../context/AuthContext';
 import '../styles/AuthPage.css';
 
-const MIN_USERNAME_LENGTH = 3;
 const MIN_PASSWORD_LENGTH = 6;
 const API_BASE_URL = 'https://healthtrackermichele.onrender.com/api';
 
 const AuthPage = () => {
     const [isLogin, setIsLogin] = useState(true);
+    const [email, setEmail] = useState('');
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState(null);
@@ -29,16 +29,33 @@ const AuthPage = () => {
     }, []);
 
     const validateInputs = useCallback(() => {
-        if (username.length < MIN_USERNAME_LENGTH) {
-            setError(`Username must be at least ${MIN_USERNAME_LENGTH} characters long.`);
+        if (!email) {
+            setError('Email is required.');
             return false;
         }
+        
+        // Simple email validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            setError('Please enter a valid email address.');
+            return false;
+        }
+        
         if (password.length < MIN_PASSWORD_LENGTH) {
             setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`);
             return false;
         }
+        
+        // Username validation only for signup
+        if (!isLogin && username) {
+            if (username.length < 3) {
+                setError('Username must be at least 3 characters long.');
+                return false;
+            }
+        }
+        
         return true;
-    }, [username, password]);
+    }, [email, password, username, isLogin]);
 
     const toggleMode = useCallback(() => {
         setIsLogin((prev) => !prev);
@@ -54,13 +71,17 @@ const AuthPage = () => {
         if (!validateInputs()) return;
 
         setIsLoading(true);
-        const endpoint = isLogin ? 'login' : 'users'; // Adjusted to match backend
+        const endpoint = isLogin ? 'login' : 'users';
 
         try {
+            const requestBody = isLogin 
+                ? { email, password } 
+                : { email, password, username };
+                
             const response = await fetch(`${API_BASE_URL}/${endpoint}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password }),
+                body: JSON.stringify(requestBody),
             });
 
             const data = await response.json();
@@ -83,7 +104,7 @@ const AuthPage = () => {
             setIsLoading(false);
             setShowLoading(false);
         }
-    }, [isLogin, username, password, validateInputs, checkAuth, navigate, from]);
+    }, [isLogin, email, username, password, validateInputs, checkAuth, navigate, from]);
 
     useEffect(() => {
         let timer;
@@ -99,17 +120,31 @@ const AuthPage = () => {
                 <h2 className="auth-title">{isLogin ? 'Sign In' : 'Create Account'}</h2>
                 <form onSubmit={handleSubmit} className="auth-form">
                     <div className="auth-group">
-                        <label htmlFor="username">Username:</label>
+                        <label htmlFor="email">Email:</label>
                         <input
-                            type="text"
-                            id="username"
-                            value={username}
-                            onChange={handleInputChange(setUsername)}
+                            type="email"
+                            id="email"
+                            value={email}
+                            onChange={handleInputChange(setEmail)}
                             required
                             disabled={isLoading}
-                            minLength={MIN_USERNAME_LENGTH}
                         />
                     </div>
+                    
+                    {!isLogin && (
+                        <div className="auth-group">
+                            <label htmlFor="username">Username (optional):</label>
+                            <input
+                                type="text"
+                                id="username"
+                                value={username}
+                                onChange={handleInputChange(setUsername)}
+                                disabled={isLoading}
+                                placeholder="Leave blank to use email"
+                            />
+                        </div>
+                    )}
+                    
                     <div className="auth-group">
                         <label htmlFor="password">Password:</label>
                         <input

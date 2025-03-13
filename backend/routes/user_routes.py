@@ -10,6 +10,7 @@ from backend.extensions import db, bcrypt
 from backend.models import User, RevokedToken
 from datetime import datetime, timedelta
 import logging
+import re
 
 # Logger setup
 logger = logging.getLogger("user_routes")
@@ -17,20 +18,33 @@ logger = logging.getLogger("user_routes")
 # Create Flask Blueprint
 user_routes = Blueprint("user_routes", __name__)
 
+def is_valid_email(email):
+    """Check if the provided string is a valid email."""
+    email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(email_regex, email) is not None
+
 @user_routes.route("/login", methods=["POST"])
 def login():
     """Handle user login and token generation."""
     try:
         data = request.get_json()
-        username = data.get("username")
+        login_id = data.get("username") or data.get("email")  # Accept either username or email
         password = data.get("password")
 
-        if not username or not password:
-            return jsonify({"error": "Username and password are required."}), 400
+        if not login_id or not password:
+            return jsonify({"error": "Email/username and password are required."}), 400
 
-        user = User.query.without_deleted().filter_by(username=username).first()
-        if not user or not bcrypt.check_password_hash(user.password, password):
-            return jsonify({"error": "Invalid username or password."}), 401
+        # Try to find user by email or username
+        if is_valid_email(login_id):
+            user = User.query.filter_by(email=login_id).first()
+        else:
+            user = User.query.filter_by(username=login_id).first()
+            if not user:
+                # If username not found, try as email as fallback
+                user = User.query.filter_by(email=login_id).first()
+
+        if not user or not user.check_password(password):
+            return jsonify({"error": "Invalid email/username or password."}), 401
 
         # Create tokens
         access_token = create_access_token(identity=user.id)
@@ -41,7 +55,8 @@ def login():
             "access_token": access_token,
             "refresh_token": refresh_token,
             "user_id": user.id,
-            "username": user.username,
+            "email": user.email,
+            "username": user.username or user.email.split('@')[0],  # Use username if set, otherwise use email prefix
             "subscription_tier": user.subscription_tier.value
         }), 200
 
@@ -70,23 +85,45 @@ def create_user():
     """Create a new user."""
     try:
         data = request.get_json()
-        username = data.get("username")
+        email = data.get("email") or data.get("username")  # Try to get email, fallback to username
+        username = data.get("username")  # Optional username
         password = data.get("password")
 
-        if not username or not password:
-            return jsonify({"error": "Username and password are required."}), 400
+        # Validate email
+        if not email or not is_valid_email(email):
+            return jsonify({"error": "Valid email is required."}), 400
+        
+        if not password:
+            return jsonify({"error": "Password is required."}), 400
 
-        existing_user = User.query.without_deleted().filter_by(username=username).first()
-        if existing_user:
-            return jsonify({"error": "Username already exists."}), 409
+        # Check if email already exists
+        existing_email = User.query.filter_by(email=email).first()
+        if existing_email:
+            return jsonify({"error": "Email already exists."}), 409
 
-        hashed_password = bcrypt.generate_password_hash(password).decode("utf-8")
+        # Check if username already exists (if provided)
+        if username:
+            existing_username = User.query.filter_by(username=username).first()
+            if existing_username:
+                return jsonify({"error": "Username already exists."}), 409
+        else:
+            # Generate a default username from email if not provided
+            username = email.split('@')[0]
+            # Check if generated username exists
+            count = 1
+            base_username = username
+            while User.query.filter_by(username=username).first():
+                username = f"{base_username}{count}"
+                count += 1
+
+        # Create new user
         new_user = User(
+            email=email,
             username=username,
-            password=hashed_password,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
         )
+        new_user.set_password(password)
 
         db.session.add(new_user)
         db.session.commit()
@@ -95,10 +132,11 @@ def create_user():
         access_token = create_access_token(identity=new_user.id)
         refresh_token = create_refresh_token(identity=new_user.id)
 
-        logger.info(f"User created: {new_user.username}")
+        logger.info(f"User created: {new_user.email} with username {new_user.username}")
         return jsonify({
             "message": "User created successfully.",
             "user_id": new_user.id,
+            "email": new_user.email,
             "username": new_user.username,
             "subscription_tier": new_user.subscription_tier.value,
             "access_token": access_token,
@@ -111,6 +149,28 @@ def create_user():
         logger.error(f"Error creating user: {e}", exc_info=True)
         return jsonify({"error": f"Signup failed: {str(e)}"}), 500
 
+@user_routes.route("/users/me", methods=["GET"])
+@jwt_required()
+def get_current_user():
+    """Fetch current user information."""
+    try:
+        current_user_id = get_jwt_identity()
+        user = User.query.get(current_user_id)
+        if not user:
+            return jsonify({"error": "User not found."}), 404
+
+        return jsonify({
+            "id": user.id,
+            "email": user.email,
+            "username": user.username or user.email.split('@')[0],  # Use username if set, otherwise use email prefix
+            "subscription_tier": user.subscription_tier.value,
+            "created_at": user.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        })
+
+    except Exception as e:
+        logger.error(f"Error fetching current user: {e}", exc_info=True)
+        return jsonify({"error": f"An error occurred while fetching user: {str(e)}"}), 500
+
 @user_routes.route("/", methods=["GET"])
 @jwt_required()
 def get_users():
@@ -119,13 +179,14 @@ def get_users():
         skip = int(request.args.get("skip", 0))
         limit = int(request.args.get("limit", 100))
 
-        users = User.query.without_deleted().offset(skip).limit(limit).all()
-        total_count = User.query.without_deleted().count()
+        users = User.query.offset(skip).limit(limit).all()
+        total_count = User.query.count()
 
         return jsonify({
             "users": [{
                 "id": u.id,
-                "username": u.username,
+                "email": u.email,
+                "username": u.username or u.email.split('@')[0],  # Use username if set, otherwise use email prefix
                 "subscription_tier": u.subscription_tier.value,
                 "created_at": u.created_at.strftime("%Y-%m-%d %H:%M:%S")
             } for u in users],
@@ -145,13 +206,14 @@ def get_user(user_id):
         if current_user_id != user_id:
             return jsonify({"error": "Unauthorized access."}), 403
 
-        user = User.query.without_deleted().get(user_id)
+        user = User.query.get(user_id)
         if not user:
             return jsonify({"error": "User not found."}), 404
 
         return jsonify({
             "id": user.id,
-            "username": user.username,
+            "email": user.email,
+            "username": user.username or user.email.split('@')[0],  # Use username if set, otherwise use email prefix
             "subscription_tier": user.subscription_tier.value,
             "created_at": user.created_at.strftime("%Y-%m-%d %H:%M:%S"),
         })
@@ -169,19 +231,42 @@ def update_user(user_id):
         if current_user_id != user_id:
             return jsonify({"error": "Unauthorized access."}), 403
 
-        user = User.query.without_deleted().get(user_id)
+        user = User.query.get(user_id)
         if not user:
             return jsonify({"error": "User not found."}), 404
 
         data = request.get_json()
-        user.username = data.get("username", user.username)
+        
+        # Update username if provided
+        if "username" in data:
+            new_username = data.get("username")
+            if new_username:
+                # Check if username already exists
+                existing_username = User.query.filter_by(username=new_username).first()
+                if existing_username and existing_username.id != user.id:
+                    return jsonify({"error": "Username already exists."}), 409
+                user.username = new_username
+        
+        # Update email if provided
+        if "email" in data:
+            new_email = data.get("email")
+            if new_email:
+                if not is_valid_email(new_email):
+                    return jsonify({"error": "Invalid email format."}), 400
+                # Check if email already exists
+                existing_email = User.query.filter_by(email=new_email).first()
+                if existing_email and existing_email.id != user.id:
+                    return jsonify({"error": "Email already exists."}), 409
+                user.email = new_email
+        
         user.updated_at = datetime.utcnow()
         db.session.commit()
 
         return jsonify({
             "message": "User updated successfully.",
             "user_id": user.id,
-            "username": user.username,
+            "email": user.email,
+            "username": user.username or user.email.split('@')[0],  # Use username if set, otherwise use email prefix
             "subscription_tier": user.subscription_tier.value,
             "updated_at": user.updated_at.strftime("%Y-%m-%d %H:%M:%S"),
         })
@@ -200,7 +285,7 @@ def update_password(user_id):
         if current_user_id != user_id:
             return jsonify({"error": "Unauthorized access."}), 403
 
-        user = User.query.without_deleted().get(user_id)
+        user = User.query.get(user_id)
         if not user:
             return jsonify({"error": "User not found."}), 404
 
@@ -211,10 +296,10 @@ def update_password(user_id):
         if not current_password or not new_password:
             return jsonify({"error": "Current and new passwords are required."}), 400
 
-        if not bcrypt.check_password_hash(user.password, current_password):
+        if not user.check_password(current_password):
             return jsonify({"error": "Invalid current password."}), 400
 
-        user.password = bcrypt.generate_password_hash(new_password).decode("utf-8")
+        user.set_password(new_password)
         user.updated_at = datetime.utcnow()
         db.session.commit()
 
@@ -234,12 +319,13 @@ def delete_user(user_id):
         if current_user_id != user_id:
             return jsonify({"error": "Unauthorized access."}), 403
 
-        user = User.query.without_deleted().get(user_id)
+        user = User.query.get(user_id)
         if not user:
             return jsonify({"error": "User not found."}), 404
 
-        # Use soft delete instead of hard delete
-        user.soft_delete()
+        # Hard delete
+        db.session.delete(user)
+        db.session.commit()
 
         return jsonify({"message": "User deleted successfully.", "user_id": user.id})
 
@@ -254,14 +340,15 @@ def validate_token():
     """Validate an access token by ensuring it's still valid."""
     try:
         current_user_id = get_jwt_identity()
-        user = User.query.without_deleted().get(current_user_id)
+        user = User.query.get(current_user_id)
         if not user:
             return jsonify({"error": "User not found"}), 404
             
         return jsonify({
             "message": "Token is valid",
             "user_id": current_user_id,
-            "username": user.username,
+            "email": user.email,
+            "username": user.username or user.email.split('@')[0],  # Use username if set, otherwise use email prefix
             "subscription_tier": user.subscription_tier.value
         }), 200
     except Exception as e:
