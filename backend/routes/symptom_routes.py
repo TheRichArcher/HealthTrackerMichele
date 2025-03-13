@@ -3,7 +3,7 @@ from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 from backend.models import User, SymptomLog, Report, UserTierEnum, CareRecommendationEnum
 from backend.extensions import db
 from backend.openai_config import clean_ai_response, SYSTEM_PROMPT
-import openai
+from openai import OpenAI
 import os
 import json
 import logging
@@ -16,14 +16,13 @@ symptom_routes = Blueprint("symptom_routes", __name__, url_prefix="/api/symptoms
 # Constants
 MAX_RETRIES = 3
 RETRY_DELAY = 2
-MAX_FREE_MESSAGES = 15  # Kept for reference, but not enforced
 MIN_CONFIDENCE_THRESHOLD = 95  # Keeping at 95% as requested
 MAX_TOKENS = 1500
 TEMPERATURE = 0.7
 
-# Configure OpenAI API key directly on the module
-openai.api_key = os.getenv("OPENAI_API_KEY")
-if not openai.api_key:
+# Initialize OpenAI client
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+if not os.getenv("OPENAI_API_KEY"):
     raise ValueError("OPENAI_API_KEY environment variable not set")
 
 logger = logging.getLogger(__name__)
@@ -40,7 +39,6 @@ def is_premium_user(user):
 
 def prepare_conversation_messages(symptom, conversation_history):
     """Prepare the message array for OpenAI based on history and current symptom."""
-    # Create a custom system prompt that addresses the issues
     custom_system_prompt = """You are Michele, an AI medical assistant designed to mimic a doctor's visit. Your goal is to understand the user's symptoms through conversation and provide insights only when highly confident.
 
 CRITICAL INSTRUCTIONS:
@@ -77,10 +75,7 @@ CRITICAL INSTRUCTIONS:
 6. Be concise, empathetic, and precise. Avoid guessing—ask questions if unsure.
 7. Include "doctors_report" as a formatted string only when explicitly requested."""
     
-    messages = [{
-        "role": "system",
-        "content": custom_system_prompt
-    }]
+    messages = [{"role": "system", "content": custom_system_prompt}]
     for entry in conversation_history:
         role = "assistant" if entry.get("isBot", False) else "user"
         content = entry.get("message", "")
@@ -97,18 +92,10 @@ def ensure_proper_condition_format(condition_name):
     """Ensure condition name follows the 'Medical Term (Common Name)' format."""
     if not condition_name:
         return "Unknown Condition"
-    
-    # Remove any asterisks
     cleaned = condition_name.replace("*", "").strip()
-    
-    # Remove "(Medical Condition)" if present
     cleaned = re.sub(r'\s*\(Medical Condition\)\s*', '', cleaned)
-    
-    # Check if it already has the format "Something (Something Else)"
     if re.search(r'.*\(.*\).*', cleaned):
         return cleaned
-    
-    # If no parentheses, add a generic common name
     return f"{cleaned} (Common Condition)"
 
 def call_openai_api(messages, retry_count=0):
@@ -117,48 +104,38 @@ def call_openai_api(messages, retry_count=0):
         logger.error("Max retries reached for OpenAI API call")
         raise RuntimeError("Failed to get response from OpenAI")
     try:
-        response = openai.chat.completions.create(
-            model="gpt-4o",  # Changed from gpt-4-turbo to gpt-4o
+        response = openai_client.chat.completions.create(
+            model="gpt-4o",
             messages=messages,
-            response_format={"type": "json_object"},  # Force JSON response
+            response_format={"type": "json_object"},
             temperature=TEMPERATURE,
             max_tokens=MAX_TOKENS
         )
         content = response.choices[0].message.content.strip() if response.choices else ""
-        logger.info(f"Raw OpenAI response: {content[:100]}...")  # Log first 100 chars
+        logger.info(f"Raw OpenAI response: {content[:100]}...")
         
-        # Validate JSON format
         try:
             parsed_json = json.loads(content)
-            
-            # If this is a question, clean the question text
             if parsed_json.get("is_question", False) and "possible_conditions" in parsed_json:
                 if isinstance(parsed_json["possible_conditions"], str):
                     parsed_json["possible_conditions"] = clean_question_text(parsed_json["possible_conditions"])
-            
-            # If this is an assessment, ensure proper condition format
             if parsed_json.get("is_assessment", False) and "possible_conditions" in parsed_json:
                 if isinstance(parsed_json["possible_conditions"], str):
                     parsed_json["possible_conditions"] = ensure_proper_condition_format(parsed_json["possible_conditions"])
                 elif isinstance(parsed_json["possible_conditions"], list):
                     parsed_json["possible_conditions"] = [ensure_proper_condition_format(c) for c in parsed_json["possible_conditions"]]
-            
-            # Fix assessment object if present
             if "assessment" in parsed_json and isinstance(parsed_json["assessment"], dict):
                 if "conditions" in parsed_json["assessment"] and isinstance(parsed_json["assessment"]["conditions"], list):
                     for condition in parsed_json["assessment"]["conditions"]:
                         if "name" in condition:
                             condition["name"] = ensure_proper_condition_format(condition["name"])
-            
             content = json.dumps(parsed_json)
-            
         except json.JSONDecodeError:
             logger.warning(f"GPT-4o returned invalid JSON: {content[:100]}...")
             if retry_count < MAX_RETRIES:
-                # Add explicit instruction to return JSON and retry
                 messages.append({
-                    "role": "user", 
-                    "content": "Please respond in valid JSON format only, following the structure I specified. Do not append '(Medical Condition)' to questions and format condition names properly."
+                    "role": "user",
+                    "content": "Please respond in valid JSON format only, following the structure I specified."
                 })
                 time.sleep(RETRY_DELAY)
                 return call_openai_api(messages, retry_count + 1)
@@ -168,12 +145,12 @@ def call_openai_api(messages, retry_count=0):
             time.sleep(RETRY_DELAY)
             return call_openai_api(messages, retry_count + 1)
         return content
-    except openai.RateLimitError:
+    except openai_client.error.RateLimitError:
         wait_time = min(10, (2 ** retry_count) * RETRY_DELAY)
         logger.warning(f"Rate limit hit. Retrying in {wait_time} seconds...")
         time.sleep(wait_time)
         return call_openai_api(messages, retry_count + 1)
-    except openai.OpenAIError as e:
+    except openai_client.error.OpenAIError as e:
         logger.error(f"OpenAI API error: {str(e)}", exc_info=True)
         raise
     except Exception as e:
@@ -182,84 +159,48 @@ def call_openai_api(messages, retry_count=0):
 
 def modify_clean_ai_response_result(result):
     """Modify the result from clean_ai_response to fix display issues."""
-    # Fix condition names in possible_conditions
     if "possible_conditions" in result:
         if isinstance(result["possible_conditions"], str):
-            # If it's a question, clean it
             if result.get("is_question", False):
                 result["possible_conditions"] = clean_question_text(result["possible_conditions"])
-            # If it's an assessment, ensure proper format and remove asterisks
             elif result.get("is_assessment", False):
-                # Remove asterisks completely
                 cleaned_condition = result["possible_conditions"].replace("*", "").strip()
-                # If the condition is just a single letter or very short, try to extract from care recommendation
-                if len(cleaned_condition.strip()) <= 3:
-                    if "care_recommendation" in result and isinstance(result["care_recommendation"], str):
-                        care_rec = result["care_recommendation"].lower()
-                        if "urinary tract infection" in care_rec or "uti" in care_rec:
-                            cleaned_condition = "Urinary Tract Infection (UTI)"
-                        elif "cat" in care_rec and ("allerg" in care_rec or "exposure" in care_rec):
-                            cleaned_condition = "Allergic Rhinitis (Cat Allergy)"
-                        # Add more mappings as needed
-                
+                if len(cleaned_condition.strip()) <= 3 and "care_recommendation" in result:
+                    care_rec = result["care_recommendation"].lower()
+                    if "urinary tract infection" in care_rec or "uti" in care_rec:
+                        cleaned_condition = "Urinary Tract Infection (UTI)"
+                    elif "cat" in care_rec and ("allerg" in care_rec or "exposure" in care_rec):
+                        cleaned_condition = "Allergic Rhinitis (Cat Allergy)"
                 result["possible_conditions"] = ensure_proper_condition_format(cleaned_condition)
         elif isinstance(result["possible_conditions"], list):
-            # Clean each condition and ensure proper format
-            cleaned_conditions = []
-            for condition in result["possible_conditions"]:
-                cleaned = condition.replace("*", "").strip()
-                cleaned = ensure_proper_condition_format(cleaned)
-                cleaned_conditions.append(cleaned)
-            result["possible_conditions"] = cleaned_conditions[0] if cleaned_conditions else "Unknown Condition"
-    
-    # Fix assessment object if present
+            result["possible_conditions"] = [ensure_proper_condition_format(c.replace("*", "").strip()) for c in result["possible_conditions"]]
+
     if "assessment" in result and isinstance(result["assessment"], dict):
         if "conditions" in result["assessment"] and isinstance(result["assessment"]["conditions"], list):
             for condition in result["assessment"]["conditions"]:
                 if "name" in condition:
-                    # Remove asterisks completely
                     cleaned_name = condition["name"].replace("*", "").strip()
-                    # If the condition is just a single letter or very short, use the same logic as above
-                    if len(cleaned_name.strip()) <= 3:
-                        if isinstance(result.get("possible_conditions"), str) and len(result["possible_conditions"]) > 3:
-                            cleaned_name = result["possible_conditions"]
-                        elif "care_recommendation" in result and isinstance(result["care_recommendation"], str):
-                            care_rec = result["care_recommendation"].lower()
-                            if "urinary tract infection" in care_rec or "uti" in care_rec:
-                                cleaned_name = "Urinary Tract Infection (UTI)"
-                            elif "cat" in care_rec and ("allerg" in care_rec or "exposure" in care_rec):
-                                cleaned_name = "Allergic Rhinitis (Cat Allergy)"
-                    
+                    if len(cleaned_name.strip()) <= 3 and "care_recommendation" in result:
+                        care_rec = result["care_recommendation"].lower()
+                        if "urinary tract infection" in care_rec or "uti" in care_rec:
+                            cleaned_name = "Urinary Tract Infection (UTI)"
+                        elif "cat" in care_rec and ("allerg" in care_rec or "exposure" in care_rec):
+                            cleaned_name = "Allergic Rhinitis (Cat Allergy)"
                     condition["name"] = ensure_proper_condition_format(cleaned_name)
-    
-    # Ensure assessment has a proper condition name
+
     if result.get("is_assessment", False):
-        # Get the condition name from possible_conditions or assessment
-        condition_name = ""
-        if isinstance(result.get("possible_conditions"), str) and len(result["possible_conditions"]) > 3:
-            condition_name = result["possible_conditions"]
-        elif "assessment" in result and "conditions" in result["assessment"] and result["assessment"]["conditions"]:
+        condition_name = result.get("possible_conditions", "") if isinstance(result.get("possible_conditions"), str) else ""
+        if not condition_name and "assessment" in result and result["assessment"]["conditions"]:
             condition_name = result["assessment"]["conditions"][0].get("name", "")
-        
-        # If condition name is still empty or contains asterisks, try to extract from care recommendation
-        if not condition_name or "*" in condition_name:
-            if "care_recommendation" in result and isinstance(result["care_recommendation"], str):
-                care_rec = result["care_recommendation"].lower()
-                if "urinary tract infection" in care_rec or "uti" in care_rec:
-                    condition_name = "Urinary Tract Infection (UTI)"
-                elif "cat" in care_rec and ("allerg" in care_rec or "exposure" in care_rec):
-                    condition_name = "Allergic Rhinitis (Cat Allergy)"
-                else:
-                    # Default fallback
-                    condition_name = "Medical Condition (Requires Attention)"
-        
-        # Remove any remaining asterisks
-        condition_name = condition_name.replace("*", "").strip()
-        
-        # Update the result with the clean condition name
+        if not condition_name and "care_recommendation" in result:
+            care_rec = result["care_recommendation"].lower()
+            if "urinary tract infection" in care_rec or "uti" in care_rec:
+                condition_name = "Urinary Tract Infection (UTI)"
+            elif "cat" in care_rec and ("allerg" in care_rec or "exposure" in care_rec):
+                condition_name = "Allergic Rhinitis (Cat Allergy)"
+            else:
+                condition_name = "Medical Condition (Requires Attention)"
         result["possible_conditions"] = ensure_proper_condition_format(condition_name)
-        
-        # Ensure assessment object has the correct condition
         if "assessment" not in result:
             result["assessment"] = {
                 "conditions": [{"name": result["possible_conditions"], "confidence": result.get("confidence", 95)}],
@@ -269,28 +210,19 @@ def modify_clean_ai_response_result(result):
         elif "conditions" not in result["assessment"] or not result["assessment"]["conditions"]:
             result["assessment"]["conditions"] = [{"name": result["possible_conditions"], "confidence": result.get("confidence", 95)}]
         else:
-            # Update the first condition name
             result["assessment"]["conditions"][0]["name"] = result["possible_conditions"]
-    
-    # Fix duplicate confidence issue
-    # Store confidence value
+
     confidence_value = result.get("confidence")
-    
-    # Ensure it's in the assessment object
     if result.get("is_assessment", False) and "assessment" in result:
         if "confidence" not in result["assessment"]:
             result["assessment"]["confidence"] = confidence_value
-        
-        # If there are conditions in the assessment, ensure confidence is there too
         if "conditions" in result["assessment"] and result["assessment"]["conditions"]:
             for condition in result["assessment"]["conditions"]:
                 if "confidence" not in condition:
                     condition["confidence"] = confidence_value
-    
-    # Remove confidence from top level to prevent duplicate display
     if result.get("is_assessment", False) and "confidence" in result:
         del result["confidence"]
-    
+
     return result
 
 def save_symptom_interaction(user_id, symptom_text, ai_response, care_recommendation, confidence, is_assessment):
@@ -360,7 +292,6 @@ def analyze_symptoms():
     data = request.get_json() or {}
     symptom = data.get("symptom", "").strip()
     conversation_history = data.get("conversation_history", [])
-    context_notes = data.get("context_notes", "")
     reset = data.get("reset", False)
 
     if not symptom or not isinstance(symptom, str):
@@ -386,12 +317,10 @@ def analyze_symptoms():
     if reset:
         return reset_conversation()
 
-    # Check for prior high-confidence assessment in conversation history
     prior_assessment = None
     for entry in reversed(conversation_history):
         if entry.get("isBot", False):
             try:
-                # The message might be a stringified JSON or plain text
                 message_content = entry["message"]
                 if isinstance(message_content, str) and message_content.startswith("{"):
                     message_data = json.loads(message_content)
@@ -421,7 +350,6 @@ def analyze_symptoms():
         response_text = call_openai_api(messages)
         result = clean_ai_response(response_text, current_user, conversation_history, symptom)
         
-        # Apply our 95% confidence threshold override
         if result.get("is_assessment", False) and result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD:
             result["is_assessment"] = False
             result["is_question"] = True
@@ -432,23 +360,16 @@ def analyze_symptoms():
             if "assessment" in result:
                 del result["assessment"]
         
-        # Modify the result to fix display issues
         result = modify_clean_ai_response_result(result)
-        
         logger.info(f"Processed AI result: {json.dumps(result)[:200]}...")
 
         if not is_premium_user(current_user):
-            user_messages = sum(1 for msg in conversation_history if not msg.get("isBot", False))
             triage_level = (result.get("triage_level") or "").upper()
             if result.get("is_assessment", False) and triage_level in ["MODERATE", "SEVERE"]:
                 result["requires_upgrade"] = True
 
-        # Update conversation history with the full result if it's an assessment
         if result.get("is_assessment", False):
-            conversation_history.append({
-                "message": json.dumps(result),
-                "isBot": True
-            })
+            conversation_history.append({"message": json.dumps(result), "isBot": True})
             if user_id:
                 save_symptom_interaction(
                     user_id,
@@ -464,31 +385,12 @@ def analyze_symptoms():
                 "conversation_history": conversation_history
             }), 200
 
-        # Continue asking questions if confidence is below threshold or is_question is true
         if result.get("is_question", False):
             next_question = result.get("possible_conditions", "Can you tell me more about your symptoms?")
-            # Clean any "(Medical Condition)" from the question
             next_question = clean_question_text(next_question)
             conversation_history.append({"message": next_question, "isBot": True})
             return jsonify({
                 "response": next_question,
-                "isBot": True,
-                "conversation_history": conversation_history
-            }), 200
-        else:
-            # Provide assessment (shouldn't reach here due to prior check, but kept for safety)
-            if user_id and result.get("is_assessment", False):
-                save_symptom_interaction(
-                    user_id,
-                    symptom,
-                    result,
-                    result.get("care_recommendation", ""),
-                    result.get("confidence", 0),
-                    True
-                )
-            conversation_history.append({"message": json.dumps(result), "isBot": True})
-            return jsonify({
-                "response": result,
                 "isBot": True,
                 "conversation_history": conversation_history
             }), 200
@@ -594,7 +496,6 @@ def generate_doctor_report():
         response_text = call_openai_api(messages)
         result = clean_ai_response(response_text, current_user, conversation_history, symptom)
         
-        # Apply our 95% confidence threshold override
         if result.get("is_assessment", False) and result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD:
             result["is_assessment"] = False
             result["is_question"] = True
@@ -605,7 +506,6 @@ def generate_doctor_report():
             if "assessment" in result:
                 del result["assessment"]
         
-        # Modify the result to fix display issues
         result = modify_clean_ai_response_result(result)
 
         doctor_report = result.get("doctors_report", "")
@@ -725,7 +625,6 @@ def debug_route():
         response_text = call_openai_api(messages)
         result = clean_ai_response(response_text, current_user, test_history, test_symptom)
         
-        # Apply our 95% confidence threshold override
         if result.get("is_assessment", False) and result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD:
             result["is_assessment"] = False
             result["is_question"] = True
@@ -736,9 +635,7 @@ def debug_route():
             if "assessment" in result:
                 del result["assessment"]
         
-        # Modify the result to fix display issues
         result = modify_clean_ai_response_result(result)
-            
         logger.info(f"Debug result for user {user_id or 'Anonymous'}: {json.dumps(result)[:200]}...")
         return jsonify({
             "symptom": test_symptom,
