@@ -7,7 +7,6 @@ import openai
 import os
 import json
 import logging
-import httpx
 from datetime import datetime
 import time
 import re
@@ -22,11 +21,9 @@ MIN_CONFIDENCE_THRESHOLD = 95  # Keeping at 95% as requested
 MAX_TOKENS = 1500
 TEMPERATURE = 0.7
 
-# Configure OpenAI client with explicit proxy disable
-http_client = httpx.Client(proxies=None)  # Explicitly disable proxies to avoid Render's system-level proxies
+# Configure OpenAI client without using proxies
 openai_client = openai.OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY"),
-    http_client=http_client
+    api_key=os.getenv("OPENAI_API_KEY")
 )
 if not openai_client.api_key:
     raise ValueError("OPENAI_API_KEY environment variable not set")
