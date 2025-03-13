@@ -22,11 +22,12 @@ class User(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True, nullable=False)
-    username = db.Column(db.String(50), unique=True, nullable=True)  # Added username field
-    password_hash = db.Column(db.String(128), nullable=False)
+    username = db.Column(db.String(50), unique=True, nullable=False)
+    password = db.Column(db.String(128), nullable=False)  # Changed from password_hash to match DB
     subscription_tier = db.Column(db.Enum(UserTierEnum), default=UserTierEnum.FREE, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    deleted_at = db.Column(db.DateTime, nullable=True)  # Added to match DB
 
     # Relationships
     symptoms = db.relationship('SymptomLog', backref='user', lazy='dynamic')
@@ -35,11 +36,21 @@ class User(db.Model):
 
     def set_password(self, password):
         """Hash and set the user's password."""
-        self.password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+        self.password = bcrypt.generate_password_hash(password).decode('utf-8')  # Changed to match DB column name
 
     def check_password(self, password):
         """Verify the user's password."""
-        return bcrypt.check_password_hash(self.password_hash, password)
+        return bcrypt.check_password_hash(self.password, password)  # Changed to match DB column name
+    
+    @classmethod
+    def without_deleted(cls):
+        """Query that filters out soft-deleted users."""
+        return cls.query.filter_by(deleted_at=None)
+    
+    def soft_delete(self):
+        """Soft delete the user by setting deleted_at timestamp."""
+        self.deleted_at = datetime.utcnow()
+        db.session.commit()
 
     def to_dict(self):
         """Convert user to dictionary for JSON serialization."""
