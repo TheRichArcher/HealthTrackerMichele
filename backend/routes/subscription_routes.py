@@ -58,9 +58,11 @@ def upgrade_subscription():
         if plan == "paid":
             price_id = PAID_PRICE_ID
             mode = "subscription"
+            success_url = f"{BASE_URL}/subscription?session_id={{CHECKOUT_SESSION_ID}}"
         else:  # one_time
             price_id = ONE_TIME_PRICE_ID
             mode = "payment"
+            success_url = f"{BASE_URL}/one-time-report?session_id={{CHECKOUT_SESSION_ID}}"
 
         # Create Stripe Checkout session
         session = stripe.checkout.Session.create(
@@ -70,8 +72,8 @@ def upgrade_subscription():
                 "quantity": 1,
             }],
             mode=mode,
-            success_url=f"{BASE_URL}/subscription?session_id={{CHECKOUT_SESSION_ID}}",
-            cancel_url=f"{BASE_URL}/subscription",
+            success_url=success_url,
+            cancel_url=f"{BASE_URL}/cancel",
             metadata={"user_id": str(user_id), "plan": plan},
         )
 

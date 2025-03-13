@@ -12,6 +12,7 @@ import SymptomLogger from './components/SymptomLogger';
 import Report from './components/Report';
 import AuthPage from './components/AuthPage';
 import SubscriptionPage from './components/SubscriptionPage';
+import OneTimeReportPage from './components/OneTimeReportPage';
 import Navbar from './components/Navbar';
 import LoadingSpinner from './components/LoadingSpinner';
 
@@ -19,6 +20,7 @@ import LoadingSpinner from './components/LoadingSpinner';
 import './styles/App.css';
 import './styles/Chat.css';
 import './styles/navbar.css';
+import './styles/shared.css';
 
 // Protected Route Wrapper
 const PrivateRoute = ({ children }) => {
@@ -94,6 +96,14 @@ const App = () => {
                             element={
                                 <PrivateRoute>
                                     <SubscriptionPage />
+                                </PrivateRoute>
+                            } 
+                        /> 
+                        <Route 
+                            path="/one-time-report" 
+                            element={
+                                <PrivateRoute>
+                                    <OneTimeReportPage />
                                 </PrivateRoute>
                             } 
                         /> 

@@ -13,6 +13,7 @@ const AuthContext = createContext(null);
 export const AuthProvider = ({ children }) => {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
+    const [subscriptionTier, setSubscriptionTier] = useState(null);
 
     const refreshToken = useCallback(async () => {
         const refreshTokenValue = getLocalStorageItem('refresh_token');
@@ -69,6 +70,20 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
+    const fetchSubscriptionStatus = useCallback(async () => {
+        if (!isAuthenticated) return;
+        
+        try {
+            const token = getLocalStorageItem('access_token');
+            const response = await axios.get(`${API_BASE_URL}/subscription/status`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            setSubscriptionTier(response.data.subscription_tier);
+        } catch (err) {
+            console.error('Failed to fetch subscription status:', err);
+        }
+    }, [isAuthenticated]);
+
     const checkAuth = useCallback(async () => {
         const accessToken = getLocalStorageItem('access_token');
         const userId = getLocalStorageItem('user_id');
@@ -82,12 +97,15 @@ export const AuthProvider = ({ children }) => {
         try {
             const isValid = await validateToken(accessToken);
             setIsAuthenticated(isValid);
+            if (isValid) {
+                fetchSubscriptionStatus();
+            }
         } catch (error) {
             setIsAuthenticated(false);
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [fetchSubscriptionStatus]);
 
     const logout = useCallback(async () => {
         setIsLoading(true);
@@ -114,6 +132,7 @@ export const AuthProvider = ({ children }) => {
         removeLocalStorageItem('lastPath');
         
         setIsAuthenticated(false);
+        setSubscriptionTier(null);
         setIsLoading(false);
     }, []);
 
@@ -156,7 +175,10 @@ export const AuthProvider = ({ children }) => {
         isLoading,
         checkAuth,
         logout,
-        refreshToken
+        refreshToken,
+        subscriptionTier,
+        setSubscriptionTier,
+        fetchSubscriptionStatus
     };
 
     return (
