@@ -567,14 +567,6 @@ const Chat = () => {
             )
           ))}
 
-          {hasFinalAssessment && !typing && !loading && uiState === UI_STATES.ASSESSMENT_COMPLETE && (
-            <div className="assessment-notice">
-              <p>
-                An assessment has been completed. To discuss new symptoms, please reset the conversation.
-              </p>
-            </div>
-          )}
-
           {typing && (
             <div className="message-row">
               <div className="avatar-container">
