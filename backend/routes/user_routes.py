@@ -11,6 +11,7 @@ from backend.models import User, RevokedToken
 from datetime import datetime, timedelta
 import logging
 import re
+from sqlalchemy.exc import OperationalError
 
 # Logger setup
 logger = logging.getLogger("user_routes")
@@ -60,8 +61,11 @@ def login():
             "subscription_tier": user.subscription_tier.value
         }), 200
 
+    except OperationalError as e:
+        logger.error(f"Database error during login: {str(e)}", exc_info=True)
+        return jsonify({"error": "Database connection failed. Please try again later."}), 500
     except Exception as e:
-        logger.error(f"Login error: {e}", exc_info=True)
+        logger.error(f"Login error: {str(e)}", exc_info=True)
         return jsonify({"error": f"Login failed: {str(e)}"}), 500
 
 @user_routes.route("/auth/refresh/", methods=["POST"])
@@ -76,8 +80,11 @@ def refresh():
             "access_token": new_access_token
         }), 200
 
+    except OperationalError as e:
+        logger.error(f"Database error during token refresh: {str(e)}", exc_info=True)
+        return jsonify({"error": "Database connection failed. Please try again later."}), 500
     except Exception as e:
-        logger.error(f"Token refresh error: {e}", exc_info=True)
+        logger.error(f"Token refresh error: {str(e)}", exc_info=True)
         return jsonify({"error": f"Error refreshing access token: {str(e)}"}), 500
 
 @user_routes.route("/users", methods=["POST"])
@@ -144,9 +151,13 @@ def create_user():
             "created_at": new_user.created_at.strftime("%Y-%m-%d %H:%M:%S"),
         }), 201
 
+    except OperationalError as e:
+        db.session.rollback()
+        logger.error(f"Database error during user creation: {str(e)}", exc_info=True)
+        return jsonify({"error": "Database connection failed. Please try again later."}), 500
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error creating user: {e}", exc_info=True)
+        logger.error(f"Error creating user: {str(e)}", exc_info=True)
         return jsonify({"error": f"Signup failed: {str(e)}"}), 500
 
 @user_routes.route("/users/me", methods=["GET"])
@@ -167,8 +178,11 @@ def get_current_user():
             "created_at": user.created_at.strftime("%Y-%m-%d %H:%M:%S"),
         })
 
+    except OperationalError as e:
+        logger.error(f"Database error fetching current user: {str(e)}", exc_info=True)
+        return jsonify({"error": "Database connection failed. Please try again later."}), 500
     except Exception as e:
-        logger.error(f"Error fetching current user: {e}", exc_info=True)
+        logger.error(f"Error fetching current user: {str(e)}", exc_info=True)
         return jsonify({"error": f"An error occurred while fetching user: {str(e)}"}), 500
 
 @user_routes.route("/", methods=["GET"])
@@ -193,8 +207,11 @@ def get_users():
             "total_count": total_count,
         })
 
+    except OperationalError as e:
+        logger.error(f"Database error fetching users: {str(e)}", exc_info=True)
+        return jsonify({"error": "Database connection failed. Please try again later."}), 500
     except Exception as e:
-        logger.error(f"Error fetching users: {e}", exc_info=True)
+        logger.error(f"Error fetching users: {str(e)}", exc_info=True)
         return jsonify({"error": f"An error occurred while fetching users: {str(e)}"}), 500
 
 @user_routes.route("/<int:user_id>", methods=["GET"])
@@ -218,8 +235,11 @@ def get_user(user_id):
             "created_at": user.created_at.strftime("%Y-%m-%d %H:%M:%S"),
         })
 
+    except OperationalError as e:
+        logger.error(f"Database error fetching user {user_id}: {str(e)}", exc_info=True)
+        return jsonify({"error": "Database connection failed. Please try again later."}), 500
     except Exception as e:
-        logger.error(f"Error fetching user {user_id}: {e}", exc_info=True)
+        logger.error(f"Error fetching user {user_id}: {str(e)}", exc_info=True)
         return jsonify({"error": f"An error occurred while fetching the user: {str(e)}"}), 500
 
 @user_routes.route("/<int:user_id>", methods=["PUT"])
@@ -279,9 +299,13 @@ def update_user(user_id):
             "updated_at": user.updated_at.strftime("%Y-%m-%d %H:%M:%S"),
         })
 
+    except OperationalError as e:
+        db.session.rollback()
+        logger.error(f"Database error updating user {user_id}: {str(e)}", exc_info=True)
+        return jsonify({"error": "Database connection failed. Please try again later."}), 500
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error updating user {user_id}: {e}", exc_info=True)
+        logger.error(f"Error updating user {user_id}: {str(e)}", exc_info=True)
         return jsonify({"error": f"An error occurred while updating user: {str(e)}"}), 500
 
 @user_routes.route("/<int:user_id>/password", methods=["PUT"])
@@ -313,9 +337,13 @@ def update_password(user_id):
 
         return jsonify({"message": "Password updated successfully.", "user_id": user.id})
 
+    except OperationalError as e:
+        db.session.rollback()
+        logger.error(f"Database error updating password for user {user_id}: {str(e)}", exc_info=True)
+        return jsonify({"error": "Database connection failed. Please try again later."}), 500
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error updating password for user {user_id}: {e}", exc_info=True)
+        logger.error(f"Error updating password for user {user_id}: {str(e)}", exc_info=True)
         return jsonify({"error": f"An error occurred while updating password: {str(e)}"}), 500
 
 @user_routes.route("/<int:user_id>", methods=["DELETE"])
@@ -337,9 +365,13 @@ def delete_user(user_id):
 
         return jsonify({"message": "User deleted successfully.", "user_id": user.id})
 
+    except OperationalError as e:
+        db.session.rollback()
+        logger.error(f"Database error deleting user {user_id}: {str(e)}", exc_info=True)
+        return jsonify({"error": "Database connection failed. Please try again later."}), 500
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error deleting user {user_id}: {e}", exc_info=True)
+        logger.error(f"Error deleting user {user_id}: {str(e)}", exc_info=True)
         return jsonify({"error": f"An error occurred while deleting user: {str(e)}"}), 500
 
 @user_routes.route("/auth/validate/", methods=["GET"])
@@ -359,8 +391,11 @@ def validate_token():
             "username": user.username or user.email.split('@')[0],
             "subscription_tier": user.subscription_tier.value
         }), 200
+    except OperationalError as e:
+        logger.error(f"Database error during token validation: {str(e)}", exc_info=True)
+        return jsonify({"error": "Database connection failed. Please try again later."}), 500
     except Exception as e:
-        logger.error(f"Token validation error: {e}", exc_info=True)
+        logger.error(f"Token validation error: {str(e)}", exc_info=True)
         return jsonify({"error": f"Invalid or expired token: {str(e)}"}), 401
 
 @user_routes.route("/logout/", methods=["POST"])
@@ -375,7 +410,11 @@ def logout():
         db.session.commit()
         logger.info(f"Token revoked: {jti}")
         return jsonify({"message": "Successfully logged out"}), 200
+    except OperationalError as e:
+        db.session.rollback()
+        logger.error(f"Database error during logout: {str(e)}", exc_info=True)
+        return jsonify({"error": "Database connection failed. Please try again later."}), 500
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Logout error: {e}", exc_info=True)
+        logger.error(f"Logout error: {str(e)}", exc_info=True)
         return jsonify({"error": f"An error occurred during logout: {str(e)}"}), 500

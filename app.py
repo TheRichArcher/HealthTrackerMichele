@@ -8,6 +8,8 @@ from flask_jwt_extended import (
     get_jwt_identity, jwt_required, get_jwt
 )
 from backend.extensions import db, bcrypt, cors, migrate
+from sqlalchemy import create_engine
+from sqlalchemy.exc import OperationalError
 
 # Load environment variables
 load_dotenv()
@@ -52,32 +54,65 @@ def create_app():
 
     # Database Configuration
     DATABASE_URL = os.getenv('DATABASE_URL')
+    if not DATABASE_URL:
+        raise ValueError("DATABASE_URL environment variable is not set")
+    logger.info(f"Original DATABASE_URL: {DATABASE_URL}")
+
+    # Modify the URL to handle SSL and driver properly
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
-    
-    # Change from postgresql:// to postgresql+psycopg:// to use psycopg v3
     if DATABASE_URL.startswith("postgresql://"):
         DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://")
-        
+        # Add SSL mode parameter if not already present
+        if "sslmode=" not in DATABASE_URL:
+            if "?" in DATABASE_URL:
+                DATABASE_URL += "&sslmode=require"
+            else:
+                DATABASE_URL += "?sslmode=require"
+        elif "sslmode=disable" in DATABASE_URL:
+            logger.warning("SSL mode is disabled, which is insecure for production")
+
+    logger.info(f"Modified DATABASE_URL: {DATABASE_URL}")
     app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
+
+    # Initialize SQLAlchemy engine with custom pool settings
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'pool_size': 10,
+        'max_overflow': 20,
+        'pool_timeout': 30,
+        'pool_pre_ping': True
+    }
 
     # Initialize extensions
     db.init_app(app)
     bcrypt.init_app(app)
     cors.init_app(app, resources={r"/*": {"origins": os.getenv('CORS_ORIGINS', '*')}})
-    migrate.init_app(app, db)  # Initialize Flask-Migrate
+    migrate.init_app(app, db)
     jwt = JWTManager(app)
 
     # Import models
     from backend.models import User, Symptom, SymptomLog, Report, HealthData, RevokedToken
 
-    # Database initialization
+    # Database initialization with connection test
     with app.app_context():
         try:
+            # Test database connection before creating tables
+            engine = create_engine(DATABASE_URL, **app.config['SQLALCHEMY_ENGINE_OPTIONS'])
+            with engine.connect() as connection:
+                result = connection.execute("SELECT 1")
+                row = result.fetchone()
+                if row and row[0] == 1:
+                    logger.info("✅ Database connection successful!")
+                else:
+                    raise Exception("Unexpected result from SELECT 1")
+            # Proceed with table creation
             db.create_all()
-            logger.info('✅ Database connected and tables initialized.')
+            logger.info('✅ Database tables initialized.')
+        except OperationalError as e:
+            logger.critical(f"❌ Database connection error: {str(e)}")
+            raise
         except Exception as e:
-            logger.critical(f"❌ Database initialization failed: {e}")
+            logger.critical(f"❌ Database initialization failed: {str(e)}")
             raise
 
     # Token blacklist handler
@@ -179,6 +214,6 @@ application = app
 
 # Run Flask application
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 5000))
+    port = int(os.getenv('PORT', 10000))  # Default to Render's expected port
     app.logger.info(f'Starting server on port {port}')
     app.run(host='0.0.0.0', port=port, debug=os.getenv('DEBUG', 'False') == 'True')
