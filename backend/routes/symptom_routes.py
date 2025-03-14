@@ -3,8 +3,8 @@ from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 from backend.models import User, SymptomLog, Report, UserTierEnum, CareRecommendationEnum
 from backend.extensions import db
 from backend.openai_config import clean_ai_response, SYSTEM_PROMPT
-from openai import OpenAI  # Updated import
-import httpx  # Added missing import
+from openai import OpenAI
+import httpx
 import os
 import json
 import logging
@@ -23,10 +23,7 @@ MAX_TOKENS = 1500
 TEMPERATURE = 0.7
 
 # Initialize OpenAI client
-openai_client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY"),
-    http_client=httpx.Client(proxies=None)  # Explicitly disable proxies
-)
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 if not os.getenv("OPENAI_API_KEY"):
     raise ValueError("OPENAI_API_KEY environment variable not set")
 
@@ -109,7 +106,7 @@ def call_openai_api(messages, retry_count=0):
         logger.error("Max retries reached for OpenAI API call")
         raise RuntimeError("Failed to get response from OpenAI")
     try:
-        response = openai_client.chat.completions.create(
+        response = client.chat.completions.create(
             model="gpt-4o",
             messages=messages,
             response_format={"type": "json_object"},
@@ -150,12 +147,12 @@ def call_openai_api(messages, retry_count=0):
             time.sleep(RETRY_DELAY)
             return call_openai_api(messages, retry_count + 1)
         return content
-    except openai_client.error.RateLimitError:
+    except client.RateLimitError:
         wait_time = min(10, (2 ** retry_count) * RETRY_DELAY)
         logger.warning(f"Rate limit hit. Retrying in {wait_time} seconds...")
         time.sleep(wait_time)
         return call_openai_api(messages, retry_count + 1)
-    except openai_client.error.OpenAIError as e:
+    except client.APIError as e:
         logger.error(f"OpenAI API error: {str(e)}", exc_info=True)
         raise
     except Exception as e:
