@@ -18,6 +18,7 @@ export const AuthProvider = ({ children }) => {
     const refreshToken = useCallback(async () => {
         const refreshTokenValue = getLocalStorageItem('refresh_token');
         if (!refreshTokenValue) {
+            console.log('No refresh token available');
             throw new Error('No refresh token available');
         }
 
@@ -31,8 +32,10 @@ export const AuthProvider = ({ children }) => {
                 if (response.data.refresh_token) {
                     setLocalStorageItem('refresh_token', response.data.refresh_token);
                 }
+                console.log('Token refresh successful');
                 return true;
             }
+            console.log('Invalid refresh token response');
             throw new Error('Invalid refresh token response');
         } catch (error) {
             console.error('Token refresh failed:', error);
@@ -45,7 +48,10 @@ export const AuthProvider = ({ children }) => {
     }, []);
 
     const validateToken = async (token, isRetry = false) => {
-        if (!token) return false;
+        if (!token) {
+            console.log('No token provided for validation');
+            return false;
+        }
 
         try {
             // Fixed: Added trailing slash to match backend route
@@ -54,15 +60,22 @@ export const AuthProvider = ({ children }) => {
                     'Authorization': `Bearer ${token}`
                 }
             });
+            console.log('Token validation successful');
             return response.status === 200;
         } catch (error) {
+            console.log('Token validation failed:', error.message);
             if (error.response?.status === 401 && !isRetry) {
                 try {
+                    console.log('Attempting token refresh');
                     await refreshToken();
                     const newToken = getLocalStorageItem('access_token');
-                    if (!newToken) return false;
+                    if (!newToken) {
+                        console.log('No new token after refresh');
+                        return false;
+                    }
                     return await validateToken(newToken, true);
                 } catch (refreshError) {
+                    console.error('Token refresh failed during validation:', refreshError);
                     return false;
                 }
             }
@@ -71,13 +84,17 @@ export const AuthProvider = ({ children }) => {
     };
 
     const fetchSubscriptionStatus = useCallback(async () => {
-        if (!isAuthenticated) return;
+        if (!isAuthenticated) {
+            console.log('Not authenticated, skipping subscription status fetch');
+            return;
+        }
         
         try {
             const token = getLocalStorageItem('access_token');
             const response = await axios.get(`${API_BASE_URL}/subscription/status`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
+            console.log('Subscription status fetched:', response.data.subscription_tier);
             setSubscriptionTier(response.data.subscription_tier);
         } catch (err) {
             console.error('Failed to fetch subscription status:', err);
@@ -88,7 +105,12 @@ export const AuthProvider = ({ children }) => {
         const accessToken = getLocalStorageItem('access_token');
         const userId = getLocalStorageItem('user_id');
 
+        console.log('Checking authentication...');
+        console.log('Access token exists:', !!accessToken);
+        console.log('User ID exists:', !!userId);
+
         if (!accessToken || !userId) {
+            console.log('Missing tokens or user ID, setting isAuthenticated to false');
             setIsAuthenticated(false);
             setIsLoading(false);
             return;
@@ -96,19 +118,28 @@ export const AuthProvider = ({ children }) => {
 
         try {
             const isValid = await validateToken(accessToken);
+            console.log('Token validation result:', isValid);
+            
             setIsAuthenticated(isValid);
+            
             if (isValid) {
+                console.log('User is authenticated, fetching subscription status');
                 fetchSubscriptionStatus();
+            } else {
+                console.log('Token invalid, user not authenticated');
             }
         } catch (error) {
+            console.error('Authentication check error:', error);
             setIsAuthenticated(false);
         } finally {
+            console.log('Authentication check complete, isAuthenticated:', isAuthenticated);
             setIsLoading(false);
         }
     }, [fetchSubscriptionStatus]);
 
     const logout = useCallback(async () => {
         setIsLoading(true);
+        console.log('Logging out...');
         
         const token = getLocalStorageItem('access_token');
 
@@ -120,6 +151,7 @@ export const AuthProvider = ({ children }) => {
                         'Authorization': `Bearer ${token}`
                     }
                 });
+                console.log('Server logout successful');
             } catch (error) {
                 console.error('Server logout notification failed:', error);
             }
@@ -134,9 +166,11 @@ export const AuthProvider = ({ children }) => {
         setIsAuthenticated(false);
         setSubscriptionTier(null);
         setIsLoading(false);
+        console.log('Logout complete');
     }, []);
 
     useEffect(() => {
+        console.log('AuthProvider mounted, checking authentication');
         checkAuth();
 
         // Check authentication status periodically
@@ -145,6 +179,7 @@ export const AuthProvider = ({ children }) => {
         // Handle storage changes (for multi-tab support)
         const handleStorageChange = (e) => {
             if (['access_token', 'refresh_token', 'user_id'].includes(e.key)) {
+                console.log('Storage change detected for auth keys, rechecking auth');
                 checkAuth();
             }
         };
@@ -152,6 +187,7 @@ export const AuthProvider = ({ children }) => {
         // Check auth when tab becomes visible again
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'visible') {
+                console.log('Tab became visible, rechecking auth');
                 checkAuth();
             }
         };
@@ -167,6 +203,7 @@ export const AuthProvider = ({ children }) => {
             window.removeEventListener('storage', handleStorageChange);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             window.removeEventListener('focus', checkAuth);
+            console.log('AuthProvider unmounted, cleaned up listeners');
         };
     }, [checkAuth]);
 

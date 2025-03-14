@@ -95,8 +95,11 @@ const AuthPage = () => {
             setLocalStorageItem('refresh_token', data.refresh_token);
             setMessage(`${isLogin ? 'Login' : 'Signup'} successful! Redirecting...`);
 
-            await checkAuth();
-            setTimeout(() => navigate(from, { replace: true }), 1000);
+            // Call checkAuth but don't wait for it to complete
+            checkAuth();
+            
+            // Force immediate navigation to dashboard
+            navigate('/dashboard', { replace: true });
         } catch (error) {
             console.error(`${isLogin ? 'Login' : 'Signup'} error:`, error);
             setError(error.message);
@@ -104,7 +107,7 @@ const AuthPage = () => {
             setIsLoading(false);
             setShowLoading(false);
         }
-    }, [isLogin, email, username, password, validateInputs, checkAuth, navigate, from]);
+    }, [isLogin, email, username, password, validateInputs, checkAuth, navigate]);
 
     useEffect(() => {
         let timer;

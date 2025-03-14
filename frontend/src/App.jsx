@@ -120,9 +120,9 @@ const App = () => {
                             element={<div>Payment cancelled. <Link to="/subscription">Try again</Link></div>} 
                         /> 
 
-                        {/* Redirects */}
-                        <Route path="/login" element={<Navigate to="/auth" replace />} />
-                        <Route path="/signup" element={<Navigate to="/auth" replace />} />
+                        {/* Redirects - Direct to AuthPage instead of redirecting */}
+                        <Route path="/login" element={<AuthPage />} />
+                        <Route path="/signup" element={<AuthPage initialMode="signup" />} />
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                 </Suspense>
