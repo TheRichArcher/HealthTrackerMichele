@@ -39,7 +39,6 @@ export const AuthProvider = ({ children }) => {
             throw new Error('Invalid refresh token response');
         } catch (error) {
             console.error('Token refresh failed:', error);
-            // Clear tokens on refresh failure
             removeLocalStorageItem('access_token');
             removeLocalStorageItem('refresh_token');
             setIsAuthenticated(false);
@@ -54,7 +53,6 @@ export const AuthProvider = ({ children }) => {
         }
 
         try {
-            // Fixed: Added trailing slash to match backend route
             const response = await axios.get(`${API_BASE_URL}/auth/validate/`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -145,7 +143,6 @@ export const AuthProvider = ({ children }) => {
 
         if (token) {
             try {
-                // Fixed: Added trailing slash to match backend route
                 await axios.post(`${API_BASE_URL}/logout/`, {}, {
                     headers: {
                         'Authorization': `Bearer ${token}`
@@ -157,7 +154,6 @@ export const AuthProvider = ({ children }) => {
             }
         }
 
-        // Clear all auth-related items from localStorage
         removeLocalStorageItem('access_token');
         removeLocalStorageItem('refresh_token');
         removeLocalStorageItem('user_id');
@@ -173,10 +169,8 @@ export const AuthProvider = ({ children }) => {
         console.log('AuthProvider mounted, checking authentication');
         checkAuth();
 
-        // Check authentication status periodically
-        const interval = setInterval(checkAuth, 60000); // Every minute
+        const interval = setInterval(checkAuth, 60000);
 
-        // Handle storage changes (for multi-tab support)
         const handleStorageChange = (e) => {
             if (['access_token', 'refresh_token', 'user_id'].includes(e.key)) {
                 console.log('Storage change detected for auth keys, rechecking auth');
@@ -184,7 +178,6 @@ export const AuthProvider = ({ children }) => {
             }
         };
 
-        // Check auth when tab becomes visible again
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'visible') {
                 console.log('Tab became visible, rechecking auth');
@@ -192,12 +185,10 @@ export const AuthProvider = ({ children }) => {
             }
         };
 
-        // Add event listeners
         window.addEventListener('storage', handleStorageChange);
         document.addEventListener('visibilitychange', handleVisibilityChange);
         window.addEventListener('focus', checkAuth);
 
-        // Cleanup event listeners and interval
         return () => {
             clearInterval(interval);
             window.removeEventListener('storage', handleStorageChange);
@@ -209,6 +200,7 @@ export const AuthProvider = ({ children }) => {
 
     const value = {
         isAuthenticated,
+        setIsAuthenticated, // Added this to allow direct state updates
         isLoading,
         checkAuth,
         logout,

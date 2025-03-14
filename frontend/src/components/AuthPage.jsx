@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { setLocalStorageItem } from '../utils/utils';
+import { setLocalStorageItem, removeLocalStorageItem } from '../utils/utils';
 import { useAuth } from '../context/AuthContext';
 import '../styles/AuthPage.css';
 
@@ -19,7 +19,7 @@ const AuthPage = () => {
 
     const navigate = useNavigate();
     const location = useLocation();
-    const { checkAuth } = useAuth();
+    const { checkAuth, setIsAuthenticated } = useAuth(); // Ensure setIsAuthenticated is exposed
 
     const from = location.state?.from?.pathname || '/dashboard';
 
@@ -33,27 +33,19 @@ const AuthPage = () => {
             setError('Email is required.');
             return false;
         }
-        
-        // Simple email validation
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email)) {
             setError('Please enter a valid email address.');
             return false;
         }
-        
         if (password.length < MIN_PASSWORD_LENGTH) {
             setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`);
             return false;
         }
-        
-        // Username validation only for signup
-        if (!isLogin && username) {
-            if (username.length < 3) {
-                setError('Username must be at least 3 characters long.');
-                return false;
-            }
+        if (!isLogin && username && username.length < 3) {
+            setError('Username must be at least 3 characters long.');
+            return false;
         }
-        
         return true;
     }, [email, password, username, isLogin]);
 
@@ -95,19 +87,20 @@ const AuthPage = () => {
             setLocalStorageItem('refresh_token', data.refresh_token);
             setMessage(`${isLogin ? 'Login' : 'Signup'} successful! Redirecting...`);
 
-            // Call checkAuth but don't wait for it to complete
-            checkAuth();
-            
-            // Force immediate navigation to dashboard
-            navigate('/dashboard', { replace: true });
+            setIsAuthenticated(true); // Trust the tokens immediately
+            checkAuth(); // Validate in background
+            setTimeout(() => navigate('/dashboard', { replace: true }), 1000); // Brief delay for UX
         } catch (error) {
             console.error(`${isLogin ? 'Login' : 'Signup'} error:`, error);
             setError(error.message);
+            removeLocalStorageItem('user_id');
+            removeLocalStorageItem('access_token');
+            removeLocalStorageItem('refresh_token');
         } finally {
             setIsLoading(false);
             setShowLoading(false);
         }
-    }, [isLogin, email, username, password, validateInputs, checkAuth, navigate]);
+    }, [isLogin, email, username, password, validateInputs, checkAuth, setIsAuthenticated, navigate]);
 
     useEffect(() => {
         let timer;
@@ -131,6 +124,7 @@ const AuthPage = () => {
                             onChange={handleInputChange(setEmail)}
                             required
                             disabled={isLoading}
+                            autoComplete="email"
                         />
                     </div>
                     
@@ -144,6 +138,7 @@ const AuthPage = () => {
                                 onChange={handleInputChange(setUsername)}
                                 disabled={isLoading}
                                 placeholder="Leave blank to use email"
+                                autoComplete="username"
                             />
                         </div>
                     )}
@@ -158,6 +153,7 @@ const AuthPage = () => {
                             required
                             disabled={isLoading}
                             minLength={MIN_PASSWORD_LENGTH}
+                            autoComplete={isLogin ? 'current-password' : 'new-password'}
                         />
                     </div>
                     {error && <p className="auth-error">{error}</p>}
