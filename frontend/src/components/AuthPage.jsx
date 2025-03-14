@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { setLocalStorageItem, removeLocalStorageItem } from '../utils/utils';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from './AuthProvider';
 import '../styles/AuthPage.css';
 
 const MIN_PASSWORD_LENGTH = 6;
 const API_BASE_URL = 'https://healthtrackermichele.onrender.com/api';
 
-const AuthPage = () => {
-    const [isLogin, setIsLogin] = useState(true);
+const AuthPage = ({ initialMode = "login" }) => {
+    const [isLogin, setIsLogin] = useState(initialMode === "login");
     const [email, setEmail] = useState('');
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -19,7 +19,7 @@ const AuthPage = () => {
 
     const navigate = useNavigate();
     const location = useLocation();
-    const { checkAuth, setIsAuthenticated } = useAuth(); // Ensure setIsAuthenticated is exposed
+    const { checkAuth, setIsAuthenticated } = useAuth();
 
     const from = location.state?.from?.pathname || '/dashboard';
 
@@ -87,9 +87,9 @@ const AuthPage = () => {
             setLocalStorageItem('refresh_token', data.refresh_token);
             setMessage(`${isLogin ? 'Login' : 'Signup'} successful! Redirecting...`);
 
-            setIsAuthenticated(true); // Trust the tokens immediately
-            checkAuth(); // Validate in background
-            setTimeout(() => navigate('/dashboard', { replace: true }), 1000); // Brief delay for UX
+            setIsAuthenticated(true);
+            await checkAuth();
+            setTimeout(() => navigate(from, { replace: true }), 1000);
         } catch (error) {
             console.error(`${isLogin ? 'Login' : 'Signup'} error:`, error);
             setError(error.message);
@@ -100,7 +100,7 @@ const AuthPage = () => {
             setIsLoading(false);
             setShowLoading(false);
         }
-    }, [isLogin, email, username, password, validateInputs, checkAuth, setIsAuthenticated, navigate]);
+    }, [isLogin, email, username, password, validateInputs, checkAuth, setIsAuthenticated, navigate, from]);
 
     useEffect(() => {
         let timer;

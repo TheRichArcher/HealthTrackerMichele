@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 import logging
 import re
 from sqlalchemy.exc import OperationalError
+from flask import current_app
 
 # Logger setup
 logger = logging.getLogger("user_routes")
@@ -47,9 +48,11 @@ def login():
         if not user or not user.check_password(password):
             return jsonify({"error": "Invalid email/username or password."}), 401
 
-        # Create tokens
-        access_token = create_access_token(identity=user.id)
-        refresh_token = create_refresh_token(identity=user.id)
+        # Create tokens with explicit secret key
+        access_token = create_access_token(identity=user.id, secret=current_app.config["JWT_SECRET_KEY"])
+        refresh_token = create_refresh_token(identity=user.id, secret=current_app.config["JWT_SECRET_KEY"])
+
+        logger.debug(f"Login successful for user_id: {user.id}, access_token: {access_token[:20]}...")
 
         return jsonify({
             "message": "Login successful",
@@ -74,7 +77,9 @@ def refresh():
     """Refresh access token."""
     try:
         current_user_id = get_jwt_identity()
-        new_access_token = create_access_token(identity=current_user_id)
+        logger.debug(f"Refreshing token for user_id: {current_user_id}")
+        new_access_token = create_access_token(identity=current_user_id, secret=current_app.config["JWT_SECRET_KEY"])
+        logger.debug(f"New access token generated: {new_access_token[:20]}...")
 
         return jsonify({
             "access_token": new_access_token
@@ -136,8 +141,8 @@ def create_user():
         db.session.commit()
 
         # Create tokens for automatic login after signup
-        access_token = create_access_token(identity=new_user.id)
-        refresh_token = create_refresh_token(identity=new_user.id)
+        access_token = create_access_token(identity=new_user.id, secret=current_app.config["JWT_SECRET_KEY"])
+        refresh_token = create_refresh_token(identity=new_user.id, secret=current_app.config["JWT_SECRET_KEY"])
 
         logger.info(f"User created: {new_user.email} with username {new_user.username}")
         return jsonify({
@@ -384,6 +389,7 @@ def validate_token():
         if not user:
             return jsonify({"error": "User not found"}), 404
             
+        logger.debug(f"Token validated for user_id: {current_user_id}")
         return jsonify({
             "message": "Token is valid",
             "user_id": current_user_id,

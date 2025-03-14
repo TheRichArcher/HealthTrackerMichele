@@ -30,7 +30,7 @@ def create_app():
         static_url_path=''  # Serve static files from root
     )
 
-    # Configure app with values from environment variables
+    # Configure app with values from environment variables and Config
     app.config.update(
         JWT_SECRET_KEY=os.getenv('JWT_SECRET_KEY'),
         JWT_ACCESS_TOKEN_EXPIRES=timedelta(seconds=int(os.getenv('JWT_ACCESS_TOKEN_EXPIRES', 3600))),
@@ -38,7 +38,11 @@ def create_app():
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         SECRET_KEY=os.getenv('SECRET_KEY'),
         JWT_BLACKLIST_ENABLED=True,
-        JWT_BLACKLIST_TOKEN_CHECKS=['access', 'refresh']
+        JWT_BLACKLIST_TOKEN_CHECKS=['access', 'refresh'],
+        # Enhanced CORS configuration
+        CORS_ORIGINS=os.getenv('CORS_ORIGINS', 'https://healthtrackermichele.onrender.com,http://localhost:3000').split(","),
+        CORS_HEADERS=["Content-Type", "Authorization"],
+        CORS_SUPPORTS_CREDENTIALS=True
     )
 
     # Logging Configuration
@@ -83,10 +87,13 @@ def create_app():
         'pool_pre_ping': True
     }
 
-    # Initialize extensions
+    # Initialize extensions with updated CORS settings
     db.init_app(app)
     bcrypt.init_app(app)
-    cors.init_app(app, resources={r"/*": {"origins": os.getenv('CORS_ORIGINS', '*')}})
+    cors.init_app(app, 
+                  resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}},
+                  headers=app.config["CORS_HEADERS"],
+                  supports_credentials=app.config["CORS_SUPPORTS_CREDENTIALS"])
     migrate.init_app(app, db)
     jwt = JWTManager(app)
 
@@ -203,6 +210,16 @@ def create_app():
         except Exception as e:
             logger.error(f"Error serving index.html: {str(e)}")
             return jsonify({'error': 'Failed to serve application'}), 500
+
+    # Health check endpoint
+    @app.route('/health', methods=['GET'])
+    def health_check():
+        try:
+            db.session.execute(text("SELECT 1"))
+            return {"status": "healthy", "database": "connected"}, 200
+        except Exception as e:
+            logger.error(f"Health check failed: {str(e)}")
+            return {"status": "unhealthy", "database": "disconnected"}, 500
 
     return app
 
