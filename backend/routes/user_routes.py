@@ -36,12 +36,12 @@ def login():
 
         # Try to find user by email or username
         if is_valid_email(login_id):
-            user = User.without_deleted().filter_by(email=login_id).first()
+            user = User.query.filter(User.email == login_id, User.deleted_at.is_(None)).first()
         else:
-            user = User.without_deleted().filter_by(username=login_id).first()
+            user = User.query.filter(User.username == login_id, User.deleted_at.is_(None)).first()
             if not user:
                 # If username not found, try as email as fallback
-                user = User.without_deleted().filter_by(email=login_id).first()
+                user = User.query.filter(User.email == login_id, User.deleted_at.is_(None)).first()
 
         if not user or not user.check_password(password):
             return jsonify({"error": "Invalid email/username or password."}), 401
@@ -97,13 +97,13 @@ def create_user():
             return jsonify({"error": "Password is required."}), 400
 
         # Check if email already exists
-        existing_email = User.without_deleted().filter_by(email=email).first()
+        existing_email = User.query.filter(User.email == email, User.deleted_at.is_(None)).first()
         if existing_email:
             return jsonify({"error": "Email already exists."}), 409
 
         # Check if username already exists (if provided)
         if username:
-            existing_username = User.without_deleted().filter_by(username=username).first()
+            existing_username = User.query.filter(User.username == username, User.deleted_at.is_(None)).first()
             if existing_username:
                 return jsonify({"error": "Username already exists."}), 409
         else:
@@ -112,7 +112,7 @@ def create_user():
             # Check if generated username exists
             count = 1
             base_username = username
-            while User.without_deleted().filter_by(username=username).first():
+            while User.query.filter(User.username == username, User.deleted_at.is_(None)).first():
                 username = f"{base_username}{count}"
                 count += 1
 
@@ -155,7 +155,7 @@ def get_current_user():
     """Fetch current user information."""
     try:
         current_user_id = get_jwt_identity()
-        user = User.without_deleted().get(current_user_id)
+        user = User.query.filter(User.id == current_user_id, User.deleted_at.is_(None)).first()
         if not user:
             return jsonify({"error": "User not found."}), 404
 
@@ -179,8 +179,8 @@ def get_users():
         skip = int(request.args.get("skip", 0))
         limit = int(request.args.get("limit", 100))
 
-        users = User.without_deleted().offset(skip).limit(limit).all()
-        total_count = User.without_deleted().count()
+        users = User.query.filter(User.deleted_at.is_(None)).offset(skip).limit(limit).all()
+        total_count = User.query.filter(User.deleted_at.is_(None)).count()
 
         return jsonify({
             "users": [{
@@ -206,7 +206,7 @@ def get_user(user_id):
         if current_user_id != user_id:
             return jsonify({"error": "Unauthorized access."}), 403
 
-        user = User.without_deleted().get(user_id)
+        user = User.query.filter(User.id == user_id, User.deleted_at.is_(None)).first()
         if not user:
             return jsonify({"error": "User not found."}), 404
 
@@ -231,7 +231,7 @@ def update_user(user_id):
         if current_user_id != user_id:
             return jsonify({"error": "Unauthorized access."}), 403
 
-        user = User.without_deleted().get(user_id)
+        user = User.query.filter(User.id == user_id, User.deleted_at.is_(None)).first()
         if not user:
             return jsonify({"error": "User not found."}), 404
 
@@ -242,8 +242,12 @@ def update_user(user_id):
             new_username = data.get("username")
             if new_username:
                 # Check if username already exists
-                existing_username = User.without_deleted().filter_by(username=new_username).first()
-                if existing_username and existing_username.id != user.id:
+                existing_username = User.query.filter(
+                    User.username == new_username, 
+                    User.deleted_at.is_(None), 
+                    User.id != user.id
+                ).first()
+                if existing_username:
                     return jsonify({"error": "Username already exists."}), 409
                 user.username = new_username
         
@@ -254,8 +258,12 @@ def update_user(user_id):
                 if not is_valid_email(new_email):
                     return jsonify({"error": "Invalid email format."}), 400
                 # Check if email already exists
-                existing_email = User.without_deleted().filter_by(email=new_email).first()
-                if existing_email and existing_email.id != user.id:
+                existing_email = User.query.filter(
+                    User.email == new_email, 
+                    User.deleted_at.is_(None), 
+                    User.id != user.id
+                ).first()
+                if existing_email:
                     return jsonify({"error": "Email already exists."}), 409
                 user.email = new_email
         
@@ -285,7 +293,7 @@ def update_password(user_id):
         if current_user_id != user_id:
             return jsonify({"error": "Unauthorized access."}), 403
 
-        user = User.without_deleted().get(user_id)
+        user = User.query.filter(User.id == user_id, User.deleted_at.is_(None)).first()
         if not user:
             return jsonify({"error": "User not found."}), 404
 
@@ -319,12 +327,13 @@ def delete_user(user_id):
         if current_user_id != user_id:
             return jsonify({"error": "Unauthorized access."}), 403
 
-        user = User.without_deleted().get(user_id)
+        user = User.query.filter(User.id == user_id, User.deleted_at.is_(None)).first()
         if not user:
             return jsonify({"error": "User not found."}), 404
 
         # Use soft delete
-        user.soft_delete()
+        user.deleted_at = datetime.utcnow()
+        db.session.commit()
 
         return jsonify({"message": "User deleted successfully.", "user_id": user.id})
 
@@ -339,7 +348,7 @@ def validate_token():
     """Validate an access token by ensuring it's still valid."""
     try:
         current_user_id = get_jwt_identity()
-        user = User.without_deleted().get(current_user_id)
+        user = User.query.filter(User.id == current_user_id, User.deleted_at.is_(None)).first()
         if not user:
             return jsonify({"error": "User not found"}), 404
             
