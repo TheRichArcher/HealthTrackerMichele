@@ -8,7 +8,7 @@ from flask_jwt_extended import (
     get_jwt_identity, jwt_required, get_jwt
 )
 from backend.extensions import db, bcrypt, cors, migrate
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
 
 # Load environment variables
@@ -99,7 +99,7 @@ def create_app():
             # Test database connection before creating tables
             engine = create_engine(DATABASE_URL, **app.config['SQLALCHEMY_ENGINE_OPTIONS'])
             with engine.connect() as connection:
-                result = connection.execute("SELECT 1")
+                result = connection.execute(text("SELECT 1"))
                 row = result.fetchone()
                 if row and row[0] == 1:
                     logger.info("✅ Database connection successful!")
