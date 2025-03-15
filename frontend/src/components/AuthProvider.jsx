@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom'; // Add this for navigation
+import { useNavigate } from 'react-router-dom';
 import { getLocalStorageItem, removeLocalStorageItem, setLocalStorageItem } from '../utils/utils';
 import axios from 'axios';
 
@@ -220,7 +220,7 @@ export const AuthProvider = ({ children }) => {
         isAuthenticated,
         setIsAuthenticated,
         isLoading,
-        login, // Add login to context
+        login,
         checkAuth,
         logout,
         refreshToken,
