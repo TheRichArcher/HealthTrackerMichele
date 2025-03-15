@@ -1,11 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { setLocalStorageItem, removeLocalStorageItem } from '../utils/utils';
 import { useAuth } from './AuthProvider';
 import '../styles/AuthPage.css';
 
 const MIN_PASSWORD_LENGTH = 6;
-const API_BASE_URL = 'https://healthtrackermichele.onrender.com/api';
 
 const AuthPage = ({ initialMode = "login" }) => {
     const [isLogin, setIsLogin] = useState(initialMode === "login");
@@ -19,7 +17,7 @@ const AuthPage = ({ initialMode = "login" }) => {
 
     const navigate = useNavigate();
     const location = useLocation();
-    const { checkAuth, setIsAuthenticated } = useAuth();
+    const { login } = useAuth(); // Use AuthProvider’s login
 
     const from = location.state?.from?.pathname || '/dashboard';
 
@@ -55,79 +53,33 @@ const AuthPage = ({ initialMode = "login" }) => {
         setMessage('');
     }, []);
 
-    const handleSubmit = useCallback(async (e) => {
-        e.preventDefault();
-        setError(null);
-        setMessage('');
+    const handleSubmit = useCallback(
+        async (e) => {
+            e.preventDefault();
+            setError(null);
+            setMessage('');
 
-        if (!validateInputs()) return;
+            if (!validateInputs()) return;
 
-        setIsLoading(true);
-        const endpoint = isLogin ? 'login' : 'users';
-
-        try {
-            const requestBody = isLogin 
-                ? { email, password } 
+            setIsLoading(true);
+            const credentials = isLogin
+                ? { email, password }
                 : { email, password, username };
-                
-            console.log(`Sending ${isLogin ? 'login' : 'signup'} request to ${API_BASE_URL}/${endpoint}`, requestBody);
-            const response = await fetch(`${API_BASE_URL}/${endpoint}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestBody),
-            });
 
-            const data = await response.json();
-            console.log('Response received:', data);
-
-            if (!response.ok) {
-                throw new Error(data.error || `${isLogin ? 'Login' : 'Signup'} failed.`);
+            try {
+                await login(credentials); // Use AuthProvider’s login
+                setMessage(`${isLogin ? 'Login' : 'Signup'} successful! Redirecting...`);
+                // Navigation is handled by AuthProvider’s login
+            } catch (error) {
+                console.error(`${isLogin ? 'Login' : 'Signup'} error:`, error.message);
+                setError(error.message || `${isLogin ? 'Login' : 'Signup'} failed.`);
+            } finally {
+                setIsLoading(false);
+                setShowLoading(false);
             }
-
-            if (!data.user_id || !data.access_token || !data.refresh_token) {
-                console.error('Invalid response structure:', data);
-                throw new Error('Invalid response from server: missing user_id, access_token, or refresh_token');
-            }
-
-            setLocalStorageItem('user_id', data.user_id);
-            setLocalStorageItem('access_token', data.access_token);
-            setLocalStorageItem('refresh_token', data.refresh_token);
-            console.log('Tokens stored:', {
-                user_id: data.user_id,
-                access_token: data.access_token.substring(0, 20) + '...',
-                refresh_token: data.refresh_token.substring(0, 20) + '...'
-            });
-
-            const storedAccessToken = localStorage.getItem('access_token');
-            console.log('Access token in localStorage after storage:', storedAccessToken ? storedAccessToken.substring(0, 20) + '...' : 'missing');
-
-            setMessage(`${isLogin ? 'Login' : 'Signup'} successful! Redirecting...`);
-            setIsAuthenticated(true);
-            await checkAuth();
-            setTimeout(() => navigate(from, { replace: true }), 1000);
-        } catch (error) {
-            console.error(`${isLogin ? 'Login' : 'Signup'} error:`, error.message);
-            setError(error.message);
-            removeLocalStorageItem('user_id');
-            removeLocalStorageItem('access_token');
-            removeLocalStorageItem('refresh_token');
-        } finally {
-            setIsLoading(false);
-            setShowLoading(false);
-        }
-    }, [isLogin, email, username, password, validateInputs, checkAuth, setIsAuthenticated, navigate, from]);
-
-    useEffect(() => {
-        // Clear inconsistent state on mount
-        const userId = localStorage.getItem('user_id');
-        const accessToken = localStorage.getItem('access_token');
-        if (userId && !accessToken) {
-            console.log('Inconsistent state: user_id exists but access_token is missing. Clearing localStorage.');
-            removeLocalStorageItem('user_id');
-            removeLocalStorageItem('access_token');
-            removeLocalStorageItem('refresh_token');
-        }
-    }, []);
+        },
+        [isLogin, email, username, password, validateInputs, login]
+    );
 
     useEffect(() => {
         let timer;
@@ -154,7 +106,7 @@ const AuthPage = ({ initialMode = "login" }) => {
                             autoComplete="email"
                         />
                     </div>
-                    
+
                     {!isLogin && (
                         <div className="auth-group">
                             <label htmlFor="username">Username (optional):</label>
@@ -169,7 +121,7 @@ const AuthPage = ({ initialMode = "login" }) => {
                             />
                         </div>
                     )}
-                    
+
                     <div className="auth-group">
                         <label htmlFor="password">Password:</label>
                         <input
