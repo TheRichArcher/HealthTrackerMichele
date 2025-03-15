@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "./AuthProvider"; // Updated import
 import { getLocalStorageItem, setLocalStorageItem } from "../utils/utils";
 import debounce from 'lodash/debounce';
 import axios from 'axios';
