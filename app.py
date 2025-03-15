@@ -56,6 +56,9 @@ def create_app():
     )
     logger = logging.getLogger(__name__)
 
+    # Log the JWT_SECRET_KEY for debugging (be cautious with this in production)
+    logger.info(f"JWT_SECRET_KEY loaded: {os.getenv('JWT_SECRET_KEY')}")
+
     # Database Configuration
     DATABASE_URL = os.getenv('DATABASE_URL')
     if not DATABASE_URL:
@@ -194,6 +197,46 @@ def create_app():
             'sub_status': 45,
             'msg': 'Token has been revoked'
         }), 401
+
+    # Debug endpoint to inspect token validation
+    @app.route('/api/debug/token', methods=['GET'])
+    @jwt_required()
+    def debug_token():
+        try:
+            # Get the raw token from the Authorization header
+            auth_header = request.headers.get('Authorization', '')
+            if not auth_header.startswith('Bearer '):
+                return jsonify({'error': 'Bearer token missing'}), 400
+            token = auth_header.split(' ')[1]
+
+            # Log the raw token
+            logger.info(f"Debug Token: Raw token received: {token}")
+
+            # Decode the token without verification to inspect its contents
+            from jwt import decode as jwt_decode, exceptions as jwt_exceptions
+            try:
+                decoded_token = jwt_decode(token, options={"verify_signature": False})
+                logger.info(f"Debug Token: Decoded token (unverified): {decoded_token}")
+            except jwt_exceptions.DecodeError as e:
+                logger.error(f"Debug Token: Failed to decode token: {str(e)}")
+                return jsonify({'error': f'Token decode error: {str(e)}'}), 400
+
+            # Attempt to validate the token using JWTManager
+            current_user = get_jwt_identity()
+            jwt_data = get_jwt()
+            logger.info(f"Debug Token: Validated identity: {current_user}")
+            logger.info(f"Debug Token: JWT data: {jwt_data}")
+
+            return jsonify({
+                'status': 'success',
+                'message': 'Token validated',
+                'identity': current_user,
+                'jwt_data': jwt_data
+            }), 200
+
+        except Exception as e:
+            logger.error(f"Debug Token: Validation failed: {str(e)}")
+            return jsonify({'error': f'Token validation failed: {str(e)}'}), 500
 
     # Serve React Frontend
     @app.route('/', defaults={'path': ''})
