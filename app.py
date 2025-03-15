@@ -22,6 +22,11 @@ if missing_vars:
     print(f"❌ ERROR: {error_message}")
     raise RuntimeError(error_message)
 
+# Configuration class for token expiry settings
+class Config:
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=1)  # 1 hour
+    JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=30)  # 30 days
+
 def create_app():
     # Initialize Flask application
     app = Flask(
@@ -33,8 +38,8 @@ def create_app():
     # Configure app with values from environment variables and Config
     app.config.update(
         JWT_SECRET_KEY=os.getenv('JWT_SECRET_KEY'),
-        JWT_ACCESS_TOKEN_EXPIRES=timedelta(seconds=int(os.getenv('JWT_ACCESS_TOKEN_EXPIRES', 3600))),
-        JWT_REFRESH_TOKEN_EXPIRES=timedelta(seconds=int(os.getenv('JWT_REFRESH_TOKEN_EXPIRES', 2592000))),
+        JWT_ACCESS_TOKEN_EXPIRES=Config.JWT_ACCESS_TOKEN_EXPIRES,
+        JWT_REFRESH_TOKEN_EXPIRES=Config.JWT_REFRESH_TOKEN_EXPIRES,
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         SECRET_KEY=os.getenv('SECRET_KEY'),
         JWT_BLACKLIST_ENABLED=True,
@@ -56,8 +61,8 @@ def create_app():
     )
     logger = logging.getLogger(__name__)
 
-    # Log the JWT_SECRET_KEY for debugging (be cautious with this in production)
-    logger.info(f"JWT_SECRET_KEY loaded: {os.getenv('JWT_SECRET_KEY')}")
+    # Log the JWT_SECRET_KEY with masking for security (be cautious with this in production)
+    logger.info(f"JWT_SECRET_KEY loaded: {os.getenv('JWT_SECRET_KEY')[:6]}****")
 
     # Database Configuration
     DATABASE_URL = os.getenv('DATABASE_URL')
@@ -95,7 +100,7 @@ def create_app():
     bcrypt.init_app(app)
     cors.init_app(app, 
                   resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}},
-                  headers=app.config["CORS_HEADERS"],
+                  allow_headers=app.config["CORS_HEADERS"],
                   supports_credentials=app.config["CORS_SUPPORTS_CREDENTIALS"])
     migrate.init_app(app, db)
     jwt = JWTManager(app)
@@ -198,11 +203,15 @@ def create_app():
             'msg': 'Token has been revoked'
         }), 401
 
-    # Debug endpoint to inspect token validation
+    # Debug endpoint to inspect token validation with production check
     @app.route('/api/debug/token', methods=['GET'])
     @jwt_required()
     def debug_token():
         try:
+            # Disable in production for security
+            if os.getenv("FLASK_ENV", "production") == "production":
+                return jsonify({"error": "Token debugging is disabled in production"}), 403
+
             # Get the raw token from the Authorization header
             auth_header = request.headers.get('Authorization', '')
             if not auth_header.startswith('Bearer '):
@@ -238,7 +247,7 @@ def create_app():
             logger.error(f"Debug Token: Validation failed: {str(e)}")
             return jsonify({'error': f'Token validation failed: {str(e)}'}), 500
 
-    # Serve React Frontend
+    # Serve React Frontend with error handling
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve(path):
@@ -250,6 +259,9 @@ def create_app():
 
         try:
             return send_from_directory(app.static_folder, 'index.html')
+        except FileNotFoundError:
+            logger.error("index.html not found in the static directory")
+            return jsonify({'error': 'Frontend application is missing'}), 404
         except Exception as e:
             logger.error(f"Error serving index.html: {str(e)}")
             return jsonify({'error': 'Failed to serve application'}), 500

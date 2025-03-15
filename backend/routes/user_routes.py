@@ -43,7 +43,7 @@ def login():
             user = User.query.filter(User.username == login_id, User.deleted_at.is_(None)).first()
             if not user:
                 # If username not found, try as email as fallback
-                user = User.query.filter(User.email == login_id, User.deleted_at.is_flask_jwt_extended(None)).first()
+                user = User.query.filter(User.email == login_id, User.deleted_at.is_(None)).first()
 
         if not user or not user.check_password(password):
             return jsonify({"error": "Invalid email/username or password."}), 401
