@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from './AuthProvider';
 import UpgradePrompt from './UpgradePrompt';
 import '../styles/Chat.css';
 import '../styles/shared.css';

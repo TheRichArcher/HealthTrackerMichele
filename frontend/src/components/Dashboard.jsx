@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from './AuthProvider';
 import { getLocalStorageItem } from '../utils/utils';
 import UpgradePrompt from './UpgradePrompt';
 import '../styles/Dashboard.css';
