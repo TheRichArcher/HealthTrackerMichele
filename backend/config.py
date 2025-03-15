@@ -22,10 +22,13 @@ def strtobool(val: str) -> bool:
     return val.lower() in ("yes", "true", "t", "1")
 
 class Config:
-    # JWT Configuration
-    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", os.getenv("SECRET_KEY"))
+    # JWT Configuration (Ensuring JWT_SECRET_KEY is explicitly set)
+    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
     if not JWT_SECRET_KEY:
-        raise ValueError("\u274c JWT_SECRET_KEY is missing from the environment. Please set it in .env or ensure SECRET_KEY is set.")
+        raise ValueError("\u274c JWT_SECRET_KEY is missing from the environment. Please set it explicitly in .env or Render.")
+
+    JWT_ACCESS_TOKEN_EXPIRES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRES", "3600"))  # 1 hour
+    JWT_REFRESH_TOKEN_EXPIRES = int(os.getenv("JWT_REFRESH_TOKEN_EXPIRES", "2592000"))  # 30 days
 
     # Database Configuration
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///health_tracker.db")
