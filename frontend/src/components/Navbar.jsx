@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, memo } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from './AuthProvider'; // Updated import
 import '../styles/navbar.css';
 
 const PUBLIC_NAV_ITEMS = [
@@ -13,7 +13,7 @@ const PRIVATE_NAV_ITEMS = [
     { path: '/report', label: 'Reports' },
     { path: '/medical-info', label: 'Medical Info' },
     { path: '/library', label: 'Library' },
-    { path: '/subscription', label: 'Subscription' }, // Added for subscription upgrades
+    { path: '/subscription', label: 'Subscription' },
 ];
 
 const LogoutModal = memo(({ onConfirm, onCancel }) => (

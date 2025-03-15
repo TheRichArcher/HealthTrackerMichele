@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { setLocalStorageItem, removeLocalStorageItem } from '../utils/utils';
-import { useAuth } from './AuthProvider';
+import { useAuth } from './AuthProvider'; // Updated import
 import '../styles/AuthPage.css';
 
 const MIN_PASSWORD_LENGTH = 6;
@@ -70,6 +70,7 @@ const AuthPage = ({ initialMode = "login" }) => {
                 ? { email, password } 
                 : { email, password, username };
                 
+            console.log(`Sending ${isLogin ? 'login' : 'signup'} request to ${API_BASE_URL}/${endpoint}`, requestBody);
             const response = await fetch(`${API_BASE_URL}/${endpoint}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -77,21 +78,35 @@ const AuthPage = ({ initialMode = "login" }) => {
             });
 
             const data = await response.json();
+            console.log('Response received:', data);
 
             if (!response.ok) {
                 throw new Error(data.error || `${isLogin ? 'Login' : 'Signup'} failed.`);
             }
 
+            if (!data.user_id || !data.access_token || !data.refresh_token) {
+                console.error('Invalid response structure:', data);
+                throw new Error('Invalid response from server: missing user_id, access_token, or refresh_token');
+            }
+
             setLocalStorageItem('user_id', data.user_id);
             setLocalStorageItem('access_token', data.access_token);
             setLocalStorageItem('refresh_token', data.refresh_token);
-            setMessage(`${isLogin ? 'Login' : 'Signup'} successful! Redirecting...`);
+            console.log('Tokens stored:', {
+                user_id: data.user_id,
+                access_token: data.access_token.substring(0, 20) + '...',
+                refresh_token: data.refresh_token.substring(0, 20) + '...'
+            });
 
+            const storedAccessToken = localStorage.getItem('access_token');
+            console.log('Access token in localStorage after storage:', storedAccessToken ? storedAccessToken.substring(0, 20) + '...' : 'missing');
+
+            setMessage(`${isLogin ? 'Login' : 'Signup'} successful! Redirecting...`);
             setIsAuthenticated(true);
             await checkAuth();
             setTimeout(() => navigate(from, { replace: true }), 1000);
         } catch (error) {
-            console.error(`${isLogin ? 'Login' : 'Signup'} error:`, error);
+            console.error(`${isLogin ? 'Login' : 'Signup'} error:`, error.message);
             setError(error.message);
             removeLocalStorageItem('user_id');
             removeLocalStorageItem('access_token');

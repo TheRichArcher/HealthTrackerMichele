@@ -17,6 +17,7 @@ export const AuthProvider = ({ children }) => {
 
     const refreshToken = useCallback(async () => {
         const refreshTokenValue = getLocalStorageItem('refresh_token');
+        console.log('Attempting to refresh token. Refresh token:', refreshTokenValue ? 'exists' : 'missing');
         if (!refreshTokenValue) {
             console.log('No refresh token available');
             throw new Error('No refresh token available');
@@ -31,13 +32,13 @@ export const AuthProvider = ({ children }) => {
 
             if (response.data && response.data.access_token) {
                 setLocalStorageItem('access_token', response.data.access_token);
-                console.log('Token refresh successful');
+                console.log('Token refresh successful. New access token:', response.data.access_token.substring(0, 20) + '...');
                 return true;
             }
-            console.log('Invalid refresh token response');
+            console.log('Invalid refresh token response:', response.data);
             throw new Error('Invalid refresh token response');
         } catch (error) {
-            console.error('Token refresh failed:', error);
+            console.error('Token refresh failed:', error.response?.data || error.message);
             removeLocalStorageItem('access_token');
             removeLocalStorageItem('refresh_token');
             setIsAuthenticated(false);
@@ -46,6 +47,7 @@ export const AuthProvider = ({ children }) => {
     }, []);
 
     const validateToken = async (token, isRetry = false) => {
+        console.log('Validating token. Token provided:', token ? 'yes' : 'no');
         if (!token) {
             console.log('No token provided for validation');
             return false;
@@ -57,12 +59,12 @@ export const AuthProvider = ({ children }) => {
                     'Authorization': `Bearer ${token}`
                 }
             });
-            console.log('Token validation successful');
+            console.log('Token validation successful. Response:', response.data);
             return response.status === 200;
         } catch (error) {
-            console.log('Token validation failed:', error.message);
+            console.log('Token validation failed:', error.response?.data || error.message);
             if (error.response?.status === 401 && !isRetry) {
-                console.log('Attempting token refresh');
+                console.log('Attempting token refresh due to 401');
                 await refreshToken();
                 const newToken = getLocalStorageItem('access_token');
                 if (!newToken) {
@@ -83,13 +85,14 @@ export const AuthProvider = ({ children }) => {
         
         try {
             const token = getLocalStorageItem('access_token');
+            console.log('Fetching subscription status. Token:', token ? 'exists' : 'missing');
             const response = await axios.get(`${API_BASE_URL}/subscription/status`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             console.log('Subscription status fetched:', response.data.subscription_tier);
             setSubscriptionTier(response.data.subscription_tier);
         } catch (err) {
-            console.error('Failed to fetch subscription status:', err);
+            console.error('Failed to fetch subscription status:', err.response?.data || err.message);
         }
     }, [isAuthenticated]);
 
@@ -98,8 +101,8 @@ export const AuthProvider = ({ children }) => {
         const userId = getLocalStorageItem('user_id');
 
         console.log('Checking authentication...');
-        console.log('Access token exists:', !!accessToken);
-        console.log('User ID exists:', !!userId);
+        console.log('Access token exists:', !!accessToken, 'Value:', accessToken ? accessToken.substring(0, 20) + '...' : 'none');
+        console.log('User ID exists:', !!userId, 'Value:', userId || 'none');
 
         if (!accessToken || !userId) {
             console.log('Missing tokens or user ID, setting isAuthenticated to false');

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { useAuth } from './AuthProvider'; // Updated import
 import { getLocalStorageItem } from '../utils/utils';
 import '../styles/Report.css';
 
@@ -8,6 +9,7 @@ const API_BASE_URL = 'https://healthtrackermichele.onrender.com/api';
 
 const Report = () => {
     const navigate = useNavigate();
+    const { isAuthenticated, isLoading: authLoading, checkAuth } = useAuth();
     const [formData, setFormData] = useState({
         symptoms: '',
         timeline: ''
@@ -16,17 +18,34 @@ const Report = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
-    const userId = getLocalStorageItem("user_id");
-    const accessToken = getLocalStorageItem("access_token");
+    const userId = getLocalStorageItem("user_id") || '';
+    const accessToken = getLocalStorageItem("access_token") || '';
 
     useEffect(() => {
-        if (!userId || !accessToken) {
+        console.log('Report component mounted. Checking authentication...');
+        console.log('Auth loading:', authLoading, 'Is authenticated:', isAuthenticated);
+        console.log('User ID from localStorage:', userId, 'Access token from localStorage:', accessToken ? 'exists' : 'missing');
+
+        if (authLoading) return;
+
+        if (!isAuthenticated && (!userId || !accessToken)) {
+            console.log('Not authenticated or missing tokens, redirecting to /auth');
             navigate('/auth', { 
                 state: { from: { pathname: '/report' } },
                 replace: true 
             });
+        } else if (!isAuthenticated) {
+            console.log('Token validation failed, rechecking auth');
+            checkAuth().then(() => {
+                if (!isAuthenticated) {
+                    navigate('/auth', { 
+                        state: { from: { pathname: '/report' } },
+                        replace: true 
+                    });
+                }
+            });
         }
-    }, [userId, accessToken, navigate]);
+    }, [isAuthenticated, authLoading, userId, accessToken, navigate, checkAuth]);
 
     const handleInputChange = useCallback((e) => {
         const { id, value } = e.target;
@@ -48,7 +67,15 @@ const Report = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        if (!userId || !accessToken) {
+        console.log('Submitting report form. Authenticated:', isAuthenticated);
+        console.log('User ID:', userId, 'Access token:', accessToken ? 'exists' : 'missing');
+
+        if (authLoading) {
+            setError('Authentication is still loading. Please wait.');
+            return;
+        }
+
+        if (!isAuthenticated && (!userId || !accessToken)) {
             setError('User session expired. Please log in.');
             navigate('/auth');
             return;
@@ -65,6 +92,7 @@ const Report = () => {
                 .map(s => s.trim())
                 .filter(s => s.length > 0);
 
+            console.log('Sending report request to', `${API_BASE_URL}/reports`, { user_id: userId, symptoms, timeline: formData.timeline.trim() });
             const response = await axios.post(
                 `${API_BASE_URL}/reports`,
                 { 
@@ -77,17 +105,18 @@ const Report = () => {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
                     },
-                    timeout: 15000 // 15 second timeout
+                    timeout: 15000
                 }
             );
 
+            console.log('Report response received:', response.data);
             if (response.data && response.data.report) {
                 setReportContent(response.data.report);
             } else {
                 throw new Error('Invalid response format');
             }
         } catch (err) {
-            console.error('Error generating report:', err);
+            console.error('Error generating report:', err.response?.data || err.message);
             setError(
                 err.response?.status === 401 
                     ? 'Session expired. Please log in again.'

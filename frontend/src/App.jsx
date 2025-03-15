@@ -1,6 +1,6 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, Component } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthProvider, useAuth } from './components/AuthProvider'; // Updated import
 
 // Component Imports
 import Chat from './components/Chat';
@@ -22,6 +22,33 @@ import './styles/Chat.css';
 import './styles/navbar.css';
 import './styles/shared.css';
 
+// Error Boundary Component
+class ErrorBoundary extends Component {
+    state = { hasError: false, error: null };
+
+    static getDerivedStateFromError(error) {
+        return { hasError: true, error };
+    }
+
+    componentDidCatch(error, errorInfo) {
+        console.error('ErrorBoundary caught an error:', error, errorInfo);
+    }
+
+    render() {
+        if (this.state.hasError) {
+            return (
+                <div className="error-container">
+                    <h1>Something went wrong.</h1>
+                    <p>{this.state.error?.message || 'An unexpected error occurred.'}</p>
+                    <p>Please try refreshing the page or logging in again.</p>
+                    <Link to="/auth">Go to Login</Link>
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
+
 // Protected Route Wrapper
 const PrivateRoute = ({ children }) => {
     const { isAuthenticated, isLoading } = useAuth();
@@ -41,92 +68,94 @@ const PrivateRoute = ({ children }) => {
 const App = () => {
     return (
         <div className="app-container">
-            <Navbar />
-            <main className="app-main">
-                <Suspense fallback={<LoadingSpinner message="Loading..." />}>
-                    <Routes>
-                        {/* Public Routes */}
-                        <Route path="/" element={<Chat />} />
-                        <Route path="/auth" element={<AuthPage />} />
-                        <Route path="/library" element={<Library />} />
+            <ErrorBoundary>
+                <Navbar />
+                <main className="app-main">
+                    <Suspense fallback={<LoadingSpinner message="Loading..." />}>
+                        <Routes>
+                            {/* Public Routes */}
+                            <Route path="/" element={<Chat />} />
+                            <Route path="/auth" element={<AuthPage />} />
+                            <Route path="/library" element={<Library />} />
 
-                        {/* Protected Routes */}
-                        <Route 
-                            path="/dashboard" 
-                            element={
-                                <PrivateRoute>
-                                    <Dashboard />
-                                </PrivateRoute>
-                            } 
-                        />
-                        <Route 
-                            path="/symptom-logger" 
-                            element={
-                                <PrivateRoute>
-                                    <SymptomLogger />
-                                </PrivateRoute>
-                            } 
-                        />
-                        <Route 
-                            path="/report" 
-                            element={
-                                <PrivateRoute>
-                                    <Report />
-                                </PrivateRoute>
-                            } 
-                        />
-                        <Route 
-                            path="/onboarding" 
-                            element={
-                                <PrivateRoute>
-                                    <Onboarding />
-                                </PrivateRoute>
-                            } 
-                        />
-                        <Route 
-                            path="/medical-info" 
-                            element={
-                                <PrivateRoute>
-                                    <MedicalInfo />
-                                </PrivateRoute>
-                            } 
-                        />
-                        <Route 
-                            path="/subscription" 
-                            element={
-                                <PrivateRoute>
-                                    <SubscriptionPage />
-                                </PrivateRoute>
-                            } 
-                        /> 
-                        <Route 
-                            path="/one-time-report" 
-                            element={
-                                <PrivateRoute>
-                                    <OneTimeReportPage />
-                                </PrivateRoute>
-                            } 
-                        /> 
-                        <Route 
-                            path="/success" 
-                            element={
-                                <PrivateRoute>
-                                    <SubscriptionPage />
-                                </PrivateRoute>
-                            } 
-                        /> 
-                        <Route 
-                            path="/cancel" 
-                            element={<div>Payment cancelled. <Link to="/subscription">Try again</Link></div>} 
-                        /> 
+                            {/* Protected Routes */}
+                            <Route 
+                                path="/dashboard" 
+                                element={
+                                    <PrivateRoute>
+                                        <Dashboard />
+                                    </PrivateRoute>
+                                } 
+                            />
+                            <Route 
+                                path="/symptom-logger" 
+                                element={
+                                    <PrivateRoute>
+                                        <SymptomLogger />
+                                    </PrivateRoute>
+                                } 
+                            />
+                            <Route 
+                                path="/report" 
+                                element={
+                                    <PrivateRoute>
+                                        <Report />
+                                    </PrivateRoute>
+                                } 
+                            />
+                            <Route 
+                                path="/onboarding" 
+                                element={
+                                    <PrivateRoute>
+                                        <Onboarding />
+                                    </PrivateRoute>
+                                } 
+                            />
+                            <Route 
+                                path="/medical-info" 
+                                element={
+                                    <PrivateRoute>
+                                        <MedicalInfo />
+                                    </PrivateRoute>
+                                } 
+                            />
+                            <Route 
+                                path="/subscription" 
+                                element={
+                                    <PrivateRoute>
+                                        <SubscriptionPage />
+                                    </PrivateRoute>
+                                } 
+                            /> 
+                            <Route 
+                                path="/one-time-report" 
+                                element={
+                                    <PrivateRoute>
+                                        <OneTimeReportPage />
+                                    </PrivateRoute>
+                                } 
+                            /> 
+                            <Route 
+                                path="/success" 
+                                element={
+                                    <PrivateRoute>
+                                        <SubscriptionPage />
+                                    </PrivateRoute>
+                                } 
+                            /> 
+                            <Route 
+                                path="/cancel" 
+                                element={<div>Payment cancelled. <Link to="/subscription">Try again</Link></div>} 
+                            /> 
 
-                        {/* Redirects - Direct to AuthPage instead of redirecting */}
-                        <Route path="/login" element={<AuthPage />} />
-                        <Route path="/signup" element={<AuthPage initialMode="signup" />} />
-                        <Route path="*" element={<Navigate to="/" replace />} />
-                    </Routes>
-                </Suspense>
-            </main>
+                            {/* Redirects - Direct to AuthPage instead of redirecting */}
+                            <Route path="/login" element={<AuthPage />} />
+                            <Route path="/signup" element={<AuthPage initialMode="signup" />} />
+                            <Route path="*" element={<Navigate to="/" replace />} />
+                        </Routes>
+                    </Suspense>
+                </main>
+            </ErrorBoundary>
         </div>
     );
 };
