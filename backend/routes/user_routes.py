@@ -48,9 +48,9 @@ def login():
         if not user or not user.check_password(password):
             return jsonify({"error": "Invalid email/username or password."}), 401
 
-        # Create tokens (no secret parameter)
-        access_token = create_access_token(identity=user.id)
-        refresh_token = create_refresh_token(identity=user.id)
+        # Create tokens with user.id as a string to avoid 'Subject must be a string' warning
+        access_token = create_access_token(identity=str(user.id))
+        refresh_token = create_refresh_token(identity=str(user.id))
 
         logger.debug(f"Login successful for user_id: {user.id}, access_token: {access_token[:20]}...")
 
@@ -76,6 +76,10 @@ def login():
 def refresh():
     """Refresh access token."""
     try:
+        # Log the raw Authorization header for debugging
+        auth_header = request.headers.get('Authorization', '')
+        logger.debug(f"Refresh token request - Authorization header: {auth_header}")
+
         current_user_id = get_jwt_identity()
         logger.debug(f"Refreshing token for user_id: {current_user_id}")
         new_access_token = create_access_token(identity=current_user_id)
@@ -140,9 +144,9 @@ def create_user():
         db.session.add(new_user)
         db.session.commit()
 
-        # Create tokens for automatic login after signup (no secret parameter)
-        access_token = create_access_token(identity=new_user.id)
-        refresh_token = create_refresh_token(identity=new_user.id)
+        # Create tokens with user.id as a string to avoid 'Subject must be a string' warning
+        access_token = create_access_token(identity=str(new_user.id))
+        refresh_token = create_refresh_token(identity=str(new_user.id))
 
         logger.info(f"User created: {new_user.email} with username {new_user.username}")
         return jsonify({
@@ -170,6 +174,10 @@ def create_user():
 def get_current_user():
     """Fetch current user information."""
     try:
+        # Log the raw Authorization header for debugging
+        auth_header = request.headers.get('Authorization', '')
+        logger.debug(f"Get current user request - Authorization header: {auth_header}")
+
         current_user_id = get_jwt_identity()
         user = User.query.filter(User.id == current_user_id, User.deleted_at.is_(None)).first()
         if not user:
@@ -195,6 +203,10 @@ def get_current_user():
 def get_users():
     """Fetch a list of users with pagination."""
     try:
+        # Log the raw Authorization header for debugging
+        auth_header = request.headers.get('Authorization', '')
+        logger.debug(f"Get users request - Authorization header: {auth_header}")
+
         skip = int(request.args.get("skip", 0))
         limit = int(request.args.get("limit", 100))
 
@@ -224,6 +236,10 @@ def get_users():
 def get_user(user_id):
     """Fetch user information by user ID."""
     try:
+        # Log the raw Authorization header for debugging
+        auth_header = request.headers.get('Authorization', '')
+        logger.debug(f"Get user request for user_id {user_id} - Authorization header: {auth_header}")
+
         current_user_id = get_jwt_identity()
         if current_user_id != user_id:
             return jsonify({"error": "Unauthorized access."}), 403
@@ -252,6 +268,10 @@ def get_user(user_id):
 def update_user(user_id):
     """Update user information by user ID."""
     try:
+        # Log the raw Authorization header for debugging
+        auth_header = request.headers.get('Authorization', '')
+        logger.debug(f"Update user request for user_id {user_id} - Authorization header: {auth_header}")
+
         current_user_id = get_jwt_identity()
         if current_user_id != user_id:
             return jsonify({"error": "Unauthorized access."}), 403
@@ -318,6 +338,10 @@ def update_user(user_id):
 def update_password(user_id):
     """Update user password by user ID."""
     try:
+        # Log the raw Authorization header for debugging
+        auth_header = request.headers.get('Authorization', '')
+        logger.debug(f"Update password request for user_id {user_id} - Authorization header: {auth_header}")
+
         current_user_id = get_jwt_identity()
         if current_user_id != user_id:
             return jsonify({"error": "Unauthorized access."}), 403
@@ -356,6 +380,10 @@ def update_password(user_id):
 def delete_user(user_id):
     """Delete a user by user ID."""
     try:
+        # Log the raw Authorization header for debugging
+        auth_header = request.headers.get('Authorization', '')
+        logger.debug(f"Delete user request for user_id {user_id} - Authorization header: {auth_header}")
+
         current_user_id = get_jwt_identity()
         if current_user_id != user_id:
             return jsonify({"error": "Unauthorized access."}), 403
@@ -384,6 +412,10 @@ def delete_user(user_id):
 def validate_token():
     """Validate an access token by ensuring it's still valid."""
     try:
+        # Log the raw Authorization header for debugging
+        auth_header = request.headers.get('Authorization', '')
+        logger.debug(f"Validate token request - Authorization header: {auth_header}")
+
         current_user_id = get_jwt_identity()
         user = User.query.filter(User.id == current_user_id, User.deleted_at.is_(None)).first()
         if not user:
@@ -409,6 +441,10 @@ def validate_token():
 def logout():
     """Handle user logout and revoke the token."""
     try:
+        # Log the raw Authorization header for debugging
+        auth_header = request.headers.get('Authorization', '')
+        logger.debug(f"Logout request - Authorization header: {auth_header}")
+
         jti = get_jwt()["jti"]
         # Add token to blacklist
         revoked_token = RevokedToken(jti=jti)
