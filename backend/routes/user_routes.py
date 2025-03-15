@@ -8,7 +8,7 @@ from flask_jwt_extended import (
 )
 from backend.extensions import db, bcrypt
 from backend.models import User, RevokedToken
-from datetime import datetime, timedelta
+from datetime import datetime
 import logging
 import re
 from sqlalchemy.exc import OperationalError
@@ -43,14 +43,14 @@ def login():
             user = User.query.filter(User.username == login_id, User.deleted_at.is_(None)).first()
             if not user:
                 # If username not found, try as email as fallback
-                user = User.query.filter(User.email == login_id, User.deleted_at.is_(None)).first()
+                user = User.query.filter(User.email == login_id, User.deleted_at.is_flask_jwt_extended(None)).first()
 
         if not user or not user.check_password(password):
             return jsonify({"error": "Invalid email/username or password."}), 401
 
-        # Create tokens with explicit secret key
-        access_token = create_access_token(identity=user.id, secret=current_app.config["JWT_SECRET_KEY"])
-        refresh_token = create_refresh_token(identity=user.id, secret=current_app.config["JWT_SECRET_KEY"])
+        # Create tokens (no secret parameter)
+        access_token = create_access_token(identity=user.id)
+        refresh_token = create_refresh_token(identity=user.id)
 
         logger.debug(f"Login successful for user_id: {user.id}, access_token: {access_token[:20]}...")
 
@@ -78,7 +78,7 @@ def refresh():
     try:
         current_user_id = get_jwt_identity()
         logger.debug(f"Refreshing token for user_id: {current_user_id}")
-        new_access_token = create_access_token(identity=current_user_id, secret=current_app.config["JWT_SECRET_KEY"])
+        new_access_token = create_access_token(identity=current_user_id)
         logger.debug(f"New access token generated: {new_access_token[:20]}...")
 
         return jsonify({
@@ -140,9 +140,9 @@ def create_user():
         db.session.add(new_user)
         db.session.commit()
 
-        # Create tokens for automatic login after signup
-        access_token = create_access_token(identity=new_user.id, secret=current_app.config["JWT_SECRET_KEY"])
-        refresh_token = create_refresh_token(identity=new_user.id, secret=current_app.config["JWT_SECRET_KEY"])
+        # Create tokens for automatic login after signup (no secret parameter)
+        access_token = create_access_token(identity=new_user.id)
+        refresh_token = create_refresh_token(identity=new_user.id)
 
         logger.info(f"User created: {new_user.email} with username {new_user.username}")
         return jsonify({
