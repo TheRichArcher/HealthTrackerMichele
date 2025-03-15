@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, memo } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from './AuthProvider'; // Updated import
+import { AuthContext } from './AuthProvider'; // Import AuthContext directly
 import '../styles/navbar.css';
 
 const PUBLIC_NAV_ITEMS = [
@@ -55,9 +55,18 @@ LogoutModal.displayName = 'LogoutModal';
 const Navbar = () => {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
-    const { isAuthenticated, logout } = useAuth();
+    const context = React.useContext(AuthContext); // Use context directly
     const navigate = useNavigate();
     const location = useLocation();
+
+    // Safeguard: Don't render until context is available
+    if (!context) {
+        console.warn('Navbar: AuthContext not available yet, delaying render');
+        return null; // Or a loading spinner if preferred
+    }
+
+    const { isAuthenticated, logout } = context;
+    console.log('Navbar: Auth context loaded', { isAuthenticated });
 
     const toggleMenu = useCallback(() => {
         setIsMenuOpen((prev) => !prev);

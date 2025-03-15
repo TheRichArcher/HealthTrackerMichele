@@ -8,7 +8,7 @@ if (!import.meta.env.VITE_API_URL) {
     console.warn('VITE_API_URL not set in environment variables, using fallback URL');
 }
 
-const AuthContext = createContext(null);
+export const AuthContext = createContext(null); // Export AuthContext
 
 export const AuthProvider = ({ children }) => {
     const [isAuthenticated, setIsAuthenticated] = useState(false);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { setLocalStorageItem, removeLocalStorageItem } from '../utils/utils';
-import { useAuth } from './AuthProvider'; // Updated import
+import { useAuth } from './AuthProvider';
 import '../styles/AuthPage.css';
 
 const MIN_PASSWORD_LENGTH = 6;
@@ -116,6 +116,18 @@ const AuthPage = ({ initialMode = "login" }) => {
             setShowLoading(false);
         }
     }, [isLogin, email, username, password, validateInputs, checkAuth, setIsAuthenticated, navigate, from]);
+
+    useEffect(() => {
+        // Clear inconsistent state on mount
+        const userId = localStorage.getItem('user_id');
+        const accessToken = localStorage.getItem('access_token');
+        if (userId && !accessToken) {
+            console.log('Inconsistent state: user_id exists but access_token is missing. Clearing localStorage.');
+            removeLocalStorageItem('user_id');
+            removeLocalStorageItem('access_token');
+            removeLocalStorageItem('refresh_token');
+        }
+    }, []);
 
     useEffect(() => {
         let timer;

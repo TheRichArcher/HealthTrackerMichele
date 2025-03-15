@@ -1,6 +1,6 @@
 import React, { Suspense, Component } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
-import { AuthProvider, useAuth } from './components/AuthProvider'; // Updated import
+import { AuthProvider, useAuth } from './components/AuthProvider'; // Import useAuth here
 
 // Component Imports
 import Chat from './components/Chat';
@@ -49,9 +49,9 @@ class ErrorBoundary extends Component {
     }
 }
 
-// Protected Route Wrapper
-const PrivateRoute = ({ children }) => {
-    const { isAuthenticated, isLoading } = useAuth();
+// PrivateRoute Wrapper (now using useAuth directly)
+const PrivateRouteWrapper = ({ children }) => {
+    const { isAuthenticated, isLoading } = useAuth(); // Safe to use here since wrapped by AuthProvider
 
     if (isLoading) {
         return <LoadingSpinner message="Checking authentication..." />;
@@ -82,65 +82,65 @@ const App = () => {
                             <Route 
                                 path="/dashboard" 
                                 element={
-                                    <PrivateRoute>
+                                    <PrivateRouteWrapper>
                                         <Dashboard />
-                                    </PrivateRoute>
+                                    </PrivateRouteWrapper>
                                 } 
                             />
                             <Route 
                                 path="/symptom-logger" 
                                 element={
-                                    <PrivateRoute>
+                                    <PrivateRouteWrapper>
                                         <SymptomLogger />
-                                    </PrivateRoute>
+                                    </PrivateRouteWrapper>
                                 } 
                             />
                             <Route 
                                 path="/report" 
                                 element={
-                                    <PrivateRoute>
+                                    <PrivateRouteWrapper>
                                         <Report />
-                                    </PrivateRoute>
+                                    </PrivateRouteWrapper>
                                 } 
                             />
                             <Route 
                                 path="/onboarding" 
                                 element={
-                                    <PrivateRoute>
+                                    <PrivateRouteWrapper>
                                         <Onboarding />
-                                    </PrivateRoute>
+                                    </PrivateRouteWrapper>
                                 } 
                             />
                             <Route 
                                 path="/medical-info" 
                                 element={
-                                    <PrivateRoute>
+                                    <PrivateRouteWrapper>
                                         <MedicalInfo />
-                                    </PrivateRoute>
+                                    </PrivateRouteWrapper>
                                 } 
                             />
                             <Route 
                                 path="/subscription" 
                                 element={
-                                    <PrivateRoute>
+                                    <PrivateRouteWrapper>
                                         <SubscriptionPage />
-                                    </PrivateRoute>
+                                    </PrivateRouteWrapper>
                                 } 
                             /> 
                             <Route 
                                 path="/one-time-report" 
                                 element={
-                                    <PrivateRoute>
+                                    <PrivateRouteWrapper>
                                         <OneTimeReportPage />
-                                    </PrivateRoute>
+                                    </PrivateRouteWrapper>
                                 } 
                             /> 
                             <Route 
                                 path="/success" 
                                 element={
-                                    <PrivateRoute>
+                                    <PrivateRouteWrapper>
                                         <SubscriptionPage />
-                                    </PrivateRoute>
+                                    </PrivateRouteWrapper>
                                 } 
                             /> 
                             <Route 
@@ -160,7 +160,7 @@ const App = () => {
     );
 };
 
-// App Wrapper with Router and Auth Provider
+// Wrapper that provides context
 const AppWrapper = () => (
     <Router>
         <AuthProvider>
