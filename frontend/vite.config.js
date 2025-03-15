@@ -12,6 +12,9 @@ export default defineConfig({
   build: {
     outDir: '../backend/static/dist',
     emptyOutDir: true,
+    rollupOptions: {
+      external: [], // Prevent externalizing react
+    },
   },
   server: {
     port: 5173,
@@ -29,8 +32,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      react: require.resolve('react'),
-      'react-dom': require.resolve('react-dom'),
+      // Removed all aliases
     },
   },
+  // Removed optimizeDeps to let Vite handle dependencies dynamically
 });

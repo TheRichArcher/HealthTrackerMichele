@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react'; // Added useEffect
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
 import '../styles/AuthPage.css';
