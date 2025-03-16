@@ -1,7 +1,7 @@
 import os
 import logging
 from datetime import timedelta
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, Blueprint
 from dotenv import load_dotenv
 from flask_jwt_extended import (
     JWTManager,
@@ -151,7 +151,7 @@ def create_app():
     from backend.routes.library_routes import library_routes
     from backend.routes.onboarding_routes import onboarding_routes
     from backend.routes.data_exporter import data_exporter
-    from backend.routes.subscription_routes import subscription_routes  # Corrected import
+    from backend.routes.subscription_routes import subscription_routes
 
     # Register blueprints with proper URL prefixes
     blueprints = [
@@ -163,7 +163,7 @@ def create_app():
         (library_routes, '/api/library'),
         (onboarding_routes, '/api/onboarding'),
         (data_exporter, '/api/export'),
-        (subscription_routes, '/api/subscription')  # Corrected from subscription_bp to subscription_routes
+        (subscription_routes, '/api/subscription')
     ]
 
     for blueprint, url_prefix in blueprints:
