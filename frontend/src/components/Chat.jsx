@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
-import UpgradePrompt from './UpgradePrompt'; // Assuming a separate component
+import UpgradePrompt from './UpgradePrompt';
 import '../styles/Chat.css';
 
 const API_BASE_URL = 'https://healthtrackermichele.onrender.com/api';
@@ -78,7 +78,6 @@ const Chat = () => {
         setLoading(true);
 
         try {
-            // Send full conversation history to backend
             const conversationHistory = newMessages.map(msg => ({
                 message: msg.text,
                 isBot: msg.isBot,
@@ -144,44 +143,70 @@ const Chat = () => {
 
     return (
         <div className="chat-container">
-            <div className="messages">
-                {messages.map((msg, index) => (
-                    <div key={index} className={`message ${msg.isBot ? 'bot' : 'user'}`}>
-                        {msg.isBot && msg.data && (msg.data.is_assessment || msg.data.requires_upgrade) ? (
-                            <UpgradePrompt
-                                careRecommendation={msg.data.care_recommendation || 'Consider consulting a healthcare provider'}
-                                triageLevel={msg.data.triage_level || 'MODERATE'}
-                                onReport={() => handleUpgrade('report')}
-                                onSubscribe={() => handleUpgrade('subscribe')}
-                                onNotNow={handleNotNow}
-                                requiresUpgrade={msg.data.requires_upgrade || false}
-                            />
-                        ) : (
-                            msg.text
-                        )}
-                    </div>
-                ))}
-            </div>
-            <div className="input-area">
-                <input
-                    type="text"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    placeholder="Describe your symptoms..."
-                    disabled={loading}
-                    onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                />
-                <button onClick={handleSendMessage} disabled={loading}>
-                    Send
-                </button>
-                {!isAuthenticated && (
-                    <button onClick={() => navigate('/auth')}>
-                        Sign In
-                    </button>
-                )}
-                <button onClick={resetConversation}>
+            <div className="reset-button-container">
+                <button className="reset-button" onClick={resetConversation} disabled={loading}>
                     Reset Conversation
                 </button>
+            </div>
+            <div className="messages-container">
+                {messages.map((msg, index) => (
+                    <div key={index} className={`message-row ${msg.isBot ? 'bot' : 'user'}`}>
+                        <div className="avatar-container">
+                            <img
+                                src={msg.isBot ? '/bot-avatar.png' : '/user-avatar.png'}
+                                alt={msg.isBot ? 'Bot Avatar' : 'User Avatar'}
+                            />
+                        </div>
+                        <div className={`message ${msg.isBot ? 'bot' : 'user'}`}>
+                            <div className="message-content">
+                                {msg.isBot && msg.data && (msg.data.is_assessment || msg.data.requires_upgrade) ? (
+                                    <UpgradePrompt
+                                        careRecommendation={msg.data.care_recommendation || 'Consider consulting a healthcare provider'}
+                                        triageLevel={msg.data.triage_level || 'MODERATE'}
+                                        onReport={() => handleUpgrade('report')}
+                                        onSubscribe={() => handleUpgrade('subscribe')}
+                                        onNotNow={handleNotNow}
+                                        requiresUpgrade={msg.data.requires_upgrade || false}
+                                    />
+                                ) : (
+                                    <p>{msg.text}</p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                ))}
+                {loading && (
+                    <div className="message-row bot">
+                        <div className="avatar-container">
+                            <img src="/bot-avatar.png" alt="Bot Avatar" />
+                        </div>
+                        <div className="typing-indicator">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
+                    </div>
+                )}
+            </div>
+            <div className="chat-input-container">
+                <div className="chat-input-wrapper">
+                    <textarea
+                        className="chat-input"
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        placeholder="Describe your symptoms..."
+                        disabled={loading}
+                        onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSendMessage())}
+                    />
+                    <button className="send-button" onClick={handleSendMessage} disabled={loading}>
+                        Send
+                    </button>
+                    {!isAuthenticated && (
+                        <button className="sign-in-button" onClick={() => navigate('/auth')}>
+                            Sign In
+                        </button>
+                    )}
+                </div>
             </div>
         </div>
     );

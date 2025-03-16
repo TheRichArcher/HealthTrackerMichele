@@ -24,7 +24,6 @@ const UpgradePrompt = ({
     const { isAuthenticated, checkAuth } = useAuth();
     const navigate = useNavigate();
 
-    // Reset states on prop change or mount
     useEffect(() => {
         setSuccess(false);
         setError(null);
@@ -34,7 +33,6 @@ const UpgradePrompt = ({
         checkAuth();
     }, [careRecommendation, triageLevel, requiresUpgrade, checkAuth]);
 
-    // Define premium features with tooltips
     const premiumFeatures = [
         {
             name: 'Detailed Assessments',
@@ -58,7 +56,6 @@ const UpgradePrompt = ({
         },
     ];
 
-    // Handle one-time report purchase
     const handleReportPurchase = async () => {
         setLoading(true);
         setError(null);
@@ -81,7 +78,6 @@ const UpgradePrompt = ({
         }
     };
 
-    // Handle subscription action
     const handleSubscribe = () => {
         setLoading(true);
         setError(null);
@@ -98,7 +94,6 @@ const UpgradePrompt = ({
         }
     };
 
-    // Handle confirmation modal
     const confirmAction = (action) => {
         setPendingAction(action);
         setShowConfirmModal(true);
@@ -114,18 +109,15 @@ const UpgradePrompt = ({
         setPendingAction(null);
     };
 
-    // Handle "Not Now" action
     const handleNotNowClick = () => {
         if (onNotNow) onNotNow();
         setSuccess(true);
     };
 
-    // Toggle visibility of premium features
     const toggleFeatures = () => {
         setShowFeatures(!showFeatures);
     };
 
-    // Custom loading spinner component
     const LoadingSpinner = () => (
         <div className="custom-spinner">
             <svg width="24" height="24" viewBox="0 0 24 24">
@@ -153,111 +145,113 @@ const UpgradePrompt = ({
     );
 
     return (
-        <div className="upgrade-options-inline">
-            <h3>
-                {requiresUpgrade
-                    ? 'Upgrade Required for Full Insights'
-                    : 'Unlock Detailed Health Insights'}
-            </h3>
-            {error && (
-                <div className="error-message" role="alert">
-                    {error}
-                    <button
-                        className="retry-button"
-                        onClick={() => {
-                            setError(null);
-                            if (pendingAction === 'report') handleReportPurchase();
-                            else if (pendingAction === 'subscribe') handleSubscribe();
-                        }}
-                    >
-                        Retry
-                    </button>
-                </div>
-            )}
-            {success && (
-                <div className="success-message" role="alert">
-                    Noted. Reach out anytime for more insights!
-                </div>
-            )}
-            <p>
-                <strong>Recommendation:</strong>{' '}
-                {careRecommendation || 'Consider consulting a healthcare provider.'}
-            </p>
-            <p>
-                <strong>Triage Level:</strong> {triageLevel || 'MODERATE'}
-            </p>
-            {triageLevel === 'AT_HOME' && !requiresUpgrade && (
-                <div className="mild-case-note">
-                    This appears to be a mild case that may be managed at home. You can
-                    upgrade for more details or continue monitoring your symptoms.
-                </div>
-            )}
-            {requiresUpgrade && (
+        <>
+            <div className="upgrade-options-inline">
+                <h3>
+                    {requiresUpgrade
+                        ? 'Upgrade Required for Full Insights'
+                        : 'Unlock Detailed Health Insights'}
+                </h3>
+                {error && (
+                    <div className="error-message" role="alert">
+                        {error}
+                        <button
+                            className="retry-button"
+                            onClick={() => {
+                                setError(null);
+                                if (pendingAction === 'report') handleReportPurchase();
+                                else if (pendingAction === 'subscribe') handleSubscribe();
+                            }}
+                        >
+                            Retry
+                        </button>
+                    </div>
+                )}
+                {success && (
+                    <div className="success-message" role="alert">
+                        Noted. Reach out anytime for more insights!
+                    </div>
+                )}
                 <p>
-                    Your assessment indicates a {triageLevel.toLowerCase()} condition.
-                    Upgrade to access detailed insights and recommendations.
+                    <strong>Recommendation:</strong>{' '}
+                    {careRecommendation || 'Consider consulting a healthcare provider.'}
                 </p>
-            )}
-            <div className="upgrade-options-container">
-                <button
-                    className="upgrade-button toggle-features"
-                    onClick={toggleFeatures}
-                    aria-expanded={showFeatures}
-                    aria-controls="premium-features"
-                >
-                    {showFeatures ? 'Hide Premium Features' : 'Show Premium Features'}
-                </button>
-                {showFeatures && (
-                    <ul id="premium-features" className="premium-features-list">
-                        {premiumFeatures.map((feature, index) => (
-                            <li key={index}>
-                                <span className="feature-name">{feature.name}</span>
-                                <span
-                                    className="tooltip-icon"
-                                    title={feature.tooltip}
-                                    aria-label={`Tooltip: ${feature.tooltip}`}
-                                >
-                                    ?
-                                </span>
-                                <span className="feature-description">
-                                    {feature.description}
-                                </span>
-                            </li>
-                        ))}
-                    </ul>
-                )}
-            </div>
-            <div className="upgrade-buttons">
-                <button
-                    className={`upgrade-button one-time ${
-                        loading ? 'loading' : ''
-                    }`}
-                    onClick={() => confirmAction('report')}
-                    disabled={loading}
-                    aria-label="Purchase a one-time report for $4.99"
-                >
-                    {loading ? <LoadingSpinner /> : 'One-Time Report ($4.99)'}
-                </button>
-                <button
-                    className={`upgrade-button subscription ${
-                        loading ? 'loading' : ''
-                    }`}
-                    onClick={() => confirmAction('subscribe')}
-                    disabled={loading}
-                    aria-label="Subscribe for $9.99 per month (requires login)"
-                >
-                    {loading ? <LoadingSpinner /> : 'Subscribe ($9.99/month)'}
-                </button>
+                <p>
+                    <strong>Triage Level:</strong> {triageLevel || 'MODERATE'}
+                </p>
                 {triageLevel === 'AT_HOME' && !requiresUpgrade && (
-                    <button
-                        className="continue-free-button"
-                        onClick={handleNotNowClick}
-                        disabled={loading}
-                        aria-label="Continue without upgrading for now"
-                    >
-                        Continue Monitoring
-                    </button>
+                    <div className="mild-case-note">
+                        This appears to be a mild case that may be managed at home. You can
+                        upgrade for more details or continue monitoring your symptoms.
+                    </div>
                 )}
+                {requiresUpgrade && (
+                    <p>
+                        Your assessment indicates a {triageLevel.toLowerCase()} condition.
+                        Upgrade to access detailed insights and recommendations.
+                    </p>
+                )}
+                <div className="upgrade-options-container">
+                    <button
+                        className="upgrade-button toggle-features"
+                        onClick={toggleFeatures}
+                        aria-expanded={showFeatures}
+                        aria-controls="premium-features"
+                    >
+                        {showFeatures ? 'Hide Premium Features' : 'Show Premium Features'}
+                    </button>
+                    {showFeatures && (
+                        <ul id="premium-features" className="premium-features-list">
+                            {premiumFeatures.map((feature, index) => (
+                                <li key={index}>
+                                    <span className="feature-name">{feature.name}</span>
+                                    <span
+                                        className="tooltip-icon"
+                                        title={feature.tooltip}
+                                        aria-label={`Tooltip: ${feature.tooltip}`}
+                                    >
+                                        ?
+                                    </span>
+                                    <span className="feature-description">
+                                        {feature.description}
+                                    </span>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+                <div className="upgrade-buttons">
+                    <button
+                        className={`upgrade-button one-time ${
+                            loading ? 'loading' : ''
+                        }`}
+                        onClick={() => confirmAction('report')}
+                        disabled={loading}
+                        aria-label="Purchase a one-time report for $4.99"
+                    >
+                        {loading ? <LoadingSpinner /> : 'One-Time Report ($4.99)'}
+                    </button>
+                    <button
+                        className={`upgrade-button subscription ${
+                            loading ? 'loading' : ''
+                        }`}
+                        onClick={() => confirmAction('subscribe')}
+                        disabled={loading}
+                        aria-label="Subscribe for $9.99 per month (requires login)"
+                    >
+                        {loading ? <LoadingSpinner /> : 'Subscribe ($9.99/month)'}
+                    </button>
+                    {triageLevel === 'AT_HOME' && !requiresUpgrade && (
+                        <button
+                            className="continue-free-button"
+                            onClick={handleNotNowClick}
+                            disabled={loading}
+                            aria-label="Continue without upgrading for now"
+                        >
+                            Continue Monitoring
+                        </button>
+                    )}
+                </div>
             </div>
             {showConfirmModal && (
                 <div className="confirm-modal">
@@ -288,7 +282,7 @@ const UpgradePrompt = ({
                     </div>
                 </div>
             )}
-        </div>
+        </>
     );
 };
 

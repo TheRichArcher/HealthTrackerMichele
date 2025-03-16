@@ -4,12 +4,11 @@
   border: 1px solid #b8daff;
   border-radius: 8px;
   padding: 16px;
-  margin: 8px 0 0; /* Reduced bottom margin to fit Chat.css */
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+  margin: 0; /* Adjusted to fit within message bubble */
+  box-shadow: none; /* Removed shadow to match message styling */
   width: 100%;
   max-width: 100%;
   animation: fadeIn 0.3s ease-in-out;
-  order: 2; /* Ensure it stays at bottom in Chat.jsx */
 }
 
 /* Animation for smooth entry */
@@ -308,7 +307,7 @@
 @media (max-width: 768px) {
   .upgrade-options-inline {
       padding: 12px;
-      margin: 6px 0 0;
+      margin: 0;
   }
 
   .upgrade-options-inline h3 {
