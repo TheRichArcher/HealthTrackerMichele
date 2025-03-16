@@ -1,6 +1,7 @@
 import React, { Suspense, Component } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
-import { AuthProvider, useAuth } from './components/AuthProvider'; // Import useAuth here
+import AuthProvider from './components/AuthProvider'; // Default import
+import { useAuth } from './components/AuthProvider'; // Named import
 
 // Component Imports
 import Chat from './components/Chat';
