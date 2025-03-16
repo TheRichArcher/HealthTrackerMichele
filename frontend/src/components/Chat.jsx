@@ -2,12 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from './AuthProvider';
-import { getLocalStorageItem } from '../utils/utils'; // Add this import
+import { getLocalStorageItem } from '../utils/utils';
 import UpgradePrompt from './UpgradePrompt';
 import '../styles/Chat.css';
 import '../styles/shared.css';
 
-const API_BASE_URL = 'https://healthtrackermichele.onrender.com/api'; // Consistent with AuthProvider
+const API_BASE_URL = 'https://healthtrackermichele.onrender.com/api';
 
 const Chat = () => {
   const [messages, setMessages] = useState([]);
@@ -18,7 +18,7 @@ const Chat = () => {
   const [assessmentCompleted, setAssessmentCompleted] = useState(false);
   const messagesEndRef = useRef(null);
   const navigate = useNavigate();
-  const { isAuthenticated, subscriptionTier, checkAuth } = useAuth(); // Add checkAuth
+  const { isAuthenticated, subscriptionTier, refreshToken } = useAuth();
 
   useEffect(() => {
     const savedMessages = localStorage.getItem('healthtracker_chat_messages');
@@ -79,21 +79,44 @@ const Chat = () => {
     setIsAnalyzing(true);
     setError(null);
 
-    const isValid = await checkAuth();
-    if (!isValid) {
-      navigate('/auth');
+    // Check for a valid token to determine if we should attempt a backend reset
+    const token = getLocalStorageItem('access_token');
+    const shouldAttemptBackendReset = isAuthenticated && token;
+
+    console.log('resetConversation: isAuthenticated=', isAuthenticated, 'token=', token ? 'present' : 'missing');
+
+    // If not authenticated or no token, reset locally
+    if (!shouldAttemptBackendReset) {
+      console.log('Resetting conversation locally (unauthenticated or no token)');
+      initializeChat();
+      setAssessmentCompleted(false);
       setIsAnalyzing(false);
       return;
     }
 
+    // Proactive token refresh before backend call
     try {
-      const token = getLocalStorageItem('access_token');
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      console.log('Attempting to refresh token before reset');
+      await refreshToken();
+      const newToken = getLocalStorageItem('access_token');
+      console.log('Token refresh successful. New token:', newToken.substring(0, 20) + '...');
+    } catch (refreshError) {
+      console.log('Token refresh failed:', refreshError.message);
+      console.log('Falling back to local reset due to refresh failure');
+      initializeChat();
+      setAssessmentCompleted(false);
+      setIsAnalyzing(false);
+      return;
+    }
 
+    // Attempt backend reset with refreshed token
+    try {
+      const newToken = getLocalStorageItem('access_token');
+      console.log('Attempting backend reset with token:', newToken.substring(0, 20) + '...');
       const response = await axios.post(
         `${API_BASE_URL}/symptoms/reset`,
         {},
-        { headers }
+        { headers: { Authorization: `Bearer ${newToken}` } }
       );
 
       if (response.data && response.data.response) {
@@ -104,13 +127,20 @@ const Chat = () => {
         }]);
         setAssessmentCompleted(false);
       } else {
+        console.log('Backend reset returned no response, resetting locally');
         initializeChat();
       }
     } catch (err) {
       console.error('Error resetting conversation:', err);
-      setError(err.response?.status === 401 ? 'Session expired. Please log in.' : 'Failed to reset conversation. Please try again.');
-      if (err.response?.status === 401) navigate('/auth');
-      else initializeChat();
+      if (err.response?.status === 401) {
+        console.log('Token expired during reset, doing local reset instead of redirecting');
+        initializeChat();
+        setAssessmentCompleted(false);
+      } else {
+        setError('Failed to reset conversation. Resetting locally.');
+        initializeChat();
+        setAssessmentCompleted(false);
+      }
     } finally {
       setIsAnalyzing(false);
     }
@@ -131,9 +161,13 @@ const Chat = () => {
     setIsAnalyzing(true);
     setError(null);
 
-    const isValid = await checkAuth();
-    if (!isValid) {
-      navigate('/auth');
+    // Allow unauthenticated users to send messages (public route)
+    if (!isAuthenticated) {
+      setMessages(prev => [...prev, {
+        text: "Please sign in to get a personalized symptom analysis. You can still describe your symptoms, but I'll provide general information only.",
+        sender: 'bot',
+        timestamp: new Date().toISOString()
+      }]);
       setIsTyping(false);
       setIsAnalyzing(false);
       return;
@@ -184,7 +218,7 @@ const Chat = () => {
         timestamp: new Date().toISOString(),
         isError: true
       }]);
-      if (err.response?.status === 401) navigate('/auth');
+      if (err.response?.status === 401) navigate('/auth'); // Keep this for sendMessage as it’s a protected action
     } finally {
       setIsTyping(false);
       setIsAnalyzing(false);

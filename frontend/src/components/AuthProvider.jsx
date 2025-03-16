@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { getLocalStorageItem, setLocalStorageItem, removeLocalStorageItem } from '../utils/utils';
 
-const API_BASE_URL = 'https://healthtrackermichele.onrender.com/api'; // Already correct
+const API_BASE_URL = 'https://healthtrackermichele.onrender.com/api';
 
 // Debounce utility to prevent concurrent checkAuth calls
 const debounce = (func, wait) => {
@@ -117,6 +117,7 @@ const AuthProvider = ({ children }) => {
 
         try {
             const isValid = await validateToken(accessToken);
+            console.log('checkAuth: Token validation result:', isValid);
             setIsAuthenticated(isValid);
             if (isValid) await fetchSubscriptionStatus();
             return isValid;
@@ -133,7 +134,9 @@ const AuthProvider = ({ children }) => {
         setIsLoading(true);
         try {
             const endpoint = credentials.username ? `${API_BASE_URL}/users` : `${API_BASE_URL}/login`;
+            console.log('Sending auth request to:', endpoint, 'with credentials:', credentials);
             const response = await axios.post(endpoint, credentials);
+            console.log('Auth response:', response.data);
             if (response.data && response.data.access_token && response.data.refresh_token) {
                 setLocalStorageItem('access_token', response.data.access_token);
                 setLocalStorageItem('refresh_token', response.data.refresh_token);
