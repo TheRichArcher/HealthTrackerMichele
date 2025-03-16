@@ -34,6 +34,7 @@ const AuthProvider = ({ children }) => {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json',
                 },
+                withCredentials: true,
             });
             setSubscriptionTier(response.data.subscription_tier);
         } catch (error) {
@@ -54,6 +55,7 @@ const AuthProvider = ({ children }) => {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json',
                 },
+                withCredentials: true,
             });
             console.log('Token validation successful. Response:', response.data);
             setSubscriptionTier(response.data.subscription_tier);
@@ -89,6 +91,7 @@ const AuthProvider = ({ children }) => {
                     'Authorization': `Bearer ${refreshTokenValue}`,
                     'Content-Type': 'application/json',
                 },
+                withCredentials: true,
             });
 
             if (response.data && response.data.access_token) {
@@ -135,26 +138,35 @@ const AuthProvider = ({ children }) => {
         try {
             const endpoint = credentials.username ? `${API_BASE_URL}/users` : `${API_BASE_URL}/login`;
             console.log('Sending auth request to:', endpoint, 'with credentials:', credentials);
-            const response = await axios.post(endpoint, credentials);
+            const response = await axios.post(endpoint, credentials, {
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                withCredentials: true,
+            });
             console.log('Auth response:', response.data);
             if (response.data && response.data.access_token && response.data.refresh_token) {
                 setLocalStorageItem('access_token', response.data.access_token);
                 setLocalStorageItem('refresh_token', response.data.refresh_token);
                 setLocalStorageItem('user_id', response.data.user_id);
-                setIsAuthenticated(true);
-                await fetchSubscriptionStatus();
-                await checkAuth(); // Ensure auth state is updated
-                navigate(navigateTo); // Navigate after successful login/signup
+                setIsAuthenticated(true); // Set state directly
+                setSubscriptionTier(response.data.subscription_tier); // Set subscription tier from response
+                navigate(navigateTo); // Navigate immediately
                 return true;
             }
-            throw new Error('Invalid login response');
+            throw new Error('Invalid login response: Missing tokens');
         } catch (error) {
-            console.error('Login error:', error.response?.data || error.message);
+            console.error('Login error:', {
+                message: error.message,
+                response: error.response?.data,
+                status: error.response?.status,
+                headers: error.response?.headers,
+            });
             throw error;
         } finally {
             setIsLoading(false);
         }
-    }, [fetchSubscriptionStatus, checkAuth, navigate]);
+    }, [navigate]);
 
     const logout = useCallback(async () => {
         setIsLoggingOut(true);
@@ -164,6 +176,7 @@ const AuthProvider = ({ children }) => {
             try {
                 await axios.post(`${API_BASE_URL}/logout/`, {}, {
                     headers: { 'Authorization': `Bearer ${token}` },
+                    withCredentials: true,
                 });
             } catch (error) {
                 console.error('Server logout notification failed:', error);
