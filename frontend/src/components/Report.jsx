@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { useAuth } from './AuthProvider'; // Updated import
+import { useAuth } from './AuthProvider';
 import { getLocalStorageItem } from '../utils/utils';
 import '../styles/Report.css';
 
@@ -9,7 +9,7 @@ const API_BASE_URL = 'https://healthtrackermichele.onrender.com/api';
 
 const Report = () => {
     const navigate = useNavigate();
-    const { isAuthenticated, isLoading: authLoading, checkAuth } = useAuth();
+    const { isAuthenticated, isLoading: authLoading, checkAuth, isLoggingOut } = useAuth();
     const [formData, setFormData] = useState({
         symptoms: '',
         timeline: ''
@@ -28,23 +28,17 @@ const Report = () => {
 
         if (authLoading) return;
 
-        if (!isAuthenticated && (!userId || !accessToken)) {
-            console.log('Not authenticated or missing tokens, redirecting to /auth');
-            navigate('/auth', { 
-                state: { from: { pathname: '/report' } },
-                replace: true 
-            });
-        } else if (!isAuthenticated) {
-            console.log('Token validation failed, rechecking auth');
-            checkAuth().then(() => {
-                if (!isAuthenticated) {
-                    navigate('/auth', { 
-                        state: { from: { pathname: '/report' } },
-                        replace: true 
-                    });
-                }
-            });
-        }
+        const verifyAuth = async () => {
+            const isValid = await checkAuth();
+            if (!isValid || !userId || !accessToken) {
+                console.log('Not authenticated or missing tokens, redirecting to /auth');
+                navigate('/auth', { 
+                    state: { from: { pathname: '/report' } },
+                    replace: true 
+                });
+            }
+        };
+        verifyAuth();
     }, [isAuthenticated, authLoading, userId, accessToken, navigate, checkAuth]);
 
     const handleInputChange = useCallback((e) => {
@@ -70,12 +64,13 @@ const Report = () => {
         console.log('Submitting report form. Authenticated:', isAuthenticated);
         console.log('User ID:', userId, 'Access token:', accessToken ? 'exists' : 'missing');
 
-        if (authLoading) {
-            setError('Authentication is still loading. Please wait.');
+        if (authLoading || isLoggingOut) {
+            setError('Authentication is still processing. Please wait.');
             return;
         }
 
-        if (!isAuthenticated && (!userId || !accessToken)) {
+        const isValid = await checkAuth();
+        if (!isValid || !userId || !accessToken) {
             setError('User session expired. Please log in.');
             navigate('/auth');
             return;

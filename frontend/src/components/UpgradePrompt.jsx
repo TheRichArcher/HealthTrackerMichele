@@ -1,17 +1,20 @@
 import React, { useState, useEffect, memo } from 'react';
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from './AuthProvider'; // Updated import
+import { useAuth } from './AuthProvider';
 import axios from 'axios';
+import { getLocalStorageItem } from '../utils/utils';
 import '../styles/UpgradePrompt.css';
 import '../styles/shared.css';
+
+const API_BASE_URL = 'https://healthtrackermichele.onrender.com/api';
 
 const UpgradePrompt = ({ condition, commonName, isMildCase, requiresUpgrade, confidence, triageLevel, recommendation, onDismiss }) => {
     const [loadingSubscription, setLoadingSubscription] = useState(false);
     const [loadingOneTime, setLoadingOneTime] = useState(false);
     const [report, setReport] = useState(null);
     const [error, setError] = useState(null);
-    const { isAuthenticated, fetchSubscriptionStatus } = useAuth();
+    const { isAuthenticated, checkAuth, isLoggingOut } = useAuth();
     const navigate = useNavigate();
 
     const displayName = commonName ? `${commonName} (${condition})` : condition;
@@ -23,46 +26,56 @@ const UpgradePrompt = ({ condition, commonName, isMildCase, requiresUpgrade, con
         }
     }, [condition, commonName, isMildCase, requiresUpgrade, confidence, triageLevel, recommendation]);
 
-    const handleSubscriptionClick = () => {
-        if (loadingSubscription || loadingOneTime) return;
-        setLoadingSubscription(true);
-        
-        if (!isAuthenticated) {
-            navigate('/auth', { state: { from: '/subscription', plan: 'paid' } });
+    const handleSubscriptionClick = async () => {
+        if (loadingSubscription || loadingOneTime || isLoggingOut) {
+            setError('Please wait while processing.');
             return;
         }
-        
-        navigate('/subscription', { state: { plan: 'paid' } });
+        setLoadingSubscription(true);
+        setError(null);
+
+        const isValid = await checkAuth();
+        if (!isValid) {
+            navigate('/auth', { state: { from: '/subscription', plan: 'paid' } });
+        } else {
+            navigate('/subscription', { state: { plan: 'paid' } });
+        }
+        setLoadingSubscription(false);
     };
 
-    const handleOneTimeClick = () => {
-        if (loadingSubscription || loadingOneTime) return;
-        setLoadingOneTime(true);
-        
-        if (!isAuthenticated) {
-            navigate('/auth', { state: { from: '/one-time-report', plan: 'one_time' } });
+    const handleOneTimeClick = async () => {
+        if (loadingSubscription || loadingOneTime || isLoggingOut) {
+            setError('Please wait while processing.');
             return;
         }
-        
-        checkSubscriptionAndGenerateReport();
+        setLoadingOneTime(true);
+        setError(null);
+
+        const isValid = await checkAuth();
+        if (!isValid) {
+            navigate('/auth', { state: { from: '/one-time-report', plan: 'one_time' } });
+            setLoadingOneTime(false);
+            return;
+        }
+
+        await checkSubscriptionAndGenerateReport();
     };
-    
+
     const checkSubscriptionAndGenerateReport = async () => {
         try {
-            const token = localStorage.getItem('access_token');
-            if (!token) {
-                setError('Authentication required. Please log in.');
-                setLoadingOneTime(false);
-                navigate('/auth');
+            const isValid = await checkAuth();
+            if (!isValid) {
+                navigate('/auth', { state: { from: '/one-time-report', plan: 'one_time' } });
                 return;
             }
 
-            const response = await axios.get(`${import.meta.env.VITE_API_URL || '/api'}/subscription/status`, {
+            const token = getLocalStorageItem('access_token');
+            const response = await axios.get(`${API_BASE_URL}/subscription/status`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
-            
+
             const userTier = response.data.subscription_tier;
-            
+
             if (userTier === 'paid' || userTier === 'one_time') {
                 await generateReport();
             } else {
@@ -70,28 +83,45 @@ const UpgradePrompt = ({ condition, commonName, isMildCase, requiresUpgrade, con
             }
         } catch (err) {
             console.error('Error checking subscription status:', err);
-            setError('Failed to check subscription status. Please try again.');
+            setError(
+                err.response?.status === 401
+                    ? 'Session expired. Please log in again.'
+                    : 'Failed to check subscription status. Please try again.'
+            );
+            if (err.response?.status === 401) {
+                navigate('/auth');
+            }
+        } finally {
             setLoadingOneTime(false);
         }
     };
-    
+
     const generateReport = async () => {
         try {
-            const token = localStorage.getItem('access_token');
-            if (!token) {
-                setError('Authentication required. Please log in.');
-                setLoadingOneTime(false);
+            const isValid = await checkAuth();
+            if (!isValid) {
                 navigate('/auth');
                 return;
             }
 
-            const conversationHistory = JSON.parse(localStorage.getItem('healthtracker_chat_messages') || '[]')
-                .map(msg => ({ message: msg.text, isBot: msg.sender === 'bot' }));
-            
+            const token = getLocalStorageItem('access_token');
+            const chatMessages = getLocalStorageItem('healthtracker_chat_messages');
+            let conversationHistory = [];
+            try {
+                conversationHistory = JSON.parse(chatMessages || '[]')
+                    .map(msg => ({ message: msg.text, isBot: msg.sender === 'bot' }));
+            } catch (e) {
+                console.error('Error parsing chat messages:', e);
+            }
+
             const userSymptoms = conversationHistory.find(msg => !msg.isBot)?.message || condition;
-            
+
+            if (!userSymptoms) {
+                throw new Error('No symptoms found to generate a report.');
+            }
+
             const response = await axios.post(
-                `${import.meta.env.VITE_API_URL || '/api'}/symptoms/doctor-report`, 
+                `${API_BASE_URL}/symptoms/doctor-report`,
                 {
                     symptom: userSymptoms,
                     conversation_history: conversationHistory
@@ -100,16 +130,22 @@ const UpgradePrompt = ({ condition, commonName, isMildCase, requiresUpgrade, con
                     headers: { 'Authorization': `Bearer ${token}` }
                 }
             );
-            
+
             if (response.data.success) {
                 setReport(response.data.doctors_report);
-                await fetchSubscriptionStatus();
             } else {
                 throw new Error(response.data.error || 'Failed to generate report');
             }
         } catch (err) {
             console.error('Error generating report:', err);
-            setError('Failed to generate report. Please try again.');
+            setError(
+                err.response?.status === 401
+                    ? 'Session expired. Please log in again.'
+                    : err.message || 'Failed to generate report. Please try again.'
+            );
+            if (err.response?.status === 401) {
+                navigate('/auth');
+            }
         } finally {
             setLoadingOneTime(false);
         }
@@ -159,7 +195,7 @@ const UpgradePrompt = ({ condition, commonName, isMildCase, requiresUpgrade, con
                         <button
                             className={`upgrade-button subscription ${loadingSubscription ? 'loading' : ''}`}
                             onClick={handleSubscriptionClick}
-                            disabled={loadingSubscription || loadingOneTime}
+                            disabled={loadingSubscription || loadingOneTime || isLoggingOut}
                             aria-busy={loadingSubscription}
                         >
                             {loadingSubscription ? 'Processing...' : '🩺 Get Premium ($9.99/month)'}
@@ -167,7 +203,7 @@ const UpgradePrompt = ({ condition, commonName, isMildCase, requiresUpgrade, con
                         <button
                             className={`upgrade-button one-time ${loadingOneTime ? 'loading' : ''}`}
                             onClick={handleOneTimeClick}
-                            disabled={loadingSubscription || loadingOneTime}
+                            disabled={loadingSubscription || loadingOneTime || isLoggingOut}
                             aria-busy={loadingOneTime}
                         >
                             {loadingOneTime ? 'Generating...' : '📄 Get Report ($4.99)'}
@@ -178,7 +214,11 @@ const UpgradePrompt = ({ condition, commonName, isMildCase, requiresUpgrade, con
                             </button>
                         )}
                     </div>
-                    {error && <div className="error-message">{error}</div>}
+                    {error && (
+                        <div className="error-message" role="alert">
+                            {error}
+                        </div>
+                    )}
                 </>
             ) : (
                 <div className="doctor-report">

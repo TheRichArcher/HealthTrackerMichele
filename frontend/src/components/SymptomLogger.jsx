@@ -35,42 +35,64 @@ const SymptomLogger = () => {
   const [subscriptionTier, setSubscriptionTier] = useState(null);
   const [symptomCount, setSymptomCount] = useState(0);
 
-  const { isAuthenticated, checkAuth } = useAuth();
+  const { isAuthenticated, checkAuth, isLoggingOut } = useAuth();
   const navigate = useNavigate();
   const userId = getLocalStorageItem("user_id");
   const accessToken = getLocalStorageItem("access_token");
 
+  // Fetch symptom count and subscription tier on mount if authenticated
   useEffect(() => {
     if (isAuthenticated) {
-      const token = accessToken;
-      Promise.all([
-        axios.get(`${API_BASE_URL}/symptoms/count`, { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get(`${API_BASE_URL}/subscription/status`, { headers: { Authorization: `Bearer ${token}` } })
-      ])
-        .then(([countRes, subRes]) => {
+      const fetchInitialData = async () => {
+        const isValid = await checkAuth();
+        if (!isValid) {
+          navigate('/auth', { state: { from: { pathname: '/symptom-logger' } } });
+          return;
+        }
+
+        try {
+          const token = getLocalStorageItem('access_token');
+          const [countRes, subRes] = await Promise.all([
+            axios.get(`${API_BASE_URL}/symptoms/count`, { headers: { Authorization: `Bearer ${token}` } }),
+            axios.get(`${API_BASE_URL}/subscription/status`, { headers: { Authorization: `Bearer ${token}` } })
+          ]);
           setSymptomCount(countRes.data.count || 0);
           setSubscriptionTier(subRes.data.subscription_tier);
-        })
-        .catch(err => console.error('Failed to fetch data:', err));
+        } catch (err) {
+          console.error('Failed to fetch initial data:', err);
+          if (err.response?.status === 401) {
+            navigate('/auth', { state: { from: { pathname: '/symptom-logger' } } });
+          }
+        }
+      };
+      fetchInitialData();
     }
-  }, [isAuthenticated, accessToken]);
+  }, [isAuthenticated, navigate, checkAuth]);
 
+  // Load last entry from localStorage and handle authentication
   useEffect(() => {
-    const savedEntry = getLocalStorageItem("lastSymptomEntry");
-    if (savedEntry) {
-      try {
-        const parsedEntry = JSON.parse(savedEntry);
-        setLastEntry(parsedEntry);
-        setFormData(prev => ({ ...prev, ...parsedEntry, onsetDate: new Date().toISOString().split('T')[0] }));
-      } catch (error) {
-        console.error('Error parsing saved entry:', error);
+    const verifyAuthAndLoadEntry = async () => {
+      const isValid = await checkAuth();
+      if (!isValid) {
+        navigate('/auth', { state: { from: { pathname: '/symptom-logger' } } });
+        return;
       }
-    }
-    if (!isAuthenticated) {
-      navigate('/auth', { state: { from: { pathname: '/symptom-logger' } } });
-    }
-  }, [isAuthenticated, navigate]);
 
+      const savedEntry = getLocalStorageItem("lastSymptomEntry");
+      if (savedEntry) {
+        try {
+          const parsedEntry = JSON.parse(savedEntry);
+          setLastEntry(parsedEntry);
+          setFormData(prev => ({ ...prev, ...parsedEntry, onsetDate: new Date().toISOString().split('T')[0] }));
+        } catch (error) {
+          console.error('Error parsing saved entry:', error);
+        }
+      }
+    };
+    verifyAuthAndLoadEntry();
+  }, [navigate, checkAuth]);
+
+  // Clear log status after 3 seconds
   useEffect(() => {
     if (logStatus) {
       const timer = setTimeout(() => setLogStatus(null), 3000);
@@ -78,6 +100,7 @@ const SymptomLogger = () => {
     }
   }, [logStatus]);
 
+  // Debounced validation for numeric fields
   const debouncedValidation = useCallback(debounce((value, id) => {
     const rules = VALIDATION_RULES[id];
     if (!rules) return;
@@ -89,6 +112,7 @@ const SymptomLogger = () => {
     }
   }, 300), []);
 
+  // Handle input changes with debounced validation for numeric fields
   const handleInputChange = useCallback((e) => {
     const { id, value } = e.target;
     setFormData(prev => ({ ...prev, [id]: value }));
@@ -99,6 +123,7 @@ const SymptomLogger = () => {
     }
   }, [debouncedValidation]);
 
+  // Validate the form
   const validateForm = useCallback(() => {
     const newErrors = {};
     if (!userId || !accessToken) newErrors.general = "User session not found. Please log in.";
@@ -112,8 +137,21 @@ const SymptomLogger = () => {
     return Object.keys(newErrors).length === 0;
   }, [userId, accessToken, formData]);
 
+  // Handle form submission
   const handleSubmit = async (event) => {
     event.preventDefault();
+
+    if (isLoggingOut) {
+      setErrors({ general: 'Currently logging out. Please wait.' });
+      return;
+    }
+
+    const isValid = await checkAuth();
+    if (!isValid) {
+      navigate('/auth', { state: { from: { pathname: '/symptom-logger' } } });
+      return;
+    }
+
     if (!validateForm()) return;
 
     if (subscriptionTier === 'free' && symptomCount >= 5) {
@@ -157,13 +195,14 @@ const SymptomLogger = () => {
     } catch (err) {
       setErrors({ general: err.message });
       if (err.message.includes("session expired")) {
-        navigate('/auth');
+        navigate('/auth', { state: { from: { pathname: '/symptom-logger' } } });
       }
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Handle dismiss upgrade prompt
   const handleDismissUpgrade = useCallback(() => {
     navigate('/dashboard');
   }, [navigate]);
@@ -228,6 +267,7 @@ const SymptomLogger = () => {
             <span>Mild</span>
             <span>Severe</span>
           </div>
+          {errors.intensity && <span className="error-message">{errors.intensity}</span>}
         </div>
         <div className={`form-group ${errors.respiratoryRate ? 'error' : ''}`}>
           <label htmlFor="respiratoryRate">Respiratory Rate (breaths/min):</label>

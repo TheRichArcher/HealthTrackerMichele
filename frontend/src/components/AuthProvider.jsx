@@ -1,49 +1,43 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getLocalStorageItem, removeLocalStorageItem, setLocalStorageItem } from '../utils/utils';
 import axios from 'axios';
+import { getLocalStorageItem, setLocalStorageItem, removeLocalStorageItem } from '../utils/utils';
 
-// API URL handling with warning for missing environment variable
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://healthtrackermichele.onrender.com/api';
-if (!import.meta.env.VITE_API_URL) {
-    console.warn('VITE_API_URL not set in environment variables, using fallback URL');
-}
+const API_BASE_URL = 'https://healthtrackermichele.onrender.com/api';
 
-export const AuthContext = createContext(null);
+// Debounce utility to prevent concurrent checkAuth calls
+const debounce = (func, wait) => {
+    let timeout;
+    return (...args) => {
+        clearTimeout(timeout);
+        return new Promise((resolve) => {
+            timeout = setTimeout(() => resolve(func(...args)), wait);
+        });
+    };
+};
 
-export const AuthProvider = ({ children }) => {
+const AuthContext = createContext();
+
+const AuthProvider = ({ children }) => {
+    const navigate = useNavigate();
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
+    const [isLoggingOut, setIsLoggingOut] = useState(false);
     const [subscriptionTier, setSubscriptionTier] = useState(null);
-    const navigate = useNavigate(); // Add navigation hook
 
-    const refreshToken = useCallback(async () => {
-        const refreshTokenValue = getLocalStorageItem('refresh_token');
-        console.log('Attempting to refresh token. Refresh token:', refreshTokenValue ? 'exists' : 'missing');
-        if (!refreshTokenValue) {
-            console.log('No refresh token available');
-            return false; // Don’t throw, just return false
-        }
-
+    const fetchSubscriptionStatus = useCallback(async () => {
+        const token = getLocalStorageItem('access_token');
+        if (!token) return;
         try {
-            const response = await axios.post(`${API_BASE_URL}/auth/refresh/`, {}, {
+            const response = await axios.get(`${API_BASE_URL}/subscription/status`, {
                 headers: {
-                    'Authorization': `Bearer ${refreshTokenValue}`,
-                    'Content-Type': 'application/json', // Ensure header is set
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
                 },
             });
-
-            if (response.data && response.data.access_token) {
-                setLocalStorageItem('access_token', response.data.access_token);
-                console.log('Token refresh successful. New access token:', response.data.access_token.substring(0, 20) + '...');
-                setIsAuthenticated(true);
-                return true;
-            }
-            console.log('Invalid refresh token response:', response.data);
-            return false;
+            setSubscriptionTier(response.data.subscription_tier);
         } catch (error) {
-            console.error('Token refresh failed:', error.response?.data || error.message);
-            return false; // Don’t clear tokens here, let logout handle it
+            console.error('Error fetching subscription status:', error.response?.data || error.message);
         }
     }, []);
 
@@ -58,12 +52,12 @@ export const AuthProvider = ({ children }) => {
             const response = await axios.get(`${API_BASE_URL}/auth/validate/`, {
                 headers: {
                     'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json', // Ensure header is set
+                    'Content-Type': 'application/json',
                 },
             });
             console.log('Token validation successful. Response:', response.data);
-            setSubscriptionTier(response.data.subscription_tier); // Update tier from validate response
-            return response.status === 200;
+            setSubscriptionTier(response.data.subscription_tier);
+            return true;
         } catch (error) {
             console.log('Token validation failed:', error.response?.data || error.message);
             if (error.response?.status === 401 && !isRetry) {
@@ -72,108 +66,103 @@ export const AuthProvider = ({ children }) => {
                 if (refreshed) {
                     const newToken = getLocalStorageItem('access_token');
                     return await validateToken(newToken, true);
+                } else {
+                    console.log('Token refresh failed, logging out');
+                    await logout();
+                    return false;
                 }
             }
             return false;
         }
     };
 
-    const fetchSubscriptionStatus = useCallback(async () => {
-        if (!isAuthenticated) {
-            console.log('Not authenticated, skipping subscription status fetch');
-            return;
+    const refreshToken = useCallback(async () => {
+        const refreshTokenValue = getLocalStorageItem('refresh_token');
+        console.log('Attempting to refresh token. Refresh token:', refreshTokenValue ? 'exists' : 'missing');
+        if (!refreshTokenValue) {
+            throw new Error('No refresh token available');
         }
 
         try {
-            const token = getLocalStorageItem('access_token');
-            console.log('Fetching subscription status. Token:', token ? 'exists' : 'missing');
-            const response = await axios.get(`${API_BASE_URL}/subscription/status`, {
-                headers: { 'Authorization': `Bearer ${token}` },
+            const response = await axios.post(`${API_BASE_URL}/auth/refresh/`, {}, {
+                headers: {
+                    'Authorization': `Bearer ${refreshTokenValue}`,
+                    'Content-Type': 'application/json',
+                },
             });
-            console.log('Subscription status fetched:', response.data.subscription_tier);
-            setSubscriptionTier(response.data.subscription_tier);
-        } catch (err) {
-            console.error('Failed to fetch subscription status:', err.response?.data || err.message);
-        }
-    }, [isAuthenticated]);
 
-    const checkAuth = useCallback(async () => {
+            if (response.data && response.data.access_token) {
+                setLocalStorageItem('access_token', response.data.access_token);
+                console.log('Token refresh successful. New access token:', response.data.access_token.substring(0, 20) + '...');
+                setIsAuthenticated(true);
+                return true;
+            }
+            throw new Error('Invalid refresh token response');
+        } catch (error) {
+            console.error('Token refresh failed:', error.response?.data || error.message);
+            throw error; // Propagate error to trigger logout
+        }
+    }, []);
+
+    const checkAuth = useCallback(debounce(async () => {
+        console.log('Checking authentication status');
         const accessToken = getLocalStorageItem('access_token');
         const userId = getLocalStorageItem('user_id');
-
-        console.log('Checking authentication...');
-        console.log('Access token exists:', !!accessToken, 'Value:', accessToken ? accessToken.substring(0, 20) + '...' : 'none');
-        console.log('User ID exists:', !!userId, 'Value:', userId || 'none');
-
         if (!accessToken || !userId) {
-            console.log('Missing tokens or user ID, setting isAuthenticated to false');
+            console.log('No access token or user ID found, setting isAuthenticated to false');
             setIsAuthenticated(false);
             setIsLoading(false);
-            return;
+            return false;
         }
 
         try {
             const isValid = await validateToken(accessToken);
-            console.log('Token validation result:', isValid);
             setIsAuthenticated(isValid);
-
-            if (isValid) {
-                console.log('User is authenticated, fetching subscription status');
-                await fetchSubscriptionStatus();
-            } else {
-                console.log('Token invalid, user not authenticated');
-            }
+            if (isValid) await fetchSubscriptionStatus();
+            return isValid;
         } catch (error) {
             console.error('Authentication check error:', error);
             setIsAuthenticated(false);
+            return false;
         } finally {
-            console.log('Authentication check complete, isAuthenticated:', isAuthenticated);
             setIsLoading(false);
         }
-    }, [fetchSubscriptionStatus]);
+    }, 300), [fetchSubscriptionStatus]);
 
-    const login = useCallback(async (credentials) => {
+    const login = useCallback(async (email, password) => {
         setIsLoading(true);
-        console.log('Sending login request to', `${API_BASE_URL}/login`, credentials);
         try {
-            const response = await axios.post(`${API_BASE_URL}/login`, credentials, {
-                headers: { 'Content-Type': 'application/json' },
-            });
-            console.log('Response received:', response.data);
-            setLocalStorageItem('access_token', response.data.access_token);
-            setLocalStorageItem('refresh_token', response.data.refresh_token);
-            setLocalStorageItem('user_id', response.data.user_id);
-            console.log('Tokens stored:', {
-                access_token: response.data.access_token.substring(0, 20) + '...',
-                user_id: response.data.user_id,
-            });
-            setIsAuthenticated(true);
-            setSubscriptionTier(response.data.subscription_tier);
-            navigate('/dashboard'); // Redirect after successful login
+            const response = await axios.post(`${API_BASE_URL}/login`, { email, password });
+            if (response.data && response.data.access_token && response.data.refresh_token) {
+                setLocalStorageItem('access_token', response.data.access_token);
+                setLocalStorageItem('refresh_token', response.data.refresh_token);
+                setLocalStorageItem('user_id', response.data.user_id);
+                setIsAuthenticated(true);
+                await fetchSubscriptionStatus();
+                return true;
+            }
+            throw new Error('Invalid login response');
         } catch (error) {
-            console.error('Login failed:', error.response?.data || error.message);
+            console.error('Login error:', error.response?.data || error.message);
             throw error;
         } finally {
             setIsLoading(false);
         }
-    }, [navigate]);
+    }, [fetchSubscriptionStatus]);
 
     const logout = useCallback(async () => {
+        setIsLoggingOut(true);
         setIsLoading(true);
-        console.log('Logging out...');
         const token = getLocalStorageItem('access_token');
-
         if (token) {
             try {
                 await axios.post(`${API_BASE_URL}/logout/`, {}, {
                     headers: { 'Authorization': `Bearer ${token}` },
                 });
-                console.log('Server logout successful');
             } catch (error) {
                 console.error('Server logout notification failed:', error);
             }
         }
-
         removeLocalStorageItem('access_token');
         removeLocalStorageItem('refresh_token');
         removeLocalStorageItem('user_id');
@@ -181,8 +170,8 @@ export const AuthProvider = ({ children }) => {
         setIsAuthenticated(false);
         setSubscriptionTier(null);
         setIsLoading(false);
-        console.log('Logout complete');
-        navigate('/auth'); // Redirect to login page
+        setIsLoggingOut(false);
+        navigate('/auth');
     }, [navigate]);
 
     useEffect(() => {
@@ -190,6 +179,17 @@ export const AuthProvider = ({ children }) => {
         checkAuth();
 
         const interval = setInterval(checkAuth, 60000);
+        const refreshInterval = setInterval(async () => {
+            console.log('Proactively refreshing token');
+            try {
+                await refreshToken();
+                await checkAuth();
+            } catch (error) {
+                console.error('Proactive refresh failed:', error);
+                await logout();
+            }
+        }, 3300000); // 55 minutes
+
         const handleStorageChange = (e) => {
             if (['access_token', 'refresh_token', 'user_id'].includes(e.key)) {
                 console.log('Storage change detected for auth keys, rechecking auth');
@@ -209,6 +209,7 @@ export const AuthProvider = ({ children }) => {
 
         return () => {
             clearInterval(interval);
+            clearInterval(refreshInterval);
             window.removeEventListener('storage', handleStorageChange);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             window.removeEventListener('focus', checkAuth);
@@ -227,15 +228,11 @@ export const AuthProvider = ({ children }) => {
         subscriptionTier,
         setSubscriptionTier,
         fetchSubscriptionStatus,
+        isLoggingOut,
     };
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-export const useAuth = () => {
-    const context = useContext(AuthContext);
-    if (!context) {
-        throw new Error('useAuth must be used within an AuthProvider');
-    }
-    return context;
-};
+export default AuthProvider;
+export const useAuth = () => React.useContext(AuthContext);

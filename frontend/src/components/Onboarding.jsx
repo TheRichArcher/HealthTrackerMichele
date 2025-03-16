@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { getLocalStorageItem } from '../utils/utils';
+import { useAuth } from './AuthProvider';
 import '../styles/Onboarding.css';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://healthtrackermichele.onrender.com/api';
@@ -34,6 +35,7 @@ const VITAL_FIELDS = {
 
 const Onboarding = () => {
     const navigate = useNavigate();
+    const { checkAuth, isLoggingOut } = useAuth();
     const chatRef = useRef(null);
     const [messages, setMessages] = useState([
         { sender: 'bot', text: "Welcome to HealthTrackerAI! What brings you into the office today?" }
@@ -49,11 +51,14 @@ const Onboarding = () => {
     const userId = getLocalStorageItem("user_id");
 
     useEffect(() => {
-        if (!userId) {
-            navigate('/auth');
-            return;
-        }
-    }, [userId, navigate]);
+        const verifyAuth = async () => {
+            const isValid = await checkAuth();
+            if (!userId || !isValid) {
+                navigate('/auth');
+            }
+        };
+        verifyAuth();
+    }, [userId, navigate, checkAuth]);
 
     const scrollToBottom = useCallback(() => {
         chatRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -70,6 +75,17 @@ const Onboarding = () => {
     const sendMessage = async () => {
         if (!input.trim()) {
             setError("Please enter a valid message.");
+            return;
+        }
+
+        if (isLoggingOut) {
+            setError("Currently logging out. Please wait.");
+            return;
+        }
+
+        const isValid = await checkAuth();
+        if (!isValid) {
+            navigate('/auth');
             return;
         }
 
@@ -117,6 +133,9 @@ const Onboarding = () => {
         } catch (err) {
             console.error("Error:", err);
             setError("An error occurred while sending your message. Please try again.");
+            if (err.response?.status === 401) {
+                navigate('/auth');
+            }
         } finally {
             setIsLoading(false);
             setInput("");
@@ -142,6 +161,17 @@ const Onboarding = () => {
 
     const submitVitals = async () => {
         if (!validateVitals()) return;
+
+        if (isLoggingOut) {
+            setError("Currently logging out. Please wait.");
+            return;
+        }
+
+        const isValid = await checkAuth();
+        if (!isValid) {
+            navigate('/auth');
+            return;
+        }
 
         setIsLoading(true);
         setError(null);
@@ -169,6 +199,9 @@ const Onboarding = () => {
         } catch (err) {
             console.error("Error submitting vitals:", err);
             setError("An error occurred while submitting your vitals. Please try again.");
+            if (err.response?.status === 401) {
+                navigate('/auth');
+            }
         } finally {
             setIsLoading(false);
         }
