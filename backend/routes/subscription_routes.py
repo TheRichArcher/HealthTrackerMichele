@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, current_app
-from backend.models import db, User, Report
+from backend.models import db, User, Report, SymptomLog  # Add SymptomLog import
 from backend.utils.auth import token_required, generate_temp_user_id
 from backend.utils.pdf_generator import generate_pdf_report
 from datetime import datetime
@@ -7,12 +7,17 @@ import stripe
 import os
 from urllib.parse import urljoin
 from enum import Enum
+import logging  # Add logging import
 
 subscription_routes = Blueprint('subscription_routes', __name__)
 
 # Configure Stripe
 stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
 BASE_URL = os.getenv('BASE_URL', 'https://healthtrackermichele.onrender.com')
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)  # Define logger
 
 # Enum for user tiers
 class UserTierEnum(Enum):
@@ -40,7 +45,7 @@ def upgrade(current_user=None):
             logger.warning(f"Assessment ID missing for user_id={user_id}, plan={plan}")
             assessment_id = None  # Proceed without validation for now
 
-        # Validate assessment_id against database (to be fully implemented)
+        # Validate assessment_id against database
         if assessment_id:
             symptom_log = SymptomLog.query.get(assessment_id)
             if not symptom_log or (user and symptom_log.user_id != user_id):

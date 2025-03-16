@@ -6,6 +6,8 @@ from datetime import datetime
 import uuid
 import logging
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from backend.utils.auth import generate_temp_user_id, token_required  # Add token_required import
+from backend.utils.pdf_generator import generate_pdf_report
 
 symptom_routes = Blueprint('symptom_routes', __name__)
 
@@ -17,19 +19,21 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Retry decorator for OpenAI API calls
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), retry=retry_if_exception_type((openai.error.RateLimitError, openai.error.APIError)))
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), retry=retry_if_exception_type(openai.OpenAIError))
 def call_openai_api(messages):
-    model = os.getenv('OPENAI_MODEL', 'gpt-4o')
     try:
         response = openai.ChatCompletion.create(
-            model=model,
+            model=os.getenv('OPENAI_MODEL', 'gpt-4o'),
             messages=messages,
             max_tokens=500,
             temperature=0.7,
         )
         return response
-    except Exception as e:
+    except openai.OpenAIError as e:
         logger.error(f"OpenAI API call failed: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in OpenAI API call: {str(e)}")
         raise
 
 @symptom_routes.route('/symptoms/analyze', methods=['POST'])
@@ -116,7 +120,7 @@ def analyze_symptoms():
 
         return jsonify({'response': response_data}), 200
 
-    except (openai.error.RateLimitError, openai.error.APIError) as e:
+    except openai.OpenAIError as e:
         logger.error(f"OpenAI API error: {str(e)} - Retrying...")
         return jsonify({'error': 'Temporary API issue, retrying...'}), 500
     except Exception as e:
