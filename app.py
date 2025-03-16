@@ -10,6 +10,7 @@ from flask_jwt_extended import (
 from backend.extensions import db, bcrypt, cors, migrate
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
+from flask_cors import cross_origin
 
 # Load environment variables
 load_dotenv()
@@ -163,6 +164,65 @@ def create_app():
 
     for blueprint, url_prefix in blueprints:
         app.register_blueprint(blueprint, url_prefix=url_prefix)
+
+    # Create a new blueprint for top-level routes
+    top_level_routes = Blueprint('top_level_routes', __name__)
+
+    # Configure Stripe
+    stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
+
+    @top_level_routes.route("/one-time-report", methods=["GET"])
+    @cross_origin()
+    def one_time_report():
+        """Handle one-time report access after Stripe payment."""
+        try:
+            app.logger.info("Received request for /one-time-report")
+            session_id = request.args.get("session_id")
+            if not session_id:
+                app.logger.warning("No session_id provided for one-time-report")
+                return jsonify({"error": "Session ID is required"}), 400
+
+            # Retrieve the Stripe Checkout session
+            session = stripe.checkout.Session.retrieve(session_id)
+
+            # Verify the session is completed and paid
+            if session.status != "complete":
+                app.logger.warning(f"Session {session_id} is not complete")
+                return jsonify({"error": "Payment session is not complete"}), 400
+            if session.payment_status != "paid":
+                app.logger.warning(f"Session {session_id} is unpaid")
+                return jsonify({"error": "Payment not completed"}), 403
+            if session.metadata.get("plan") != "one_time":
+                app.logger.warning(f"Session {session_id} is not for a one-time report")
+                return jsonify({"error": "Invalid payment session"}), 403
+
+            # Fetch user (optional, if you need user-specific data)
+            user_id = session.metadata.get("user_id")
+            user = User.query.get(user_id) if user_id else None
+            if not user:
+                app.logger.warning(f"User {user_id} not found for session {session_id}")
+                # Proceed without user if not required for report
+
+            # Generate a simple report (you can expand this logic)
+            report_content = {
+                "title": "One-Time Health Report",
+                "content": "Thank you for your purchase. This is your one-time health report based on your payment.",
+                "user_id": user_id if user_id else "Anonymous",
+                "payment_date": session.created  # Timestamp of payment
+            }
+
+            app.logger.info(f"One-time report generated for session {session_id}, user {user_id}")
+            return jsonify(report_content), 200
+
+        except stripe.error.StripeError as e:
+            app.logger.error(f"Stripe error in one-time-report for session {session_id}: {str(e)}", exc_info=True)
+            return jsonify({"error": f"Payment verification error: {str(e)}"}), 500
+        except Exception as e:
+            app.logger.error(f"Error in one-time-report for session {session_id}: {str(e)}", exc_info=True)
+            return jsonify({"error": f"Failed to generate report: {str(e)}"}), 500
+
+    # Register the top-level blueprint
+    app.register_blueprint(top_level_routes)
 
     # Debug logging for registered routes
     logger.info("=== Registered Routes ===")

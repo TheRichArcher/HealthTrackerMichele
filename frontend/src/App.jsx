@@ -78,6 +78,7 @@ const App = () => {
                             <Route path="/" element={<Chat />} />
                             <Route path="/auth" element={<AuthPage />} />
                             <Route path="/library" element={<Library />} />
+                            <Route path="/one-time-report" element={<OneTimeReportPage />} /> {/* Made public */}
 
                             {/* Protected Routes */}
                             <Route 
@@ -125,14 +126,6 @@ const App = () => {
                                 element={
                                     <PrivateRouteWrapper>
                                         <SubscriptionPage />
-                                    </PrivateRouteWrapper>
-                                } 
-                            /> 
-                            <Route 
-                                path="/one-time-report" 
-                                element={
-                                    <PrivateRouteWrapper>
-                                        <OneTimeReportPage />
                                     </PrivateRouteWrapper>
                                 } 
                             /> 
