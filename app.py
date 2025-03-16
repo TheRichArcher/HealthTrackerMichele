@@ -1,17 +1,21 @@
 import os
 import logging
 from datetime import timedelta
-from flask import Flask, jsonify, request, send_from_directory, Blueprint
+from flask import Flask, jsonify, request, send_from_directory
 from dotenv import load_dotenv
 from flask_jwt_extended import (
-    JWTManager, create_access_token, create_refresh_token,
-    get_jwt_identity, jwt_required, get_jwt
+    JWTManager,
+    create_access_token,
+    create_refresh_token,
+    get_jwt_identity,
+    jwt_required,
+    get_jwt,
 )
 from backend.extensions import db, bcrypt, cors, migrate
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
 from flask_cors import cross_origin
-import stripe  # Added import for stripe
+import stripe
 
 # Load environment variables
 load_dotenv()
@@ -63,7 +67,7 @@ def create_app():
     )
     logger = logging.getLogger(__name__)
 
-    # Log the JWT_SECRET_KEY with masking for security (be cautious with this in production)
+    # Log the JWT_SECRET_KEY with masking for security (be cautious in production)
     logger.info(f"JWT_SECRET_KEY loaded: {os.getenv('JWT_SECRET_KEY')[:6]}****")
 
     # Database Configuration
@@ -77,7 +81,6 @@ def create_app():
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
     if DATABASE_URL.startswith("postgresql://"):
         DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://")
-        # Add SSL mode parameter if not already present
         if "sslmode=" not in DATABASE_URL:
             if "?" in DATABASE_URL:
                 DATABASE_URL += "&sslmode=require"
@@ -100,7 +103,7 @@ def create_app():
     # Initialize extensions with updated CORS settings
     db.init_app(app)
     bcrypt.init_app(app)
-    cors.init_app(app, 
+    cors.init_app(app,
                   resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}},
                   allow_headers=app.config["CORS_HEADERS"],
                   supports_credentials=app.config["CORS_SUPPORTS_CREDENTIALS"])
@@ -148,7 +151,7 @@ def create_app():
     from backend.routes.library_routes import library_routes
     from backend.routes.onboarding_routes import onboarding_routes
     from backend.routes.data_exporter import data_exporter
-    from backend.routes.subscription_routes import subscription_bp
+    from backend.routes.subscription_routes import subscription_routes  # Corrected import
 
     # Register blueprints with proper URL prefixes
     blueprints = [
@@ -160,7 +163,7 @@ def create_app():
         (library_routes, '/api/library'),
         (onboarding_routes, '/api/onboarding'),
         (data_exporter, '/api/export'),
-        (subscription_bp, '/api/subscription')
+        (subscription_routes, '/api/subscription')  # Corrected from subscription_bp to subscription_routes
     ]
 
     for blueprint, url_prefix in blueprints:
