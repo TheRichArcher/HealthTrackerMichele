@@ -417,7 +417,7 @@ def validate_token():
         logger.debug(f"Validate token request - Authorization header: {auth_header}")
 
         current_user_id = get_jwt_identity()
-        user = User.query.filter(User.id == current_user_id, User.deleted_at.is_(None)).first()
+        user = User.query.filter(User.id == int(current_user_id), User.deleted_at.is_(None)).first()
         if not user:
             return jsonify({"error": "User not found"}), 404
             
