@@ -16,21 +16,22 @@ const Chat = () => {
     const navigate = useNavigate();
     const location = useLocation();
 
-    // Load messages from localStorage on mount
     useEffect(() => {
         const savedMessages = localStorage.getItem(CHAT_STORAGE_KEY);
         if (savedMessages) {
             setMessages(JSON.parse(savedMessages));
+        } else {
+            setMessages([
+                { text: "Hi, I'm Michele—your AI medical assistant. Please describe your symptoms, and I'll do my best to help! (For informational purposes only, not a substitute for professional medical advice.)", isBot: true }
+            ]);
         }
         checkAuth();
     }, [checkAuth]);
 
-    // Save messages to localStorage after each update
     useEffect(() => {
         localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages));
     }, [messages]);
 
-    // Handle redirect back from Stripe after payment
     useEffect(() => {
         const sessionId = new URLSearchParams(location.search).get('session_id');
         if (sessionId) {
@@ -40,6 +41,11 @@ const Chat = () => {
                         setMessages(prevMessages => [
                             ...prevMessages,
                             { text: `Your one-time report is ready! [Download PDF](${response.data.report_url})`, isBot: true }
+                        ]);
+                    } else {
+                        setMessages(prevMessages => [
+                            ...prevMessages,
+                            { text: 'Payment confirmed, but report generation failed. Please contact support.', isBot: true }
                         ]);
                     }
                 })
@@ -54,7 +60,6 @@ const Chat = () => {
         }
     }, [location, navigate]);
 
-    // Periodic token refresh (every 30 minutes)
     useEffect(() => {
         if (isAuthenticated) {
             const refreshInterval = setInterval(() => {
@@ -64,7 +69,7 @@ const Chat = () => {
                         console.warn('Token refresh failed, user may need to re-authenticate');
                     }
                 });
-            }, 30 * 60 * 1000); // 30 minutes
+            }, 30 * 60 * 1000);
             return () => clearInterval(refreshInterval);
         }
     }, [isAuthenticated, refreshToken]);
@@ -85,18 +90,13 @@ const Chat = () => {
             const response = await axios.post(
                 `${API_BASE_URL}/symptoms/analyze`,
                 { symptom: input, conversation_history: conversationHistory },
-                { 
-                    headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` }, 
-                    withCredentials: true 
-                }
+                { headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` }, withCredentials: true }
             );
             const botResponse = response.data.response;
 
             let reply = '';
-            if (botResponse.requires_upgrade) {
-                reply = `${botResponse.care_recommendation}\n\nUpgrade required for detailed insights.`;
-            } else if (botResponse.is_assessment && botResponse.confidence >= 95) {
-                reply = `${botResponse.care_recommendation}\n\n`;
+            if (botResponse.is_assessment && botResponse.confidence >= 95) {
+                reply = `**Assessment Complete**:\n- **Condition**: ${botResponse.condition_common || 'Unknown'} (${botResponse.condition_medical || 'N/A'})\n- **Confidence**: ${botResponse.confidence}%\n- **Triage Level**: ${botResponse.triage_level || 'MODERATE'}\n- **Care Recommendation**: ${botResponse.care_recommendation || 'Consider consulting a healthcare provider.'}`;
             } else {
                 reply = botResponse.response || 'Please provide more details.';
             }
@@ -111,9 +111,9 @@ const Chat = () => {
         }
     };
 
-    const handleUpgrade = (option) => {
+    const handleUpgrade = (option, assessmentId) => {
         if (option === 'report') {
-            axios.post(`${API_BASE_URL}/subscription/upgrade`, { plan: 'one_time' }, { withCredentials: true })
+            axios.post(`${API_BASE_URL}/subscription/upgrade`, { plan: 'one_time', assessment_id: assessmentId }, { withCredentials: true })
                 .then(response => {
                     console.log('Redirecting to Stripe for one-time report:', response.data.checkout_url);
                     window.location.href = response.data.checkout_url;
@@ -136,7 +136,9 @@ const Chat = () => {
     };
 
     const resetConversation = () => {
-        setMessages([]);
+        setMessages([
+            { text: "Hi, I'm Michele—your AI medical assistant. Please describe your symptoms, and I'll do my best to help! (For informational purposes only, not a substitute for professional medical advice.)", isBot: true }
+        ]);
         localStorage.removeItem(CHAT_STORAGE_KEY);
         console.log('Conversation reset');
     };
@@ -159,15 +161,19 @@ const Chat = () => {
                         </div>
                         <div className={`message ${msg.isBot ? 'bot' : 'user'}`}>
                             <div className="message-content">
-                                {msg.isBot && msg.data && (msg.data.is_assessment || msg.data.requires_upgrade) ? (
-                                    <UpgradePrompt
-                                        careRecommendation={msg.data.care_recommendation || 'Consider consulting a healthcare provider'}
-                                        triageLevel={msg.data.triage_level || 'MODERATE'}
-                                        onReport={() => handleUpgrade('report')}
-                                        onSubscribe={() => handleUpgrade('subscribe')}
-                                        onNotNow={handleNotNow}
-                                        requiresUpgrade={msg.data.requires_upgrade || false}
-                                    />
+                                {msg.isBot && msg.data && msg.data.is_assessment && msg.data.confidence >= 95 ? (
+                                    <>
+                                        <p>{msg.text}</p>
+                                        <UpgradePrompt
+                                            careRecommendation={msg.data.care_recommendation || 'Consider consulting a healthcare provider'}
+                                            triageLevel={msg.data.triage_level || 'MODERATE'}
+                                            onReport={(assessmentId) => handleUpgrade('report', assessmentId)}
+                                            onSubscribe={() => handleUpgrade('subscribe')}
+                                            onNotNow={handleNotNow}
+                                            requiresUpgrade={msg.data.requires_upgrade || false}
+                                            assessmentId={msg.data.assessment_id}
+                                        />
+                                    </>
                                 ) : (
                                     <p>{msg.text}</p>
                                 )}

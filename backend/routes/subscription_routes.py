@@ -1,145 +1,205 @@
-from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity
-from backend.extensions import db
-from backend.models import User, UserTierEnum
+from flask import Blueprint, request, jsonify, current_app
+from backend.models import db, User, Report
+from backend.utils.auth import token_required, generate_temp_user_id
+from backend.utils.pdf_generator import generate_pdf_report
+from datetime import datetime
 import stripe
-import logging
 import os
+from urllib.parse import urljoin
+from enum import Enum
 
-# Logger setup
-logger = logging.getLogger("subscription_routes")
+subscription_routes = Blueprint('subscription_routes', __name__)
 
-# Create Flask Blueprint
-subscription_bp = Blueprint("subscription_bp", __name__)
-
-# Stripe configuration
+# Configure Stripe
 stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
-BASE_URL = os.getenv('APP_URL', 'http://localhost:5000')  # Use environment variable for flexibility
-PAID_PRICE_ID = "price_1R1uhXFYtRpVxUhsuwbBhzQJ"  # $9.99/month
-ONE_TIME_PRICE_ID = "price_1R1uiSFYtRpVxUhskAuZxjKO"  # $4.99 one-time
+BASE_URL = os.getenv('BASE_URL', 'https://healthtrackermichele.onrender.com')
 
-@subscription_bp.route("/status", methods=["GET"])
-@jwt_required()
-def get_subscription_status():
-    """Return the current subscription tier of the authenticated user."""
+# Enum for user tiers
+class UserTierEnum(Enum):
+    FREE = "FREE"
+    ONE_TIME = "ONE_TIME"
+    PAID = "PAID"
+
+@subscription_routes.route('/subscription/upgrade', methods=['POST'])
+@token_required
+def upgrade(current_user=None):
     try:
-        user_id = get_jwt_identity()
-        user = User.query.get(user_id)
-        if not user:
-            logger.error(f"User not found for ID: {user_id}")
-            return jsonify({"error": "User not found"}), 404
-        return jsonify({"subscription_tier": user.subscription_tier.value}), 200
-    except Exception as e:
-        logger.error(f"Error fetching subscription status for user {user_id}: {str(e)}", exc_info=True)
-        return jsonify({"error": f"Failed to fetch subscription status: {str(e)}"}), 500
-
-@subscription_bp.route("/upgrade", methods=["POST"])
-@jwt_required()
-def upgrade_subscription():
-    """Create a Stripe Checkout session for subscription upgrade."""
-    try:
-        user_id = get_jwt_identity()
-        user = User.query.get(user_id)
-        if not user:
-            logger.error(f"User not found for ID: {user_id}")
-            return jsonify({"error": "User not found"}), 404
-
         data = request.get_json()
-        if not data:
-            logger.warning("No JSON data provided in upgrade request")
-            return jsonify({"error": "Request must contain JSON data"}), 400
+        plan = data.get('plan')
+        assessment_id = data.get('assessment_id')
 
-        plan = data.get("plan")
-        if not plan or plan not in ["paid", "one_time"]:
-            logger.warning(f"Invalid plan received: {plan}")
-            return jsonify({"error": "Invalid plan. Must be 'paid' or 'one_time'"}), 400
+        if not plan:
+            return jsonify({'error': 'Plan is required'}), 400
 
-        # Determine price ID and mode based on plan
-        if plan == "paid":
-            price_id = PAID_PRICE_ID
-            mode = "subscription"
-            success_url = f"{BASE_URL}/subscription?session_id={{CHECKOUT_SESSION_ID}}"
-        else:  # one_time
-            price_id = ONE_TIME_PRICE_ID
-            mode = "payment"
-            success_url = f"{BASE_URL}/one-time-report?session_id={{CHECKOUT_SESSION_ID}}"
+        # Determine user context (authenticated or guest)
+        user_id = current_user['user_id'] if current_user else generate_temp_user_id(request)
+        user = User.query.get(user_id) if current_user else None
 
-        # Create Stripe Checkout session
-        session = stripe.checkout.Session.create(
-            payment_method_types=["card"],
-            line_items=[{
-                "price": price_id,
-                "quantity": 1,
-            }],
-            mode=mode,
-            success_url=success_url,
-            cancel_url=f"{BASE_URL}/cancel",
-            metadata={"user_id": str(user_id), "plan": plan},
-        )
+        # Fallback if assessment_id is missing (log and proceed with minimal functionality)
+        if not assessment_id:
+            logger.warning(f"Assessment ID missing for user_id={user_id}, plan={plan}")
+            assessment_id = None  # Proceed without validation for now
 
-        logger.info(f"Created Stripe Checkout session {session.id} for user {user_id}, plan: {plan}")
-        return jsonify({"checkout_url": session.url}), 200
+        # Validate assessment_id against database (to be fully implemented)
+        if assessment_id:
+            symptom_log = SymptomLog.query.get(assessment_id)
+            if not symptom_log or (user and symptom_log.user_id != user_id):
+                return jsonify({'error': 'Invalid or unauthorized assessment'}), 400
 
-    except stripe.error.StripeError as e:
-        logger.error(f"Stripe error during checkout for user {user_id}: {str(e)}", exc_info=True)
-        return jsonify({"error": f"Payment processing error: {str(e)}"}), 500
-    except Exception as e:
-        logger.error(f"Error creating checkout session for user {user_id}: {str(e)}", exc_info=True)
-        return jsonify({"error": f"Failed to initiate upgrade: {str(e)}"}), 500
+        if plan == 'one_time':
+            # Create a temporary report entry in the database
+            report = Report(
+                user_id=user_id,
+                assessment_id=assessment_id or None,
+                status='PENDING',
+                created_at=datetime.utcnow(),
+                report_url=None
+            )
+            db.session.add(report)
+            db.session.commit()
 
-@subscription_bp.route("/confirm", methods=["POST"])
-@jwt_required()
-def confirm_subscription():
-    """Confirm the Stripe Checkout session and update user's subscription tier."""
-    try:
-        user_id = get_jwt_identity()
-        user = User.query.get(user_id)
-        if not user:
-            logger.error(f"User not found for ID: {user_id}")
-            return jsonify({"error": "User not found"}), 404
+            checkout_session = stripe.checkout.Session.create(
+                payment_method_types=['card'],
+                line_items=[
+                    {
+                        'price_data': {
+                            'currency': 'usd',
+                            'product_data': {
+                                'name': 'One-Time Health Report',
+                            },
+                            'unit_amount': 499,  # $4.99
+                        },
+                        'quantity': 1,
+                    },
+                ],
+                mode='payment',
+                metadata={
+                    'user_id': user_id,
+                    'plan': 'one_time',
+                    'assessment_id': assessment_id or 'none',
+                    'report_id': report.id
+                },
+                success_url=f"{BASE_URL}/chat?session_id={{CHECKOUT_SESSION_ID}}",
+                cancel_url=f"{BASE_URL}/chat",
+            )
+            return jsonify({'checkout_url': checkout_session.url}), 200
 
-        data = request.get_json()
-        if not data:
-            logger.warning("No JSON data provided in confirm request")
-            return jsonify({"error": "Request must contain JSON data"}), 400
+        elif plan == 'subscription':
+            if not current_user:
+                return jsonify({'error': 'Authentication required for subscription'}), 401
 
-        session_id = data.get("session_id")
-        if not session_id:
-            logger.warning("No session_id provided in confirm request")
-            return jsonify({"error": "Session ID is required"}), 400
+            checkout_session = stripe.checkout.Session.create(
+                payment_method_types=['card'],
+                line_items=[
+                    {
+                        'price_data': {
+                            'currency': 'usd',
+                            'product_data': {
+                                'name': 'HealthTracker Subscription',
+                            },
+                            'unit_amount': 999,  # $9.99
+                            'recurring': {
+                                'interval': 'month',
+                            },
+                        },
+                        'quantity': 1,
+                    },
+                ],
+                mode='subscription',
+                metadata={
+                    'user_id': user_id,
+                    'plan': 'subscription',
+                    'assessment_id': assessment_id or 'none'
+                },
+                success_url=f"{BASE_URL}/chat?session_id={{CHECKOUT_SESSION_ID}}",
+                cancel_url=f"{BASE_URL}/chat",
+            )
+            return jsonify({'checkout_url': checkout_session.url}), 200
 
-        # Retrieve the Stripe Checkout session
-        session = stripe.checkout.Session.retrieve(session_id)
-        
-        # Verify the session belongs to this user and is completed
-        if session.metadata.get("user_id") != str(user_id):
-            logger.warning(f"Session {session_id} does not belong to user {user_id}")
-            return jsonify({"error": "Invalid payment session"}), 403
-        if session.status != "complete":
-            logger.warning(f"Session {session_id} is not complete for user {user_id}")
-            return jsonify({"error": "Payment session is not complete"}), 400
-        if session.payment_status != "paid":
-            logger.warning(f"Session {session_id} is unpaid for user {user_id}")
-            return jsonify({"error": "Payment not completed"}), 403
+        return jsonify({'error': 'Invalid plan'}), 400
 
-        # Update subscription tier based on plan
-        plan = session.metadata.get("plan")
-        if plan == "paid":
-            user.subscription_tier = UserTierEnum.PAID
-        elif plan == "one_time":
-            user.subscription_tier = UserTierEnum.ONE_TIME
-        else:
-            logger.error(f"Unknown plan in session metadata: {plan}")
-            return jsonify({"error": "Invalid plan in payment session"}), 400
-
-        db.session.commit()
-        logger.info(f"Subscription updated for user {user_id} to {user.subscription_tier.value} via session {session_id}")
-        return jsonify({"subscription_tier": user.subscription_tier.value}), 200
-
-    except stripe.error.StripeError as e:
-        logger.error(f"Stripe error during confirmation for user {user_id}: {str(e)}", exc_info=True)
-        return jsonify({"error": f"Payment confirmation error: {str(e)}"}), 500
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error confirming subscription for user {user_id}: {str(e)}", exc_info=True)
-        return jsonify({"error": f"Failed to confirm subscription: {str(e)}"}), 500
+        logger.error(f"Error initiating checkout: user_id={user_id}, plan={plan}, error={str(e)}")
+        return jsonify({'error': 'Failed to initiate checkout'}), 500
+
+@subscription_routes.route('/subscription/confirm', methods=['POST'])
+@token_required
+def confirm_payment(current_user=None):
+    try:
+        data = request.get_json()
+        session_id = data.get('session_id')
+
+        if not session_id:
+            return jsonify({'error': 'Session ID is required'}), 400
+
+        session = stripe.checkout.Session.retrieve(session_id)
+        if session.payment_status != 'paid':
+            return jsonify({'error': 'Payment not completed'}), 400
+
+        user_id = session.metadata.get('user_id')
+        if not user_id:
+            return jsonify({'error': 'User ID not found in metadata'}), 400
+
+        user = User.query.get(user_id) if user_id.startswith('user_') else None
+        plan = session.metadata.get('plan')
+        if not plan:
+            return jsonify({'error': 'Plan not found in metadata'}), 400
+
+        if plan == 'one_time':
+            report_id = session.metadata.get('report_id')
+            if not report_id:
+                return jsonify({'error': 'Report ID not found in metadata'}), 400
+
+            report = Report.query.get(report_id)
+            if not report or report.user_id != user_id:
+                return jsonify({'error': 'Report not found or unauthorized'}), 403
+
+            assessment_id = session.metadata.get('assessment_id')
+            symptom_log = SymptomLog.query.get(assessment_id) if assessment_id != 'none' else None
+
+            # Generate PDF report
+            report_data = {
+                'user_id': user_id,
+                'timestamp': datetime.utcnow().isoformat(),
+                'condition_common': symptom_log.condition_common if symptom_log else 'Unknown',
+                'condition_medical': symptom_log.condition_medical if symptom_log else 'N/A',
+                'confidence': symptom_log.confidence if symptom_log else 0,
+                'triage_level': symptom_log.triage_level if symptom_log else 'N/A',
+                'care_recommendation': symptom_log.care_recommendation if symptom_log else 'N/A'
+            }
+            report_url = generate_pdf_report(report_data)
+
+            # Update report in database
+            report.status = 'COMPLETED'
+            report.report_url = report_url
+            report.updated_at = datetime.utcnow()
+            db.session.commit()
+
+            # Update user tier to ONE_TIME if authenticated
+            if user:
+                user.subscription_tier = UserTierEnum.ONE_TIME.value
+                db.session.commit()
+
+            return jsonify({'report_url': report_url}), 200
+
+        elif plan == 'subscription':
+            if not current_user:
+                return jsonify({'error': 'Authentication required for subscription'}), 401
+
+            user = User.query.get(current_user['user_id'])
+            if not user:
+                return jsonify({'error': 'User not found'}), 404
+
+            user.subscription_tier = UserTierEnum.PAID.value
+            user.updated_at = datetime.utcnow()
+            db.session.commit()
+
+            return jsonify({'message': 'Subscription activated successfully'}), 200
+
+        return jsonify({'error': 'Invalid plan'}), 400
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error confirming payment: session_id={session_id}, error={str(e)}")
+        return jsonify({'error': 'Failed to confirm payment'}), 500
