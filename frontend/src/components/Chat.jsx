@@ -2,9 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from './AuthProvider';
+import { getLocalStorageItem } from '../utils/utils'; // Add this import
 import UpgradePrompt from './UpgradePrompt';
 import '../styles/Chat.css';
 import '../styles/shared.css';
+
+const API_BASE_URL = 'https://healthtrackermichele.onrender.com/api'; // Consistent with AuthProvider
 
 const Chat = () => {
   const [messages, setMessages] = useState([]);
@@ -15,17 +18,14 @@ const Chat = () => {
   const [assessmentCompleted, setAssessmentCompleted] = useState(false);
   const messagesEndRef = useRef(null);
   const navigate = useNavigate();
-  const { isAuthenticated, subscriptionTier } = useAuth();
+  const { isAuthenticated, subscriptionTier, checkAuth } = useAuth(); // Add checkAuth
 
-  // Initialize chat with welcome message
   useEffect(() => {
     const savedMessages = localStorage.getItem('healthtracker_chat_messages');
     if (savedMessages) {
       try {
         const parsedMessages = JSON.parse(savedMessages);
         setMessages(parsedMessages);
-        
-        // Check if there's an assessment in the saved messages
         const hasAssessment = parsedMessages.some(msg => 
           msg.sender === 'bot' && 
           typeof msg.text === 'object' && 
@@ -41,14 +41,12 @@ const Chat = () => {
     }
   }, []);
 
-  // Save messages to localStorage whenever they change
   useEffect(() => {
     if (messages.length > 0) {
       localStorage.setItem('healthtracker_chat_messages', JSON.stringify(messages));
     }
   }, [messages]);
 
-  // Scroll to bottom whenever messages change
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
@@ -80,17 +78,24 @@ const Chat = () => {
   const resetConversation = async () => {
     setIsAnalyzing(true);
     setError(null);
-    
+
+    const isValid = await checkAuth();
+    if (!isValid) {
+      navigate('/auth');
+      setIsAnalyzing(false);
+      return;
+    }
+
     try {
-      const token = localStorage.getItem('access_token');
+      const token = getLocalStorageItem('access_token');
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      
+
       const response = await axios.post(
-        `${import.meta.env.VITE_API_URL || '/api'}/symptoms/reset`,
+        `${API_BASE_URL}/symptoms/reset`,
         {},
         { headers }
       );
-      
+
       if (response.data && response.data.response) {
         setMessages([{
           text: response.data.response,
@@ -103,8 +108,9 @@ const Chat = () => {
       }
     } catch (err) {
       console.error('Error resetting conversation:', err);
-      setError('Failed to reset conversation. Please try again.');
-      initializeChat();
+      setError(err.response?.status === 401 ? 'Session expired. Please log in.' : 'Failed to reset conversation. Please try again.');
+      if (err.response?.status === 401) navigate('/auth');
+      else initializeChat();
     } finally {
       setIsAnalyzing(false);
     }
@@ -112,53 +118,56 @@ const Chat = () => {
 
   const handleSendMessage = async () => {
     if (!input.trim() || isAnalyzing) return;
-    
+
     const userMessage = {
       text: input.trim(),
       sender: 'user',
       timestamp: new Date().toISOString()
     };
-    
+
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsTyping(true);
     setIsAnalyzing(true);
     setError(null);
-    
+
+    const isValid = await checkAuth();
+    if (!isValid) {
+      navigate('/auth');
+      setIsTyping(false);
+      setIsAnalyzing(false);
+      return;
+    }
+
     try {
-      // Convert messages to the format expected by the API
       const conversationHistory = messages.map(msg => ({
         message: typeof msg.text === 'object' ? JSON.stringify(msg.text) : msg.text,
         isBot: msg.sender === 'bot'
       }));
-      
-      const token = localStorage.getItem('access_token');
+
+      const token = getLocalStorageItem('access_token');
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      
+
       const response = await axios.post(
-        `${import.meta.env.VITE_API_URL || '/api'}/symptoms/analyze`,
+        `${API_BASE_URL}/symptoms/analyze`,
         {
           symptom: userMessage.text,
           conversation_history: conversationHistory
         },
         { headers }
       );
-      
+
       if (response.data && response.data.response) {
         const botResponse = response.data.response;
-        
-        // Check if the response is an assessment
+
         if (typeof botResponse === 'object' && botResponse.is_assessment) {
           setAssessmentCompleted(true);
-          
-          // Add the assessment to messages
           setMessages(prev => [...prev, {
             text: botResponse,
             sender: 'bot',
             timestamp: new Date().toISOString()
           }]);
         } else {
-          // Regular text response
           setMessages(prev => [...prev, {
             text: botResponse,
             sender: 'bot',
@@ -168,14 +177,14 @@ const Chat = () => {
       }
     } catch (err) {
       console.error('Error analyzing symptoms:', err);
-      setError('Failed to analyze symptoms. Please try again.');
-      
+      setError(err.response?.status === 401 ? 'Session expired. Please log in.' : 'Failed to analyze symptoms. Please try again.');
       setMessages(prev => [...prev, {
         text: "I'm sorry, I couldn't process your request. Please try again.",
         sender: 'bot',
         timestamp: new Date().toISOString(),
         isError: true
       }]);
+      if (err.response?.status === 401) navigate('/auth');
     } finally {
       setIsTyping(false);
       setIsAnalyzing(false);
@@ -183,18 +192,13 @@ const Chat = () => {
   };
 
   const handleDismissUpgrade = () => {
-    // Find the last assessment message and update it
     const updatedMessages = [...messages];
     for (let i = updatedMessages.length - 1; i >= 0; i--) {
       const msg = updatedMessages[i];
       if (msg.sender === 'bot' && typeof msg.text === 'object' && msg.text.is_assessment) {
-        // Clone the message and remove requires_upgrade flag
         const updatedMsg = {
           ...msg,
-          text: {
-            ...msg.text,
-            requires_upgrade: false
-          }
+          text: { ...msg.text, requires_upgrade: false }
         };
         updatedMessages[i] = updatedMsg;
         break;
@@ -206,21 +210,17 @@ const Chat = () => {
 
   const renderMessage = (message, index) => {
     const { text, sender, isError } = message;
-    
-    // Handle assessment messages (objects)
+
     if (sender === 'bot' && typeof text === 'object' && text.is_assessment) {
       const isPremiumUser = subscriptionTier === 'paid' || subscriptionTier === 'one_time';
       const requiresUpgrade = text.requires_upgrade && !isPremiumUser;
-      
-      // Extract assessment details
+
       const condition = text.possible_conditions || 'Unknown condition';
       const commonName = condition.match(/\((.*?)\)/) ? condition.match(/\((.*?)\)/)[1] : '';
       const medicalTerm = condition.replace(/\s*\(.*?\)\s*/, '');
-      
-      // Determine if it's a mild case
       const isMildCase = (text.triage_level || '').toUpperCase() === 'MILD';
-      
-      if (requiresUpgrade || (text.requires_upgrade && !isPremiumUser)) {
+
+      if (requiresUpgrade) {
         return (
           <UpgradePrompt
             key={index}
@@ -235,8 +235,7 @@ const Chat = () => {
           />
         );
       }
-      
-      // Regular assessment display for premium users or non-upgrade-required cases
+
       return (
         <div className="message-row" key={index}>
           <div className="avatar-container">
@@ -256,8 +255,7 @@ const Chat = () => {
         </div>
       );
     }
-    
-    // Regular text messages
+
     return (
       <div className={`message-row ${sender}`} key={index}>
         <div className="avatar-container">
