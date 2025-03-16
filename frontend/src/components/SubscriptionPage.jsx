@@ -14,7 +14,8 @@ const SubscriptionPage = () => {
     const navigate = useNavigate();
     const location = useLocation();
 
-    const initialPlan = location.state?.plan || 'paid';
+    // Remove initialPlan from state to prevent automatic upgrade
+    // const initialPlan = location.state?.plan || 'paid'; // Commented out
 
     const fetchSubscriptionStatus = async () => {
         const token = localStorage.getItem('access_token');
@@ -51,19 +52,28 @@ const SubscriptionPage = () => {
         if (!token) {
             setError('Authentication required. Please log in.');
             navigate('/auth');
+            setLoading(false);
             return;
         }
 
         try {
+            console.log('Initiating upgrade for plan:', plan);
             const response = await axios.post(
                 `${API_BASE_URL}/subscription/upgrade`,
                 { plan },
-                { headers: { Authorization: `Bearer ${token}` } }
+                { headers: { Authorization: `Bearer ${token}` }, withCredentials: true }
             );
-            window.location.href = response.data.checkout_url;
+            console.log('Upgrade response received:', response.data);
+            const { checkout_url } = response.data;
+            if (!checkout_url) {
+                throw new Error('No checkout URL received from server');
+            }
+            console.log('Redirecting to Stripe Checkout:', checkout_url);
+            window.location.href = checkout_url; // Redirect to Stripe Checkout
         } catch (err) {
-            setError(err.response?.data?.error || 'Upgrade failed');
-            console.error('Upgrade error:', err);
+            const errorMessage = err.response?.data?.error || err.message || 'Upgrade failed';
+            console.error('Upgrade error:', err.response?.data || err.message);
+            setError(errorMessage);
         } finally {
             setLoading(false);
         }
@@ -81,7 +91,7 @@ const SubscriptionPage = () => {
             const response = await axios.post(
                 `${API_BASE_URL}/subscription/confirm`,
                 { session_id: sessionId },
-                { headers: { Authorization: `Bearer ${token}` } }
+                { headers: { Authorization: `Bearer ${token}` }, withCredentials: true }
             );
             setSubscriptionStatus(response.data.subscription_tier);
             await checkAuth();
@@ -99,11 +109,12 @@ const SubscriptionPage = () => {
         }
     }, [location, confirmSubscription]);
 
-    useEffect(() => {
-        if (isAuthenticated && initialPlan && !subscriptionStatus) {
-            upgradeSubscription(initialPlan);
-        }
-    }, [isAuthenticated, initialPlan, subscriptionStatus]);
+    // Remove the automatic upgradeSubscription call
+    // useEffect(() => {
+    //     if (isAuthenticated && initialPlan && !subscriptionStatus) {
+    //         upgradeSubscription(initialPlan);
+    //     }
+    // }, [isAuthenticated, initialPlan, subscriptionStatus]);
 
     if (!isAuthenticated) {
         return <div className="subscription-container">Please log in to manage your subscription.</div>;
