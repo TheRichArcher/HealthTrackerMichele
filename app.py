@@ -1,7 +1,7 @@
 import os
 import logging
 from datetime import timedelta
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, Blueprint
 from dotenv import load_dotenv
 from flask_jwt_extended import (
     JWTManager, create_access_token, create_refresh_token,
@@ -11,6 +11,7 @@ from backend.extensions import db, bcrypt, cors, migrate
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
 from flask_cors import cross_origin
+import stripe  # Added import for stripe
 
 # Load environment variables
 load_dotenv()
