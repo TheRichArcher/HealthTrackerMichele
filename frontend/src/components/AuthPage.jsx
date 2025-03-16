@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react'; // Added useEffect
+import React, { useState, useCallback, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
 import '../styles/AuthPage.css';
@@ -17,7 +17,7 @@ const AuthPage = ({ initialMode = "login" }) => {
 
     const navigate = useNavigate();
     const location = useLocation();
-    const { login } = useAuth(); // Use AuthProvider’s login
+    const { login } = useAuth();
 
     const from = location.state?.from?.pathname || '/dashboard';
 
@@ -27,23 +27,34 @@ const AuthPage = ({ initialMode = "login" }) => {
     }, []);
 
     const validateInputs = useCallback(() => {
+        console.log('Validating inputs:', { email, password, username, isLogin });
         if (!email) {
             setError('Email is required.');
+            console.log('Validation failed: Email is required');
             return false;
         }
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email)) {
             setError('Please enter a valid email address.');
+            console.log('Validation failed: Invalid email format');
+            return false;
+        }
+        if (!password) {
+            setError('Password is required.');
+            console.log('Validation failed: Password is required');
             return false;
         }
         if (password.length < MIN_PASSWORD_LENGTH) {
             setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`);
+            console.log(`Validation failed: Password too short (${password.length} < ${MIN_PASSWORD_LENGTH})`);
             return false;
         }
         if (!isLogin && username && username.length < 3) {
             setError('Username must be at least 3 characters long.');
+            console.log('Validation failed: Username too short');
             return false;
         }
+        console.log('Validation passed');
         return true;
     }, [email, password, username, isLogin]);
 
@@ -64,21 +75,23 @@ const AuthPage = ({ initialMode = "login" }) => {
             setIsLoading(true);
             const credentials = isLogin
                 ? { email, password }
-                : { email, password, username };
+                : { email, password, username: username || null }; // Send null instead of undefined
+
+            console.log('Submitting credentials:', credentials);
 
             try {
-                await login(credentials); // Use AuthProvider’s login
+                await login(credentials, from);
                 setMessage(`${isLogin ? 'Login' : 'Signup'} successful! Redirecting...`);
-                // Navigation is handled by AuthProvider’s login
             } catch (error) {
-                console.error(`${isLogin ? 'Login' : 'Signup'} error:`, error.message);
-                setError(error.message || `${isLogin ? 'Login' : 'Signup'} failed.`);
+                console.error(`${isLogin ? 'Login' : 'Signup'} error:`, error.response?.data || error.message);
+                const errorMessage = error.response?.data?.error || error.message || `${isLogin ? 'Login' : 'Signup'} failed.`;
+                setError(errorMessage);
             } finally {
                 setIsLoading(false);
                 setShowLoading(false);
             }
         },
-        [isLogin, email, username, password, validateInputs, login]
+        [isLogin, email, username, password, validateInputs, login, from]
     );
 
     useEffect(() => {

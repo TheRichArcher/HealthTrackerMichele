@@ -13,6 +13,7 @@ import logging
 import re
 from sqlalchemy.exc import OperationalError
 from flask import current_app
+from flask_cors import cross_origin  # Import CORS support
 
 # Logger setup
 logger = logging.getLogger("user_routes")
@@ -26,12 +27,15 @@ def is_valid_email(email):
     return re.match(email_regex, email) is not None
 
 @user_routes.route("/login", methods=["POST"])
+@cross_origin()  # Allow CORS for this route
 def login():
     """Handle user login and token generation."""
     try:
         data = request.get_json()
         login_id = data.get("username") or data.get("email")
         password = data.get("password")
+
+        logger.debug(f"Login attempt with login_id: {login_id}")
 
         if not login_id or not password:
             return jsonify({"error": "Email/username and password are required."}), 400
@@ -73,6 +77,7 @@ def login():
 
 @user_routes.route("/auth/refresh/", methods=["POST"])
 @jwt_required(refresh=True)
+@cross_origin()
 def refresh():
     """Refresh access token."""
     try:
@@ -97,6 +102,7 @@ def refresh():
         return jsonify({"error": f"Error refreshing access token: {str(e)}"}), 500
 
 @user_routes.route("/users", methods=["POST"])
+@cross_origin()
 def create_user():
     """Create a new user."""
     try:
@@ -104,6 +110,8 @@ def create_user():
         email = data.get("email") or data.get("username")
         username = data.get("username")
         password = data.get("password")
+
+        logger.debug(f"Signup attempt with email: {email}, username: {username}")
 
         # Validate email
         if not email or not is_valid_email(email):
@@ -171,6 +179,7 @@ def create_user():
 
 @user_routes.route("/users/me", methods=["GET"])
 @jwt_required()
+@cross_origin()
 def get_current_user():
     """Fetch current user information."""
     try:
@@ -179,7 +188,7 @@ def get_current_user():
         logger.debug(f"Get current user request - Authorization header: {auth_header}")
 
         current_user_id = get_jwt_identity()
-        user = User.query.filter(User.id == current_user_id, User.deleted_at.is_(None)).first()
+        user = User.query.filter(User.id == int(current_user_id), User.deleted_at.is_(None)).first()
         if not user:
             return jsonify({"error": "User not found."}), 404
 
@@ -200,6 +209,7 @@ def get_current_user():
 
 @user_routes.route("/", methods=["GET"])
 @jwt_required()
+@cross_origin()
 def get_users():
     """Fetch a list of users with pagination."""
     try:
@@ -233,6 +243,7 @@ def get_users():
 
 @user_routes.route("/<int:user_id>", methods=["GET"])
 @jwt_required()
+@cross_origin()
 def get_user(user_id):
     """Fetch user information by user ID."""
     try:
@@ -241,7 +252,7 @@ def get_user(user_id):
         logger.debug(f"Get user request for user_id {user_id} - Authorization header: {auth_header}")
 
         current_user_id = get_jwt_identity()
-        if current_user_id != user_id:
+        if int(current_user_id) != user_id:
             return jsonify({"error": "Unauthorized access."}), 403
 
         user = User.query.filter(User.id == user_id, User.deleted_at.is_(None)).first()
@@ -265,6 +276,7 @@ def get_user(user_id):
 
 @user_routes.route("/<int:user_id>", methods=["PUT"])
 @jwt_required()
+@cross_origin()
 def update_user(user_id):
     """Update user information by user ID."""
     try:
@@ -273,7 +285,7 @@ def update_user(user_id):
         logger.debug(f"Update user request for user_id {user_id} - Authorization header: {auth_header}")
 
         current_user_id = get_jwt_identity()
-        if current_user_id != user_id:
+        if int(current_user_id) != user_id:
             return jsonify({"error": "Unauthorized access."}), 403
 
         user = User.query.filter(User.id == user_id, User.deleted_at.is_(None)).first()
@@ -335,6 +347,7 @@ def update_user(user_id):
 
 @user_routes.route("/<int:user_id>/password", methods=["PUT"])
 @jwt_required()
+@cross_origin()
 def update_password(user_id):
     """Update user password by user ID."""
     try:
@@ -343,7 +356,7 @@ def update_password(user_id):
         logger.debug(f"Update password request for user_id {user_id} - Authorization header: {auth_header}")
 
         current_user_id = get_jwt_identity()
-        if current_user_id != user_id:
+        if int(current_user_id) != user_id:
             return jsonify({"error": "Unauthorized access."}), 403
 
         user = User.query.filter(User.id == user_id, User.deleted_at.is_(None)).first()
@@ -377,6 +390,7 @@ def update_password(user_id):
 
 @user_routes.route("/<int:user_id>", methods=["DELETE"])
 @jwt_required()
+@cross_origin()
 def delete_user(user_id):
     """Delete a user by user ID."""
     try:
@@ -385,7 +399,7 @@ def delete_user(user_id):
         logger.debug(f"Delete user request for user_id {user_id} - Authorization header: {auth_header}")
 
         current_user_id = get_jwt_identity()
-        if current_user_id != user_id:
+        if int(current_user_id) != user_id:
             return jsonify({"error": "Unauthorized access."}), 403
 
         user = User.query.filter(User.id == user_id, User.deleted_at.is_(None)).first()
@@ -409,6 +423,7 @@ def delete_user(user_id):
 
 @user_routes.route("/auth/validate/", methods=["GET"])
 @jwt_required()
+@cross_origin()
 def validate_token():
     """Validate an access token by ensuring it's still valid."""
     try:
@@ -438,6 +453,7 @@ def validate_token():
 
 @user_routes.route("/logout/", methods=["POST"])
 @jwt_required()
+@cross_origin()
 def logout():
     """Handle user logout and revoke the token."""
     try:

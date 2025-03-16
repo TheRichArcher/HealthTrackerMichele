@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { getLocalStorageItem, setLocalStorageItem, removeLocalStorageItem } from '../utils/utils';
 
-const API_BASE_URL = 'https://healthtrackermichele.onrender.com/api';
+const API_BASE_URL = 'https://healthtrackermichele.onrender.com/api'; // Already correct
 
 // Debounce utility to prevent concurrent checkAuth calls
 const debounce = (func, wait) => {
@@ -129,16 +129,19 @@ const AuthProvider = ({ children }) => {
         }
     }, 300), [fetchSubscriptionStatus]);
 
-    const login = useCallback(async (email, password) => {
+    const login = useCallback(async (credentials, navigateTo = '/dashboard') => {
         setIsLoading(true);
         try {
-            const response = await axios.post(`${API_BASE_URL}/login`, { email, password });
+            const endpoint = credentials.username ? `${API_BASE_URL}/users` : `${API_BASE_URL}/login`;
+            const response = await axios.post(endpoint, credentials);
             if (response.data && response.data.access_token && response.data.refresh_token) {
                 setLocalStorageItem('access_token', response.data.access_token);
                 setLocalStorageItem('refresh_token', response.data.refresh_token);
                 setLocalStorageItem('user_id', response.data.user_id);
                 setIsAuthenticated(true);
                 await fetchSubscriptionStatus();
+                await checkAuth(); // Ensure auth state is updated
+                navigate(navigateTo); // Navigate after successful login/signup
                 return true;
             }
             throw new Error('Invalid login response');
@@ -148,7 +151,7 @@ const AuthProvider = ({ children }) => {
         } finally {
             setIsLoading(false);
         }
-    }, [fetchSubscriptionStatus]);
+    }, [fetchSubscriptionStatus, checkAuth, navigate]);
 
     const logout = useCallback(async () => {
         setIsLoggingOut(true);
