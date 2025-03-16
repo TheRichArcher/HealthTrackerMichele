@@ -1,198 +1,362 @@
-/* src/styles/UpgradePrompt.css */
-
 /* Main container for upgrade prompt within messages */
 .upgrade-options-inline {
-    background-color: #f0f8ff;
-    border: 1px solid #b8daff;
-    border-radius: 8px;
-    padding: 16px;
-    margin: 8px 0 0; /* Reduced bottom margin to fit Chat.css */
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
-    width: 100%;
-    max-width: 100%;
-    animation: fadeIn 0.3s ease-in-out;
-    order: 2; /* Ensure it stays at bottom in Chat.jsx */
-  }
-  
-  /* Animation for smooth entry */
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  
-  /* Heading styles */
-  .upgrade-options-inline h3 {
-    margin: 0 0 8px;
-    color: #0056b3;
-    font-size: 16px;
-  }
-  
-  /* Paragraph styles */
-  .upgrade-options-inline p {
-    margin: 6px 0;
-    font-size: 14px;
-  }
-  
-  /* Mild case note */
-  .mild-case-note {
-    background-color: #e8f4fd;
-    border-left: 3px solid #4285f4;
-    padding: 10px;
-    margin: 10px 0;
-    border-radius: 4px;
-    font-style: italic;
-  }
-  
-  /* Feature list */
-  .premium-features-list {
-    list-style-type: none;
-    padding: 0;
-    margin: 10px 0;
-  }
-  
-  .premium-features-list li {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    margin-bottom: 8px;
-    padding: 8px 10px;
-    background-color: #fff;
-    border-radius: 6px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-  }
-  
-  .feature-name {
-    font-weight: 600;
-    color: #333;
-    margin-right: 8px;
-    flex: 1 1 200px;
-  }
-  
-  .tooltip-icon {
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background-color: #4285f4;
-    color: white;
-    font-size: 12px;
-    text-align: center;
-    line-height: 16px;
-    margin: 0 5px;
-    cursor: help;
-  }
-  
-  .feature-description {
-    color: #666;
-    font-size: 13px;
-    flex: 1 1 100%;
-    margin-top: 4px;
-  }
-  
-  /* Button container */
-  .upgrade-buttons {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-top: 10px;
-  }
-  
-  /* Shared button styles */
-  .upgrade-button {
-    padding: 12px 15px;
-    border: none;
-    border-radius: 6px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    font-size: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  
-  .upgrade-button.subscription {
-    background-color: #4285f4;
-    color: white;
-  }
-  
-  .upgrade-button.subscription:hover {
-    background-color: #3367d6;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-  }
-  
-  .upgrade-button.one-time {
-    background-color: #34a853;
-    color: white;
-  }
-  
-  .upgrade-button.one-time:hover {
-    background-color: #2d8e47;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-  }
-  
-  .upgrade-button.loading {
-    opacity: 0.7;
-    cursor: not-allowed;
-  }
-  
-  .continue-free-button {
-    padding: 12px 15px;
-    border: 1px solid #ccc;
-    border-radius: 6px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    font-size: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background-color: transparent;
-    color: #6c757d;
-    width: 100%;
-  }
-  
-  .continue-free-button:hover {
-    background-color: #f8f9fa;
-    color: #0056b3;
-  }
-  
-  /* Mobile optimizations */
-  @media (max-width: 768px) {
-    .upgrade-options-inline {
+  background-color: #f0f8ff;
+  border: 1px solid #b8daff;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 8px 0 0; /* Reduced bottom margin to fit Chat.css */
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+  width: 100%;
+  max-width: 100%;
+  animation: fadeIn 0.3s ease-in-out;
+  order: 2; /* Ensure it stays at bottom in Chat.jsx */
+}
+
+/* Animation for smooth entry */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Animation for spinning (used by custom spinner) */
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Heading styles */
+.upgrade-options-inline h3 {
+  margin: 0 0 8px;
+  color: #0056b3;
+  font-size: 16px;
+}
+
+/* Paragraph styles */
+.upgrade-options-inline p {
+  margin: 6px 0;
+  font-size: 14px;
+}
+
+/* Error message */
+.error-message {
+  background-color: #ffebee;
+  color: #c62828;
+  padding: 10px;
+  border-radius: 4px;
+  margin: 10px 0;
+  font-size: 14px;
+  text-align: center;
+}
+
+/* Success message */
+.success-message {
+  background-color: #e6f7e6;
+  color: #2e7d32;
+  padding: 10px;
+  border-radius: 4px;
+  margin: 10px 0;
+  font-size: 14px;
+  text-align: center;
+}
+
+/* Retry button for errors */
+.retry-button {
+  margin-left: 10px;
+  padding: 4px 8px;
+  background-color: #f0f0f0;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.retry-button:hover {
+  background-color: #e0e0e0;
+}
+
+/* Mild case note */
+.mild-case-note {
+  background-color: #e8f4fd;
+  border-left: 3px solid #4285f4;
+  padding: 10px;
+  margin: 10px 0;
+  border-radius: 4px;
+  font-style: italic;
+}
+
+/* Feature list */
+.premium-features-list {
+  list-style-type: none;
+  padding: 0;
+  margin: 10px 0;
+}
+
+.premium-features-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  background-color: #fff;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.feature-name {
+  font-weight: 600;
+  color: #333;
+  margin-right: 8px;
+  flex: 1 1 200px;
+}
+
+.tooltip-icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background-color: #4285f4;
+  color: white;
+  font-size: 12px;
+  text-align: center;
+  line-height: 16px;
+  margin: 0 5px;
+  cursor: help;
+}
+
+.feature-description {
+  color: #666;
+  font-size: 13px;
+  flex: 1 1 100%;
+  margin-top: 4px;
+}
+
+/* Button container */
+.upgrade-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* Shared button styles */
+.upgrade-button {
+  padding: 12px 15px;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Toggle features button (subclass of upgrade-button) */
+.upgrade-button.toggle-features {
+  background-color: #e8f0fe;
+  color: #1967d2;
+  margin-bottom: 10px;
+}
+
+.upgrade-button.toggle-features:hover {
+  background-color: #d2e3fc;
+}
+
+/* Subscription button */
+.upgrade-button.subscription {
+  background-color: #4285f4;
+  color: white;
+}
+
+.upgrade-button.subscription:hover {
+  background-color: #3367d6;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* One-time report button */
+.upgrade-button.one-time {
+  background-color: #34a853;
+  color: white;
+}
+
+.upgrade-button.one-time:hover {
+  background-color: #2d8e47;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Loading state for buttons */
+.upgrade-button.loading {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Continue free button */
+.continue-free-button {
+  padding: 12px 15px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: transparent;
+  color: #6c757d;
+  width: 100%;
+}
+
+.continue-free-button:hover {
+  background-color: #f8f9fa;
+  color: #0056b3;
+}
+
+/* Custom Spinner */
+.custom-spinner {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+
+.custom-spinner svg {
+  animation: spin 1s linear infinite;
+}
+
+/* Confirm Modal */
+.confirm-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background-color: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  width: 90%;
+  max-width: 400px;
+  text-align: center;
+}
+
+.modal-content h4 {
+  margin: 0 0 15px;
+  color: #333;
+  font-size: 18px;
+}
+
+.modal-content p {
+  margin: 0 0 20px;
+  color: #666;
+  font-size: 14px;
+}
+
+.modal-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.confirm-button,
+.cancel-button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
+}
+
+.confirm-button {
+  background-color: #34a853;
+  color: white;
+}
+
+.confirm-button:hover:not(:disabled) {
+  background-color: #2d8e47;
+}
+
+.cancel-button {
+  background-color: #6c757d;
+  color: white;
+}
+
+.cancel-button:hover:not(:disabled) {
+  background-color: #5a6268;
+}
+
+.confirm-button:disabled,
+.cancel-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+  .upgrade-options-inline {
       padding: 12px;
       margin: 6px 0 0;
-    }
-  
-    .upgrade-options-inline h3 {
-      font-size: 15px;
-    }
-  
-    .upgrade-options-inline p {
-      font-size: 13px;
-    }
-  
-    .premium-features-list li {
-      padding: 6px 8px;
-    }
-  
-    .feature-name {
-      flex: 1 1 150px;
-    }
-  
-    .feature-description {
-      font-size: 12px;
-    }
-  
-    .upgrade-button {
-      padding: 10px;
-      font-size: 13px;
-    }
-  
-    .continue-free-button {
-      padding: 10px;
-      font-size: 13px;
-    }
   }
+
+  .upgrade-options-inline h3 {
+      font-size: 15px;
+  }
+
+  .upgrade-options-inline p {
+      font-size: 13px;
+  }
+
+  .premium-features-list li {
+      padding: 6px 8px;
+  }
+
+  .feature-name {
+      flex: 1 1 150px;
+  }
+
+  .feature-description {
+      font-size: 12px;
+  }
+
+  .upgrade-button {
+      padding: 10px;
+      font-size: 13px;
+  }
+
+  .continue-free-button {
+      padding: 10px;
+      font-size: 13px;
+  }
+
+  .modal-content {
+      width: 95%;
+      padding: 15px;
+  }
+
+  .modal-content h4 {
+      font-size: 16px;
+  }
+
+  .modal-content p {
+      font-size: 13px;
+  }
+
+  .confirm-button,
+  .cancel-button {
+      padding: 8px 15px;
+      font-size: 13px;
+  }
+}

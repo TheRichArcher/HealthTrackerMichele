@@ -1,239 +1,291 @@
-import React, { useState, useEffect, memo } from 'react';
-import PropTypes from 'prop-types';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
-import axios from 'axios';
-import { getLocalStorageItem } from '../utils/utils';
+import PropTypes from 'prop-types';
 import '../styles/UpgradePrompt.css';
-import '../styles/shared.css';
 
 const API_BASE_URL = 'https://healthtrackermichele.onrender.com/api';
 
-const UpgradePrompt = ({ condition, commonName, isMildCase, requiresUpgrade, confidence, triageLevel, recommendation, onDismiss }) => {
-    const [loadingSubscription, setLoadingSubscription] = useState(false);
-    const [loadingOneTime, setLoadingOneTime] = useState(false);
-    const [report, setReport] = useState(null);
+const UpgradePrompt = ({
+    careRecommendation,
+    triageLevel,
+    onReport,
+    onSubscribe,
+    onNotNow,
+    requiresUpgrade,
+}) => {
+    const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
-    const { isAuthenticated, checkAuth, isLoggingOut } = useAuth();
+    const [success, setSuccess] = useState(false);
+    const [showFeatures, setShowFeatures] = useState(false);
+    const [showConfirmModal, setShowConfirmModal] = useState(false);
+    const [pendingAction, setPendingAction] = useState(null);
+    const { isAuthenticated, checkAuth } = useAuth();
     const navigate = useNavigate();
 
-    const displayName = commonName ? `${commonName} (${condition})` : condition;
-
+    // Reset states on prop change or mount
     useEffect(() => {
-        console.log("UpgradePrompt Props:", { condition, commonName, isMildCase, requiresUpgrade, confidence, triageLevel, recommendation });
-        if (isMildCase) {
-            document.querySelector('.continue-free-button')?.scrollIntoView({ behavior: 'smooth' });
-        }
-    }, [condition, commonName, isMildCase, requiresUpgrade, confidence, triageLevel, recommendation]);
-
-    const handleSubscriptionClick = async () => {
-        if (loadingSubscription || loadingOneTime || isLoggingOut) {
-            setError('Please wait while processing.');
-            return;
-        }
-        setLoadingSubscription(true);
+        setSuccess(false);
         setError(null);
+        setLoading(false);
+        setShowConfirmModal(false);
+        setPendingAction(null);
+        checkAuth();
+    }, [careRecommendation, triageLevel, requiresUpgrade, checkAuth]);
 
-        const isValid = await checkAuth();
-        if (!isValid) {
-            navigate('/auth', { state: { from: '/subscription', plan: 'paid' } });
-        } else {
-            navigate('/subscription', { state: { plan: 'paid' } });
-        }
-        setLoadingSubscription(false);
-    };
+    // Define premium features with tooltips
+    const premiumFeatures = [
+        {
+            name: 'Detailed Assessments',
+            description: 'Get in-depth analysis of your symptoms with confidence scores and care recommendations.',
+            tooltip: 'Includes medical terms, common names, and triage levels.',
+        },
+        {
+            name: 'Doctor’s Report',
+            description: 'Receive a comprehensive report formatted for sharing with healthcare providers.',
+            tooltip: 'PDF download with detailed findings and recommendations.',
+        },
+        {
+            name: 'Symptom History',
+            description: 'Track all your past symptom logs and assessments in one place.',
+            tooltip: 'Access your health history anytime with a premium account.',
+        },
+        {
+            name: 'Priority Support',
+            description: 'Get faster responses and dedicated support for your health concerns.',
+            tooltip: 'Email and chat support with quicker response times.',
+        },
+    ];
 
-    const handleOneTimeClick = async () => {
-        if (loadingSubscription || loadingOneTime || isLoggingOut) {
-            setError('Please wait while processing.');
-            return;
-        }
-        setLoadingOneTime(true);
+    // Handle one-time report purchase
+    const handleReportPurchase = async () => {
+        setLoading(true);
         setError(null);
+        setSuccess(false);
 
-        const isValid = await checkAuth();
-        if (!isValid) {
-            navigate('/auth', { state: { from: '/one-time-report', plan: 'one_time' } });
-            setLoadingOneTime(false);
-            return;
-        }
-
-        await checkSubscriptionAndGenerateReport();
-    };
-
-    const checkSubscriptionAndGenerateReport = async () => {
         try {
-            const isValid = await checkAuth();
-            if (!isValid) {
-                navigate('/auth', { state: { from: '/one-time-report', plan: 'one_time' } });
-                return;
-            }
-
-            const token = getLocalStorageItem('access_token');
-            const response = await axios.get(`${API_BASE_URL}/subscription/status`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            const userTier = response.data.subscription_tier;
-
-            if (userTier === 'paid' || userTier === 'one_time') {
-                await generateReport();
-            } else {
-                navigate('/one-time-report', { state: { plan: 'one_time' } });
-            }
-        } catch (err) {
-            console.error('Error checking subscription status:', err);
-            setError(
-                err.response?.status === 401
-                    ? 'Session expired. Please log in again.'
-                    : 'Failed to check subscription status. Please try again.'
-            );
-            if (err.response?.status === 401) {
-                navigate('/auth');
-            }
-        } finally {
-            setLoadingOneTime(false);
-        }
-    };
-
-    const generateReport = async () => {
-        try {
-            const isValid = await checkAuth();
-            if (!isValid) {
-                navigate('/auth');
-                return;
-            }
-
-            const token = getLocalStorageItem('access_token');
-            const chatMessages = getLocalStorageItem('healthtracker_chat_messages');
-            let conversationHistory = [];
-            try {
-                conversationHistory = JSON.parse(chatMessages || '[]')
-                    .map(msg => ({ message: msg.text, isBot: msg.sender === 'bot' }));
-            } catch (e) {
-                console.error('Error parsing chat messages:', e);
-            }
-
-            const userSymptoms = conversationHistory.find(msg => !msg.isBot)?.message || condition;
-
-            if (!userSymptoms) {
-                throw new Error('No symptoms found to generate a report.');
-            }
-
             const response = await axios.post(
-                `${API_BASE_URL}/symptoms/doctor-report`,
-                {
-                    symptom: userSymptoms,
-                    conversation_history: conversationHistory
-                },
-                {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                }
+                `${API_BASE_URL}/subscription/upgrade`,
+                { plan: 'one_time' },
+                { withCredentials: true }
             );
-
-            if (response.data.success) {
-                setReport(response.data.doctors_report);
-            } else {
-                throw new Error(response.data.error || 'Failed to generate report');
-            }
+            console.log('Redirecting to Stripe for one-time report:', response.data.checkout_url);
+            if (onReport) onReport();
+            window.location.href = response.data.checkout_url;
         } catch (err) {
-            console.error('Error generating report:', err);
-            setError(
-                err.response?.status === 401
-                    ? 'Session expired. Please log in again.'
-                    : err.message || 'Failed to generate report. Please try again.'
-            );
-            if (err.response?.status === 401) {
-                navigate('/auth');
-            }
+            console.error('Error initiating report purchase:', err);
+            setError('Failed to initiate report purchase. Please try again or contact support.');
         } finally {
-            setLoadingOneTime(false);
+            setLoading(false);
         }
     };
+
+    // Handle subscription action
+    const handleSubscribe = () => {
+        setLoading(true);
+        setError(null);
+        setSuccess(false);
+
+        if (!isAuthenticated) {
+            navigate('/auth');
+            if (onSubscribe) onSubscribe();
+            setLoading(false);
+        } else {
+            navigate('/subscription');
+            if (onSubscribe) onSubscribe();
+            setLoading(false);
+        }
+    };
+
+    // Handle confirmation modal
+    const confirmAction = (action) => {
+        setPendingAction(action);
+        setShowConfirmModal(true);
+    };
+
+    const handleConfirm = () => {
+        if (pendingAction === 'report') {
+            handleReportPurchase();
+        } else if (pendingAction === 'subscribe') {
+            handleSubscribe();
+        }
+        setShowConfirmModal(false);
+        setPendingAction(null);
+    };
+
+    // Handle "Not Now" action
+    const handleNotNowClick = () => {
+        if (onNotNow) onNotNow();
+        setSuccess(true);
+    };
+
+    // Toggle visibility of premium features
+    const toggleFeatures = () => {
+        setShowFeatures(!showFeatures);
+    };
+
+    // Custom loading spinner component
+    const LoadingSpinner = () => (
+        <div className="custom-spinner">
+            <svg width="24" height="24" viewBox="0 0 24 24">
+                <circle
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="#4285f4"
+                    strokeWidth="2"
+                    fill="none"
+                    strokeDasharray="31.415"
+                    strokeDashoffset="10"
+                >
+                    <animateTransform
+                        attributeName="transform"
+                        type="rotate"
+                        from="0 12 12"
+                        to="360 12 12"
+                        dur="1s"
+                        repeatCount="indefinite"
+                    />
+                </circle>
+            </svg>
+        </div>
+    );
 
     return (
-        <div className="upgrade-options-inline" role="dialog" aria-labelledby="upgrade-title">
-            {!report ? (
-                <>
-                    <h3 id="upgrade-title">
-                        I've identified <strong>{displayName}</strong> as a possible condition.
-                    </h3>
-                    {confidence && (
-                        <p>Confidence: <strong>{confidence}%</strong></p>
-                    )}
-                    {triageLevel && (
-                        <p>Severity: <strong>{triageLevel}</strong></p>
-                    )}
-                    {recommendation && (
-                        <p>Recommendation: <strong>{recommendation}</strong></p>
-                    )}
-                    {isMildCase ? (
-                        <p className="mild-case-note">
-                            Good news—it looks manageable at home! Upgrade for detailed insights.
-                        </p>
-                    ) : (
-                        <p>
-                            For deeper analysis and next steps, consider upgrading:
-                        </p>
-                    )}
-                    <ul className="premium-features-list" aria-label="Upgrade options">
-                        <li>
-                            <span className="feature-name">🔹 Premium Access ($9.99/month)</span>
-                            <span className="feature-description">
-                                Unlimited checks, detailed assessments, and health monitoring.
-                            </span>
-                        </li>
-                        <li>
-                            <span className="feature-name">🔹 One-time Report ($4.99)</span>
-                            <span className="feature-description">
-                                A detailed analysis of your current condition.
-                            </span>
-                        </li>
-                    </ul>
-                    <p>Ready to unlock more?</p>
-                    <div className="upgrade-buttons">
-                        <button
-                            className={`upgrade-button subscription ${loadingSubscription ? 'loading' : ''}`}
-                            onClick={handleSubscriptionClick}
-                            disabled={loadingSubscription || loadingOneTime || isLoggingOut}
-                            aria-busy={loadingSubscription}
-                        >
-                            {loadingSubscription ? 'Processing...' : '🩺 Get Premium ($9.99/month)'}
-                        </button>
-                        <button
-                            className={`upgrade-button one-time ${loadingOneTime ? 'loading' : ''}`}
-                            onClick={handleOneTimeClick}
-                            disabled={loadingSubscription || loadingOneTime || isLoggingOut}
-                            aria-busy={loadingOneTime}
-                        >
-                            {loadingOneTime ? 'Generating...' : '📄 Get Report ($4.99)'}
-                        </button>
-                        {isMildCase && (
-                            <button className="continue-free-button" onClick={onDismiss}>
-                                Maybe Later
-                            </button>
-                        )}
-                    </div>
-                    {error && (
-                        <div className="error-message" role="alert">
-                            {error}
-                        </div>
-                    )}
-                </>
-            ) : (
-                <div className="doctor-report">
-                    <h3>Doctor's Report</h3>
-                    <div className="report-content">
-                        {report.split('\n').map((line, i) => (
-                            <p key={i}>{line}</p>
-                        ))}
-                    </div>
-                    <button 
-                        className="continue-free-button"
-                        onClick={onDismiss}
+        <div className="upgrade-options-inline">
+            <h3>
+                {requiresUpgrade
+                    ? 'Upgrade Required for Full Insights'
+                    : 'Unlock Detailed Health Insights'}
+            </h3>
+            {error && (
+                <div className="error-message" role="alert">
+                    {error}
+                    <button
+                        className="retry-button"
+                        onClick={() => {
+                            setError(null);
+                            if (pendingAction === 'report') handleReportPurchase();
+                            else if (pendingAction === 'subscribe') handleSubscribe();
+                        }}
                     >
-                        Return to Chat
+                        Retry
                     </button>
+                </div>
+            )}
+            {success && (
+                <div className="success-message" role="alert">
+                    Noted. Reach out anytime for more insights!
+                </div>
+            )}
+            <p>
+                <strong>Recommendation:</strong>{' '}
+                {careRecommendation || 'Consider consulting a healthcare provider.'}
+            </p>
+            <p>
+                <strong>Triage Level:</strong> {triageLevel || 'MODERATE'}
+            </p>
+            {triageLevel === 'AT_HOME' && !requiresUpgrade && (
+                <div className="mild-case-note">
+                    This appears to be a mild case that may be managed at home. You can
+                    upgrade for more details or continue monitoring your symptoms.
+                </div>
+            )}
+            {requiresUpgrade && (
+                <p>
+                    Your assessment indicates a {triageLevel.toLowerCase()} condition.
+                    Upgrade to access detailed insights and recommendations.
+                </p>
+            )}
+            <div className="upgrade-options-container">
+                <button
+                    className="upgrade-button toggle-features"
+                    onClick={toggleFeatures}
+                    aria-expanded={showFeatures}
+                    aria-controls="premium-features"
+                >
+                    {showFeatures ? 'Hide Premium Features' : 'Show Premium Features'}
+                </button>
+                {showFeatures && (
+                    <ul id="premium-features" className="premium-features-list">
+                        {premiumFeatures.map((feature, index) => (
+                            <li key={index}>
+                                <span className="feature-name">{feature.name}</span>
+                                <span
+                                    className="tooltip-icon"
+                                    title={feature.tooltip}
+                                    aria-label={`Tooltip: ${feature.tooltip}`}
+                                >
+                                    ?
+                                </span>
+                                <span className="feature-description">
+                                    {feature.description}
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </div>
+            <div className="upgrade-buttons">
+                <button
+                    className={`upgrade-button one-time ${
+                        loading ? 'loading' : ''
+                    }`}
+                    onClick={() => confirmAction('report')}
+                    disabled={loading}
+                    aria-label="Purchase a one-time report for $4.99"
+                >
+                    {loading ? <LoadingSpinner /> : 'One-Time Report ($4.99)'}
+                </button>
+                <button
+                    className={`upgrade-button subscription ${
+                        loading ? 'loading' : ''
+                    }`}
+                    onClick={() => confirmAction('subscribe')}
+                    disabled={loading}
+                    aria-label="Subscribe for $9.99 per month (requires login)"
+                >
+                    {loading ? <LoadingSpinner /> : 'Subscribe ($9.99/month)'}
+                </button>
+                {triageLevel === 'AT_HOME' && !requiresUpgrade && (
+                    <button
+                        className="continue-free-button"
+                        onClick={handleNotNowClick}
+                        disabled={loading}
+                        aria-label="Continue without upgrading for now"
+                    >
+                        Continue Monitoring
+                    </button>
+                )}
+            </div>
+            {showConfirmModal && (
+                <div className="confirm-modal">
+                    <div className="modal-content">
+                        <h4>Confirm Action</h4>
+                        <p>
+                            Are you sure you want to{' '}
+                            {pendingAction === 'report'
+                                ? 'purchase a one-time report for $4.99'
+                                : 'subscribe for $9.99/month'}?
+                        </p>
+                        <div className="modal-buttons">
+                            <button
+                                className="confirm-button"
+                                onClick={handleConfirm}
+                                disabled={loading}
+                            >
+                                {loading ? <LoadingSpinner /> : 'Yes'}
+                            </button>
+                            <button
+                                className="cancel-button"
+                                onClick={() => setShowConfirmModal(false)}
+                                disabled={loading}
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
@@ -241,14 +293,21 @@ const UpgradePrompt = ({ condition, commonName, isMildCase, requiresUpgrade, con
 };
 
 UpgradePrompt.propTypes = {
-    condition: PropTypes.string.isRequired,
-    commonName: PropTypes.string,
-    isMildCase: PropTypes.bool.isRequired,
+    careRecommendation: PropTypes.string,
+    triageLevel: PropTypes.oneOf(['MILD', 'MODERATE', 'SEVERE', 'AT_HOME']),
+    onReport: PropTypes.func,
+    onSubscribe: PropTypes.func,
+    onNotNow: PropTypes.func,
     requiresUpgrade: PropTypes.bool,
-    confidence: PropTypes.number,
-    triageLevel: PropTypes.string,
-    recommendation: PropTypes.string,
-    onDismiss: PropTypes.func.isRequired,
 };
 
-export default memo(UpgradePrompt);
+UpgradePrompt.defaultProps = {
+    careRecommendation: 'Consider consulting a healthcare provider.',
+    triageLevel: 'MODERATE',
+    onReport: () => {},
+    onSubscribe: () => {},
+    onNotNow: () => {},
+    requiresUpgrade: false,
+};
+
+export default UpgradePrompt;
