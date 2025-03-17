@@ -158,7 +158,7 @@ def create_app():
         (health_data_routes, '/api/health-data'),
         (report_routes, '/api/reports'),
         (user_routes, '/api'),
-        (utils_health_routes, '/api'),
+        (utils_health_bp, '/api'),  # Corrected from utils_health_routes to utils_health_bp
         (library_routes, '/api/library'),
         (onboarding_routes, '/api/onboarding'),
         (data_exporter, '/api/export'),
