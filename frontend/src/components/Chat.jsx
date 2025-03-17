@@ -173,7 +173,7 @@ const Chat = () => {
   const [hasFinalAssessment, setHasFinalAssessment] = useState(false);
   const [latestAssessment, setLatestAssessment] = useState(null);
 
-  const { isAuthenticated, checkAuth, refreshToken } = useAuth(); // Restore auth
+  const { isAuthenticated, checkAuth, refreshToken } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -222,7 +222,7 @@ const Chat = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('jwt_token')}`,
+          'Authorization': `Bearer ${localStorage.getItem('jwt_token') || ''}`,
         },
         credentials: 'include',
         body: JSON.stringify({ session_id: sessionId }),
@@ -254,7 +254,7 @@ const Chat = () => {
   }, []);
 
   const handleUpgradeAction = useCallback((action, assessmentId) => {
-    const token = localStorage.getItem('jwt_token');
+    const token = localStorage.getItem('jwt_token') || '';
     if (action === 'premium') {
       if (!isAuthenticated) navigate('/auth');
       else navigate('/subscribe');
@@ -269,7 +269,10 @@ const Chat = () => {
         body: JSON.stringify({ plan: 'one_time', assessment_id: assessmentId || latestAssessment?.assessmentId }),
       })
         .then(res => res.json())
-        .then(data => window.location.href = data.checkout_url)
+        .then(data => {
+          if (data.checkout_url) window.location.href = data.checkout_url;
+          else addBotMessage('Failed to initiate report purchase. Please try again.');
+        })
         .catch(err => addBotMessage('Failed to initiate report purchase. Please try again.'));
     } else if (action === 'later') {
       addBotMessage("No problem! Let me know if you have any other questions or symptoms to discuss.");
@@ -283,7 +286,7 @@ const Chat = () => {
     setLoading(true);
     setTyping(true);
 
-    const token = localStorage.getItem('jwt_token');
+    const token = localStorage.getItem('jwt_token') || '';
     const conversationHistory = messages.map(msg => ({ message: msg.text, isBot: msg.sender === 'bot' }));
 
     try {
@@ -293,7 +296,7 @@ const Chat = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        credentials: 'include', // Restore for CORS
+        credentials: 'include',
         body: JSON.stringify({ symptom: userInput, conversation_history: conversationHistory, context_notes: "Focus on user input and history." }),
       });
 
@@ -304,7 +307,7 @@ const Chat = () => {
       setTyping(false);
 
       if (data.response?.is_assessment) {
-        const { confidence, triage_level, care_recommendation, possible_conditions } = data.response;
+        const { confidence, triage_level, care_recommendation, possible_conditions, assessment_id } = data.response;
         const medicalTerm = possible_conditions || 'Unknown condition';
         const assessmentMessage = `I've identified ${medicalTerm} as a possible condition.\n\nConfidence: ${confidence}%`;
         addBotMessage(assessmentMessage, true, confidence);
@@ -312,7 +315,13 @@ const Chat = () => {
         setTimeout(() => {
           const recommendationMessage = `Severity: ${triage_level.toUpperCase()}\nRecommendation: ${care_recommendation}`;
           addBotMessage(recommendationMessage);
-          setLatestAssessment({ condition: medicalTerm, confidence, triageLevel: triage_level, recommendation: care_recommendation, assessmentId: data.assessment_id });
+          setLatestAssessment({
+            condition: medicalTerm,
+            confidence,
+            triageLevel: triage_level,
+            recommendation: care_recommendation,
+            assessmentId: assessment_id
+          });
 
           setTimeout(() => {
             const isMildCase = triage_level.toLowerCase() === 'mild';
@@ -335,8 +344,8 @@ const Chat = () => {
     if (loading || resetting) return;
     setResetting(true);
     try {
-      const token = localStorage.getItem('jwt_token');
-      await fetch(CONFIG.RESET_URL, {
+      const token = localStorage.getItem('jwt_token') || '';
+      const response = await fetch(CONFIG.RESET_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -345,7 +354,8 @@ const Chat = () => {
         credentials: 'include',
         body: JSON.stringify({ conversation_history: messages.map(msg => ({ message: msg.text, isBot: msg.sender === 'bot' })) }),
       });
-      setMessages([WELCOME_MESSAGE]);
+      const data = await response.json();
+      setMessages([{ sender: 'bot', text: data.response, isAssessment: false }]);
       setHasFinalAssessment(false);
     } catch (err) {
       addBotMessage("Failed to reset—try again!");

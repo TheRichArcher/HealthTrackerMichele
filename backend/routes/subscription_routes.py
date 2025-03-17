@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app
-from backend.models import db, User, Report, SymptomLog  # Add SymptomLog import
+from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
+from backend.models import db, User, Report, SymptomLog
 from backend.utils.auth import token_required, generate_temp_user_id
 from backend.utils.pdf_generator import generate_pdf_report
 from datetime import datetime
@@ -7,8 +8,9 @@ import stripe
 import os
 from urllib.parse import urljoin
 from enum import Enum
-import logging  # Add logging import
+import logging
 
+# Define Blueprint without url_prefix
 subscription_routes = Blueprint('subscription_routes', __name__)
 
 # Configure Stripe
@@ -17,7 +19,7 @@ BASE_URL = os.getenv('BASE_URL', 'https://healthtrackermichele.onrender.com')
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)  # Define logger
+logger = logging.getLogger(__name__)
 
 # Enum for user tiers
 class UserTierEnum(Enum):
@@ -25,9 +27,8 @@ class UserTierEnum(Enum):
     ONE_TIME = "ONE_TIME"
     PAID = "PAID"
 
-@subscription_routes.route('/subscription/upgrade', methods=['POST'])
-@token_required
-def upgrade(current_user=None):
+@subscription_routes.route('/upgrade', methods=['POST'])
+def upgrade():
     try:
         data = request.get_json()
         plan = data.get('plan')
@@ -36,23 +37,30 @@ def upgrade(current_user=None):
         if not plan:
             return jsonify({'error': 'Plan is required'}), 400
 
-        # Determine user context (authenticated or guest)
-        user_id = current_user['user_id'] if current_user else generate_temp_user_id(request)
-        user = User.query.get(user_id) if current_user else None
+        # Handle authentication (optional)
+        auth_header = request.headers.get("Authorization")
+        user_id = None
+        if auth_header and auth_header.startswith("Bearer "):
+            try:
+                verify_jwt_in_request(optional=True)
+                user_id = get_jwt_identity()
+            except Exception as e:
+                logger.warning(f"Invalid token: {str(e)}")
+        user_id = user_id or generate_temp_user_id(request)
+        user = User.query.get(user_id) if user_id and user_id.startswith('user_') else None
 
-        # Fallback if assessment_id is missing (log and proceed with minimal functionality)
+        # Fallback if assessment_id is missing (log and proceed)
         if not assessment_id:
             logger.warning(f"Assessment ID missing for user_id={user_id}, plan={plan}")
-            assessment_id = None  # Proceed without validation for now
+            assessment_id = None
 
-        # Validate assessment_id against database
+        # Validate assessment_id
         if assessment_id:
             symptom_log = SymptomLog.query.get(assessment_id)
             if not symptom_log or (user and symptom_log.user_id != user_id):
                 return jsonify({'error': 'Invalid or unauthorized assessment'}), 400
 
         if plan == 'one_time':
-            # Create a temporary report entry in the database
             report = Report(
                 user_id=user_id,
                 assessment_id=assessment_id or None,
@@ -90,7 +98,7 @@ def upgrade(current_user=None):
             return jsonify({'checkout_url': checkout_session.url}), 200
 
         elif plan == 'subscription':
-            if not current_user:
+            if not user:  # Require authenticated user for subscription
                 return jsonify({'error': 'Authentication required for subscription'}), 401
 
             checkout_session = stripe.checkout.Session.create(
@@ -128,7 +136,7 @@ def upgrade(current_user=None):
         logger.error(f"Error initiating checkout: user_id={user_id}, plan={plan}, error={str(e)}")
         return jsonify({'error': 'Failed to initiate checkout'}), 500
 
-@subscription_routes.route('/subscription/confirm', methods=['POST'])
+@subscription_routes.route('/confirm', methods=['POST'])
 @token_required
 def confirm_payment(current_user=None):
     try:
@@ -163,7 +171,6 @@ def confirm_payment(current_user=None):
             assessment_id = session.metadata.get('assessment_id')
             symptom_log = SymptomLog.query.get(assessment_id) if assessment_id != 'none' else None
 
-            # Generate PDF report
             report_data = {
                 'user_id': user_id,
                 'timestamp': datetime.utcnow().isoformat(),
@@ -175,13 +182,11 @@ def confirm_payment(current_user=None):
             }
             report_url = generate_pdf_report(report_data)
 
-            # Update report in database
             report.status = 'COMPLETED'
             report.report_url = report_url
             report.updated_at = datetime.utcnow()
             db.session.commit()
 
-            # Update user tier to ONE_TIME if authenticated
             if user:
                 user.subscription_tier = UserTierEnum.ONE_TIME.value
                 db.session.commit()
