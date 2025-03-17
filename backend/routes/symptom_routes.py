@@ -181,9 +181,18 @@ def reset_conversation():
         except Exception as e:
             logger.warning(f"Invalid token: {str(e)}")
 
+    welcome_message = {
+        "sender": "bot",
+        "text": "Hi, I'm Michele—your AI medical assistant. Think of me as that doctor you absolutely trust, here to listen, guide, and help you make sense of your symptoms. While I can't replace a real doctor, I can give you insights, ask the right questions, and help you feel more in control of your health.\n\nYou can start by describing your symptoms like:\n• \"I've had a headache for two days\"\n• \"My throat is sore and I have a fever\"\n• \"I have a rash on my arm that's itchy\"",
+        "confidence": None,
+        "careRecommendation": None,
+        "isAssessment": False,
+        "isUpgradeOptions": False
+    }
+
     return jsonify({
         "message": "Conversation reset successfully",
-        "response": "Hi, I'm Michele—your AI medical assistant. Describe your symptoms like: 'I've had a headache for two days'.",
+        "response": welcome_message["text"],
         "isBot": True,
         "conversation_history": []
     }), 200

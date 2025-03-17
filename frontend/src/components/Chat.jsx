@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import PropTypes from 'prop-types';
 import { debounce } from 'lodash';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from './AuthProvider'; // Assuming this exists
+import { useAuth } from '../AuthProvider';
 import '../styles/Chat.css';
 
 const CONFIG = {
@@ -329,8 +329,12 @@ const Chat = () => {
             setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, isMildCase), CONFIG.SALES_PITCH_DELAY);
           }, CONFIG.RECOMMENDATION_DELAY);
         }, CONFIG.ASSESSMENT_DELAY);
+      } else if (data.response?.requires_upgrade) {
+        const isMildCase = data.response.triage_level?.toLowerCase() === 'mild';
+        addBotMessage("For detailed insights, consider upgrading:", false);
+        setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, isMildCase), CONFIG.SALES_PITCH_DELAY);
       } else {
-        addBotMessage(data.response?.next_question || "Can you tell me more?");
+        addBotMessage(data.response?.next_question || data.response?.possible_conditions || "Can you tell me more?");
       }
     } catch (err) {
       setLoading(false);
@@ -355,7 +359,7 @@ const Chat = () => {
         body: JSON.stringify({ conversation_history: messages.map(msg => ({ message: msg.text, isBot: msg.sender === 'bot' })) }),
       });
       const data = await response.json();
-      setMessages([{ sender: 'bot', text: data.response, isAssessment: false }]);
+      setMessages([WELCOME_MESSAGE]);
       setHasFinalAssessment(false);
     } catch (err) {
       addBotMessage("Failed to reset—try again!");
@@ -402,11 +406,6 @@ const Chat = () => {
             <button className="send-button" onClick={handleSendMessage} disabled={loading || !userInput.trim()}>
               Send
             </button>
-            {!isAuthenticated && (
-              <button className="sign-in-button" onClick={() => navigate('/auth')}>
-                Sign In
-              </button>
-            )}
           </div>
         </div>
       </div>
