@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import PropTypes from 'prop-types';
 import { debounce } from 'lodash';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../AuthProvider';
+import { useAuth } from './AuthProvider'; // Updated import path
 import '../styles/Chat.css';
 
 const CONFIG = {
