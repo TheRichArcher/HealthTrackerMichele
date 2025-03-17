@@ -101,7 +101,8 @@ def analyze_symptoms():
         except Exception as e:
             logger.warning(f"Invalid token: {str(e)}")
 
-    user_id = user_id or generate_temp_user_id(request)  # Keep temp IDs as strings
+    # Use temp ID if no authenticated user, but don't cast to int yet
+    user_id = user_id if user_id is not None else generate_temp_user_id(request)
 
     data = request.get_json() or {}
     symptom = data.get("symptom", "").strip()
@@ -128,7 +129,7 @@ def analyze_symptoms():
             }
 
         assessment_id = None
-        if result.get("is_assessment", False):
+        if result.get("is_assessment", False) and isinstance(user_id, int):  # Only save for authenticated users
             notes = {
                 "response": result,
                 "condition_common": result.get("possible_conditions", "").split("(")[0].strip() if "(" in result.get("possible_conditions", "") else result.get("possible_conditions", "Unknown"),
@@ -139,8 +140,8 @@ def analyze_symptoms():
             }
             symptom_log = SymptomLog(
                 user_id=user_id,
-                symptom_name=symptom,  # Corrected from symptom to symptom_name
-                notes=json.dumps(notes)  # Store extra data in notes
+                symptom_name=symptom,
+                notes=json.dumps(notes)
             )
             db.session.add(symptom_log)
             db.session.commit()
@@ -215,7 +216,7 @@ def get_symptom_history(current_user=None):
     symptoms = SymptomLog.query.filter_by(user_id=user_id).order_by(SymptomLog.timestamp.desc()).all()
     history = [{
         "id": s.id,
-        "symptom": s.symptom_name,  # Use symptom_name for consistency
+        "symptom": s.symptom_name,
         "notes": json.loads(s.notes) if s.notes and s.notes.startswith('{') else s.notes,
         "timestamp": s.timestamp.isoformat()
     } for s in symptoms]
@@ -263,7 +264,7 @@ def generate_doctor_report():
         NOTES: For a definitive diagnosis, consult a healthcare provider.
         """
         report_data = {
-            "user_id": user_id or generate_temp_user_id(request),
+            "user_id": user_id if user_id is not None else generate_temp_user_id(request),
             "timestamp": datetime.utcnow().isoformat(),
             "symptom": symptom,
             "condition_common": result.get("possible_conditions", "Unknown").split("(")[0].strip() if "(" in result.get("possible_conditions", "") else result.get("possible_conditions", "Unknown"),
@@ -274,7 +275,7 @@ def generate_doctor_report():
         }
         report_url = generate_pdf_report(report_data)
 
-        if user_id:
+        if user_id and isinstance(user_id, int):  # Only save for authenticated users
             notes = {
                 "response": result,
                 "condition_common": report_data["condition_common"],
@@ -285,8 +286,8 @@ def generate_doctor_report():
             }
             symptom_log = SymptomLog(
                 user_id=user_id,
-                symptom_name=symptom,  # Corrected from symptom to symptom_name
-                notes=json.dumps(notes)  # Store extra data in notes
+                symptom_name=symptom,
+                notes=json.dumps(notes)
             )
             db.session.add(symptom_log)
             db.session.commit()
