@@ -103,21 +103,31 @@ class Report(db.Model):
     __tablename__ = 'reports'
 
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    title = db.Column(db.String(255), nullable=False)
-    content = db.Column(db.Text, nullable=False)
-    care_recommendation = db.Column(db.Enum(CareRecommendationEnum), default=CareRecommendationEnum.SEE_DOCTOR, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    temp_user_id = db.Column(db.String(255), nullable=True)
+    assessment_id = db.Column(db.Integer, db.ForeignKey('symptom_logs.id'), nullable=True)
+    title = db.Column(db.String(255), nullable=True)
+    content = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(50), default='PENDING')
+    care_recommendation = db.Column(db.Enum(CareRecommendationEnum), default=CareRecommendationEnum.SEE_DOCTOR, nullable=True)
+    report_url = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
 
     def to_dict(self):
         """Convert report to dictionary."""
         return {
             'id': self.id,
             'user_id': self.user_id,
+            'temp_user_id': self.temp_user_id,
+            'assessment_id': self.assessment_id,
             'title': self.title,
             'content': json.loads(self.content) if self.content and self.content.startswith('{') else self.content,
-            'care_recommendation': self.care_recommendation.value,
-            'created_at': self.created_at.isoformat()
+            'status': self.status,
+            'care_recommendation': self.care_recommendation.value if self.care_recommendation else None,
+            'report_url': self.report_url,
+            'created_at': self.created_at.isoformat(),
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
 class HealthData(db.Model):

@@ -9,6 +9,7 @@ import os
 from urllib.parse import urljoin
 from enum import Enum
 import logging
+import json  # Added import for json module
 
 subscription_routes = Blueprint('subscription_routes', __name__)
 
@@ -29,6 +30,7 @@ def upgrade():
         data = request.get_json()
         plan = data.get('plan')
         assessment_id = data.get('assessment_id')
+        assessment_data = data.get('assessment_data')  # New field for inline assessment data
 
         if not plan:
             return jsonify({'error': 'Plan is required'}), 400
@@ -52,17 +54,37 @@ def upgrade():
         user = User.query.get(user_id) if is_authenticated_user else None
 
         if plan == 'one_time':
-            if not assessment_id:
-                logger.error(f"Assessment ID required for one-time report purchase, user_id={user_id}")
-                return jsonify({'error': 'An assessment is required before purchasing a one-time report'}), 400
+            # For authenticated users, require a valid assessment_id
+            if is_authenticated_user:
+                if not assessment_id:
+                    logger.error(f"Assessment ID required for one-time report purchase, user_id={user_id}")
+                    return jsonify({'error': 'An assessment is required before purchasing a one-time report'}), 400
 
-            symptom_log = SymptomLog.query.get(assessment_id)
-            if not symptom_log or (user and symptom_log.user_id != user_id):
-                return jsonify({'error': 'Invalid or unauthorized assessment'}), 400
+                symptom_log = SymptomLog.query.get(assessment_id)
+                if not symptom_log or (user and symptom_log.user_id != user_id):
+                    return jsonify({'error': 'Invalid or unauthorized assessment'}), 400
 
+                # Extract assessment data from SymptomLog for the report
+                notes = json.loads(symptom_log.notes) if symptom_log.notes and symptom_log.notes.startswith('{') else {}
+                assessment_data = {
+                    'symptom': symptom_log.symptom_name,
+                    'condition_common': notes.get('condition_common', 'Unknown'),
+                    'condition_medical': notes.get('condition_medical', 'N/A'),
+                    'confidence': notes.get('confidence', 0),
+                    'triage_level': notes.get('triage_level', 'MODERATE'),
+                    'care_recommendation': notes.get('care_recommendation', 'Consult a healthcare provider')
+                }
+            else:
+                # For unauthenticated users, require assessment_data if assessment_id is not provided
+                if not assessment_id and not assessment_data:
+                    logger.error(f"Assessment data required for one-time report purchase for unauthenticated user, user_id={user_id}")
+                    return jsonify({'error': 'Assessment data is required for one-time report purchase'}), 400
+
+            # Create a Report record for tracking (even for unauthenticated users)
             report = Report(
-                user_id=user_id,
-                assessment_id=assessment_id,
+                user_id=user_id if is_authenticated_user else None,
+                temp_user_id=user_id if not is_authenticated_user else None,  # Store temp_user_id if unauthenticated
+                assessment_id=assessment_id if is_authenticated_user else None,
                 status='PENDING',
                 created_at=datetime.utcnow(),
                 report_url=None
@@ -70,6 +92,7 @@ def upgrade():
             db.session.add(report)
             db.session.commit()
 
+            # Create Stripe checkout session
             checkout_session = stripe.checkout.Session.create(
                 payment_method_types=['card'],
                 line_items=[
@@ -88,7 +111,8 @@ def upgrade():
                 metadata={
                     'user_id': str(user_id),  # Ensure user_id is stored as a string in metadata
                     'plan': 'one_time',
-                    'assessment_id': assessment_id,
+                    'assessment_id': str(assessment_id) if assessment_id else 'none',
+                    'assessment_data': json.dumps(assessment_data) if assessment_data else 'none',  # Store assessment_data in metadata
                     'report_id': report.id
                 },
                 success_url=f"{BASE_URL}/chat?session_id={{CHECKOUT_SESSION_ID}}",
@@ -121,7 +145,7 @@ def upgrade():
                 metadata={
                     'user_id': str(user_id),  # Ensure user_id is stored as a string in metadata
                     'plan': 'subscription',
-                    'assessment_id': assessment_id or 'none'
+                    'assessment_id': str(assessment_id) if assessment_id else 'none'
                 },
                 success_url=f"{BASE_URL}/chat?session_id={{CHECKOUT_SESSION_ID}}",
                 cancel_url=f"{BASE_URL}/chat",
@@ -181,26 +205,52 @@ def confirm_payment():
                 return jsonify({'error': 'Report ID not found in metadata'}), 400
 
             report = Report.query.get(report_id)
-            if not report or report.user_id != user_id:
-                return jsonify({'error': 'Report not found or unauthorized'}), 403
+            if not report:
+                return jsonify({'error': 'Report not found'}), 404
 
+            # For authenticated users, validate user_id
+            if is_authenticated_user and report.user_id != user_id:
+                return jsonify({'error': 'Unauthorized access to report'}), 403
+
+            # For unauthenticated users, validate temp_user_id
+            if not is_authenticated_user and report.temp_user_id != user_id:
+                return jsonify({'error': 'Unauthorized access to report'}), 403
+
+            # Get assessment data
             assessment_id = session.metadata.get('assessment_id')
-            if not assessment_id:
-                return jsonify({'error': 'Assessment ID not found in metadata'}), 400
+            assessment_data = session.metadata.get('assessment_data')
 
-            symptom_log = SymptomLog.query.get(assessment_id)
-            if not symptom_log:
-                return jsonify({'error': 'Associated assessment not found'}), 400
+            if assessment_id and assessment_id != 'none':
+                symptom_log = SymptomLog.query.get(assessment_id)
+                if not symptom_log:
+                    return jsonify({'error': 'Associated assessment not found'}), 400
 
-            report_data = {
-                'user_id': user_id,
-                'timestamp': datetime.utcnow().isoformat(),
-                'condition_common': symptom_log.condition_common if symptom_log else 'Unknown',
-                'condition_medical': symptom_log.condition_medical if symptom_log else 'N/A',
-                'confidence': symptom_log.confidence if symptom_log else 0,
-                'triage_level': symptom_log.triage_level if symptom_log else 'N/A',
-                'care_recommendation': symptom_log.care_recommendation if symptom_log else 'N/A'
-            }
+                notes = json.loads(symptom_log.notes) if symptom_log.notes and symptom_log.notes.startswith('{') else {}
+                report_data = {
+                    'user_id': user_id,
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'condition_common': notes.get('condition_common', 'Unknown'),
+                    'condition_medical': notes.get('condition_medical', 'N/A'),
+                    'confidence': notes.get('confidence', 0),
+                    'triage_level': notes.get('triage_level', 'MODERATE'),
+                    'care_recommendation': notes.get('care_recommendation', 'Consult a healthcare provider')
+                }
+            elif assessment_data and assessment_data != 'none':
+                # Use inline assessment_data for unauthenticated users
+                assessment_data = json.loads(assessment_data)
+                report_data = {
+                    'user_id': user_id,
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'condition_common': assessment_data.get('condition_common', 'Unknown'),
+                    'condition_medical': assessment_data.get('condition_medical', 'N/A'),
+                    'confidence': assessment_data.get('confidence', 0),
+                    'triage_level': assessment_data.get('triage_level', 'MODERATE'),
+                    'care_recommendation': assessment_data.get('care_recommendation', 'Consult a healthcare provider')
+                }
+            else:
+                return jsonify({'error': 'Assessment data not found in metadata'}), 400
+
+            # Generate the report PDF
             report_url = generate_pdf_report(report_data)
 
             report.status = 'COMPLETED'
