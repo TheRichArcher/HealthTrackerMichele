@@ -129,16 +129,18 @@ def analyze_symptoms():
 
         assessment_id = None
         if result.get("is_assessment", False):
+            notes = {
+                "response": result,
+                "condition_common": result.get("possible_conditions", "").split("(")[0].strip() if "(" in result.get("possible_conditions", "") else result.get("possible_conditions", "Unknown"),
+                "condition_medical": result.get("possible_conditions", "").split("(")[1].split(")")[0].strip() if "(" in result.get("possible_conditions", "") and ")" in result.get("possible_conditions", "") else "N/A",
+                "confidence": result.get("confidence", 0),
+                "triage_level": result.get("triage_level", "MODERATE"),
+                "care_recommendation": result.get("care_recommendation", "Consult a healthcare provider")
+            }
             symptom_log = SymptomLog(
                 user_id=user_id,
-                symptom=symptom,
-                response=json.dumps(result),
-                condition_common=result.get("possible_conditions", "").split("(")[0].strip() if "(" in result.get("possible_conditions", "") else result.get("possible_conditions", "Unknown"),
-                condition_medical=result.get("possible_conditions", "").split("(")[1].split(")")[0].strip() if "(" in result.get("possible_conditions", "") and ")" in result.get("possible_conditions", "") else "N/A",
-                confidence=result.get("confidence", 0),
-                triage_level=result.get("triage_level", "MODERATE"),
-                care_recommendation=result.get("care_recommendation", "Consult a healthcare provider"),
-                created_at=datetime.utcnow()
+                symptom_name=symptom,  # Corrected from symptom to symptom_name
+                notes=json.dumps(notes)  # Store extra data in notes
             )
             db.session.add(symptom_log)
             db.session.commit()
@@ -210,17 +212,12 @@ def get_symptom_history(current_user=None):
     if not user or user.subscription_tier != UserTierEnum.PAID.value:
         return jsonify({"error": "Premium subscription required", "requires_upgrade": True}), 403
 
-    symptoms = SymptomLog.query.filter_by(user_id=user_id).order_by(SymptomLog.created_at.desc()).all()
+    symptoms = SymptomLog.query.filter_by(user_id=user_id).order_by(SymptomLog.timestamp.desc()).all()
     history = [{
         "id": s.id,
-        "symptom": s.symptom,
-        "response": json.loads(s.response),
-        "confidence": s.confidence,
-        "condition_common": s.condition_common,
-        "condition_medical": s.condition_medical,
-        "triage_level": s.triage_level,
-        "care_recommendation": s.care_recommendation,
-        "created_at": s.created_at.isoformat()
+        "symptom": s.symptom_name,  # Use symptom_name for consistency
+        "notes": json.loads(s.notes) if s.notes and s.notes.startswith('{') else s.notes,
+        "timestamp": s.timestamp.isoformat()
     } for s in symptoms]
     return jsonify({"history": history}), 200
 
@@ -278,16 +275,18 @@ def generate_doctor_report():
         report_url = generate_pdf_report(report_data)
 
         if user_id:
+            notes = {
+                "response": result,
+                "condition_common": report_data["condition_common"],
+                "condition_medical": report_data["condition_medical"],
+                "confidence": report_data["confidence"],
+                "triage_level": report_data["triage_level"],
+                "care_recommendation": report_data["care_recommendation"]
+            }
             symptom_log = SymptomLog(
                 user_id=user_id,
-                symptom=symptom,
-                response=json.dumps(result),
-                condition_common=report_data["condition_common"],
-                condition_medical=report_data["condition_medical"],
-                confidence=report_data["confidence"],
-                triage_level=report_data["triage_level"],
-                care_recommendation=report_data["care_recommendation"],
-                created_at=datetime.utcnow()
+                symptom_name=symptom,  # Corrected from symptom to symptom_name
+                notes=json.dumps(notes)  # Store extra data in notes
             )
             db.session.add(symptom_log)
             db.session.commit()
