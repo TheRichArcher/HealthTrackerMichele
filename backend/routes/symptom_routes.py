@@ -15,7 +15,6 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 symptom_routes = Blueprint("symptom_routes", __name__, url_prefix="/api/symptoms")
 
-# Constants
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 MIN_CONFIDENCE_THRESHOLD = 95
@@ -40,23 +39,23 @@ def is_premium_user(user):
 def prepare_conversation_messages(symptom, conversation_history):
     custom_system_prompt = """You are Michele, an AI medical assistant designed to mimic a doctor's visit. Your goal is to understand the user's symptoms through conversation and provide insights only when highly confident.
 
-CRITICAL INSTRUCTIONS:
-1. ALWAYS return a valid JSON response with these exact fields:
-   - "is_assessment": boolean (true only if confidence ≥ 95%)
-   - "is_question": boolean (true if asking a follow-up question)
-   - "possible_conditions": string (question text or condition name)
-   - "confidence": number (0-100, null if no assessment)
-   - "triage_level": string ("MILD", "MODERATE", "SEVERE", null if no assessment)
-   - "care_recommendation": string (brief advice, null if no assessment)
-   - "requires_upgrade": boolean (set by backend, default false)
-   Optional:
-   - "assessment_id": integer (if is_assessment=true)
-   - "doctors_report": string (if requested)
+    CRITICAL INSTRUCTIONS:
+    1. ALWAYS return a valid JSON response with these exact fields:
+       - "is_assessment": boolean (true only if confidence ≥ 95%)
+       - "is_question": boolean (true if asking a follow-up question)
+       - "possible_conditions": string (question text or condition name)
+       - "confidence": number (0-100, null if no assessment)
+       - "triage_level": string ("MILD", "MODERATE", "SEVERE", null if no assessment)
+       - "care_recommendation": string (brief advice, null if no assessment)
+       - "requires_upgrade": boolean (set by backend, default false)
+    Optional:
+       - "assessment_id": integer (if is_assessment=true)
+       - "doctors_report": string (if requested)
 
-2. For assessments: Format conditions as "Medical Term (Common Name)".
-3. Ask ONE clear question at a time until ≥ 95% confidence.
-4. Rule out life-threatening conditions first (e.g., cardiovascular for chest discomfort).
-5. Be concise, empathetic, and precise."""
+    2. For assessments: Format conditions as "Medical Term (Common Name)".
+    3. Ask ONE clear question at a time until ≥ 95% confidence.
+    4. Rule out life-threatening conditions first (e.g., cardiovascular for chest discomfort).
+    5. Be concise, empathetic, and precise."""
     
     messages = [{"role": "system", "content": custom_system_prompt}]
     for entry in conversation_history:
@@ -96,10 +95,13 @@ def analyze_symptoms():
         try:
             verify_jwt_in_request(optional=True)
             user_id = get_jwt_identity()
-            if user_id:
-                current_user = User.query.get(user_id) or MockUser()
+            if user_id and user_id.startswith('user_'):
+                user_id = int(user_id.replace('user_', ''))  # Cast to integer if authenticated
+            current_user = User.query.get(user_id) or MockUser()
         except Exception as e:
             logger.warning(f"Invalid token: {str(e)}")
+
+    user_id = user_id or generate_temp_user_id(request)  # Keep temp IDs as strings
 
     data = request.get_json() or {}
     symptom = data.get("symptom", "").strip()
@@ -114,7 +116,6 @@ def analyze_symptoms():
     try:
         result = call_openai_api(messages)
         
-        # Enforce 95% threshold
         if result.get("is_assessment", False) and result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD:
             result = {
                 "is_assessment": False,
@@ -126,9 +127,8 @@ def analyze_symptoms():
                 "requires_upgrade": False
             }
 
-        # Store assessment and get assessment_id
         assessment_id = None
-        if result.get("is_assessment", False) and user_id:
+        if result.get("is_assessment", False):
             symptom_log = SymptomLog(
                 user_id=user_id,
                 symptom=symptom,
@@ -158,7 +158,7 @@ def analyze_symptoms():
             "triage_level": result.get("triage_level", None),
             "care_recommendation": result.get("care_recommendation", None),
             "requires_upgrade": result.get("requires_upgrade", False),
-            "assessment_id": assessment_id  # Always include, null if not set
+            "assessment_id": assessment_id
         }
 
         conversation_history.append({"message": response_data["next_question"] or json.dumps(response_data), "isBot": True})
@@ -176,6 +176,8 @@ def reset_conversation():
         try:
             verify_jwt_in_request(optional=True)
             user_id = get_jwt_identity()
+            if user_id and user_id.startswith('user_'):
+                user_id = int(user_id.replace('user_', ''))  # Cast to integer if authenticated
         except Exception as e:
             logger.warning(f"Invalid token: {str(e)}")
 
@@ -192,7 +194,9 @@ def get_symptom_history(current_user=None):
     if not current_user:
         return jsonify({"error": "Authentication required"}), 401
 
-    user_id = current_user.get("user_id", get_jwt_identity())
+    user_id = current_user.get("user_id")
+    if user_id and user_id.startswith('user_'):
+        user_id = int(user_id.replace('user_', ''))  # Cast to integer
     user = User.query.get(user_id)
     if not user or user.subscription_tier != UserTierEnum.PAID.value:
         return jsonify({"error": "Premium subscription required", "requires_upgrade": True}), 403
@@ -222,8 +226,9 @@ def generate_doctor_report():
         try:
             verify_jwt_in_request(optional=True)
             user_id = get_jwt_identity()
-            if user_id:
-                current_user = User.query.get(user_id) or MockUser()
+            if user_id and user_id.startswith('user_'):
+                user_id = int(user_id.replace('user_', ''))  # Cast to integer if authenticated
+            current_user = User.query.get(user_id) or MockUser()
         except Exception as e:
             logger.warning(f"Invalid token: {str(e)}")
 
@@ -243,14 +248,14 @@ def generate_doctor_report():
     try:
         result = call_openai_api(messages)
         doctor_report = result.get("doctors_report") or f"""
-MEDICAL CONSULTATION REPORT
-Date: {datetime.utcnow().strftime("%Y-%m-%d")}
-PATIENT SYMPTOMS: {symptom}
-ASSESSMENT: {result.get("possible_conditions", "Unknown")}
-CONFIDENCE: {result.get("confidence", "Unknown")}%
-CARE RECOMMENDATION: {result.get("care_recommendation", "Consult a healthcare provider")}
-NOTES: For a definitive diagnosis, consult a healthcare provider.
-"""
+        MEDICAL CONSULTATION REPORT
+        Date: {datetime.utcnow().strftime("%Y-%m-%d")}
+        PATIENT SYMPTOMS: {symptom}
+        ASSESSMENT: {result.get("possible_conditions", "Unknown")}
+        CONFIDENCE: {result.get("confidence", "Unknown")}%
+        CARE RECOMMENDATION: {result.get("care_recommendation", "Consult a healthcare provider")}
+        NOTES: For a definitive diagnosis, consult a healthcare provider.
+        """
         report_data = {
             "user_id": user_id or generate_temp_user_id(request),
             "timestamp": datetime.utcnow().isoformat(),

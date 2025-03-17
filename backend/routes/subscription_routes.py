@@ -10,18 +10,14 @@ from urllib.parse import urljoin
 from enum import Enum
 import logging
 
-# Define Blueprint without url_prefix
 subscription_routes = Blueprint('subscription_routes', __name__)
 
-# Configure Stripe
 stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
 BASE_URL = os.getenv('BASE_URL', 'https://healthtrackermichele.onrender.com')
 
-# Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Enum for user tiers
 class UserTierEnum(Enum):
     FREE = "FREE"
     ONE_TIME = "ONE_TIME"
@@ -37,33 +33,36 @@ def upgrade():
         if not plan:
             return jsonify({'error': 'Plan is required'}), 400
 
-        # Handle authentication (optional)
-        auth_header = request.headers.get("Authorization")
+        # Check authentication and determine user_id
         user_id = None
+        is_authenticated_user = False
+        auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             try:
                 verify_jwt_in_request(optional=True)
                 user_id = get_jwt_identity()
+                if user_id and str(user_id).startswith('user_'):
+                    user_id = int(user_id.replace('user_', ''))  # Cast to integer for authenticated users
+                    is_authenticated_user = True
             except Exception as e:
                 logger.warning(f"Invalid token: {str(e)}")
+
+        # Fallback to temporary user_id if not authenticated
         user_id = user_id or generate_temp_user_id(request)
-        user = User.query.get(user_id) if user_id and user_id.startswith('user_') else None
+        user = User.query.get(user_id) if is_authenticated_user else None
 
-        # Fallback if assessment_id is missing (log and proceed)
-        if not assessment_id:
-            logger.warning(f"Assessment ID missing for user_id={user_id}, plan={plan}")
-            assessment_id = None
+        if plan == 'one_time':
+            if not assessment_id:
+                logger.error(f"Assessment ID required for one-time report purchase, user_id={user_id}")
+                return jsonify({'error': 'An assessment is required before purchasing a one-time report'}), 400
 
-        # Validate assessment_id
-        if assessment_id:
             symptom_log = SymptomLog.query.get(assessment_id)
             if not symptom_log or (user and symptom_log.user_id != user_id):
                 return jsonify({'error': 'Invalid or unauthorized assessment'}), 400
 
-        if plan == 'one_time':
             report = Report(
                 user_id=user_id,
-                assessment_id=assessment_id or None,
+                assessment_id=assessment_id,
                 status='PENDING',
                 created_at=datetime.utcnow(),
                 report_url=None
@@ -80,16 +79,16 @@ def upgrade():
                             'product_data': {
                                 'name': 'One-Time Health Report',
                             },
-                            'unit_amount': 499,  # $4.99
+                            'unit_amount': 499,
                         },
                         'quantity': 1,
                     },
                 ],
                 mode='payment',
                 metadata={
-                    'user_id': user_id,
+                    'user_id': str(user_id),  # Ensure user_id is stored as a string in metadata
                     'plan': 'one_time',
-                    'assessment_id': assessment_id or 'none',
+                    'assessment_id': assessment_id,
                     'report_id': report.id
                 },
                 success_url=f"{BASE_URL}/chat?session_id={{CHECKOUT_SESSION_ID}}",
@@ -98,8 +97,8 @@ def upgrade():
             return jsonify({'checkout_url': checkout_session.url}), 200
 
         elif plan == 'subscription':
-            if not user:  # Require authenticated user for subscription
-                return jsonify({'error': 'Authentication required for subscription'}), 401
+            if not user:
+                return jsonify({'error': 'Authentication required for subscription purchase'}), 401
 
             checkout_session = stripe.checkout.Session.create(
                 payment_method_types=['card'],
@@ -110,7 +109,7 @@ def upgrade():
                             'product_data': {
                                 'name': 'HealthTracker Subscription',
                             },
-                            'unit_amount': 999,  # $9.99
+                            'unit_amount': 999,
                             'recurring': {
                                 'interval': 'month',
                             },
@@ -120,7 +119,7 @@ def upgrade():
                 ],
                 mode='subscription',
                 metadata={
-                    'user_id': user_id,
+                    'user_id': str(user_id),  # Ensure user_id is stored as a string in metadata
                     'plan': 'subscription',
                     'assessment_id': assessment_id or 'none'
                 },
@@ -129,16 +128,15 @@ def upgrade():
             )
             return jsonify({'checkout_url': checkout_session.url}), 200
 
-        return jsonify({'error': 'Invalid plan'}), 400
+        return jsonify({'error': 'Invalid plan specified'}), 400
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error initiating checkout: user_id={user_id}, plan={plan}, error={str(e)}")
-        return jsonify({'error': 'Failed to initiate checkout'}), 500
+        return jsonify({'error': f'Failed to initiate checkout: {str(e)}'}), 500
 
 @subscription_routes.route('/confirm', methods=['POST'])
-@token_required
-def confirm_payment(current_user=None):
+def confirm_payment():
     try:
         data = request.get_json()
         session_id = data.get('session_id')
@@ -154,10 +152,28 @@ def confirm_payment(current_user=None):
         if not user_id:
             return jsonify({'error': 'User ID not found in metadata'}), 400
 
-        user = User.query.get(user_id) if user_id.startswith('user_') else None
         plan = session.metadata.get('plan')
         if not plan:
             return jsonify({'error': 'Plan not found in metadata'}), 400
+
+        # Check authentication
+        current_user = None
+        is_authenticated_user = False
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            try:
+                verify_jwt_in_request(optional=True)
+                current_user = get_jwt_identity()
+                if current_user and str(current_user).startswith('user_'):
+                    current_user = int(current_user.replace('user_', ''))  # Cast to integer for authenticated users
+                    is_authenticated_user = True
+            except Exception as e:
+                logger.warning(f"Invalid token in /confirm: {str(e)}")
+
+        # Cast user_id from metadata back to integer if authenticated
+        if user_id and str(user_id).startswith('user_'):
+            user_id = int(user_id.replace('user_', ''))
+        user = User.query.get(user_id) if str(user_id).startswith('user_') else None
 
         if plan == 'one_time':
             report_id = session.metadata.get('report_id')
@@ -169,7 +185,12 @@ def confirm_payment(current_user=None):
                 return jsonify({'error': 'Report not found or unauthorized'}), 403
 
             assessment_id = session.metadata.get('assessment_id')
-            symptom_log = SymptomLog.query.get(assessment_id) if assessment_id != 'none' else None
+            if not assessment_id:
+                return jsonify({'error': 'Assessment ID not found in metadata'}), 400
+
+            symptom_log = SymptomLog.query.get(assessment_id)
+            if not symptom_log:
+                return jsonify({'error': 'Associated assessment not found'}), 400
 
             report_data = {
                 'user_id': user_id,
@@ -194,10 +215,14 @@ def confirm_payment(current_user=None):
             return jsonify({'report_url': report_url}), 200
 
         elif plan == 'subscription':
-            if not current_user:
-                return jsonify({'error': 'Authentication required for subscription'}), 401
+            if not is_authenticated_user:
+                return jsonify({'error': 'Authentication required for subscription confirmation'}), 401
 
-            user = User.query.get(current_user['user_id'])
+            if current_user != user_id:
+                logger.error(f"User ID mismatch: token user_id={current_user}, metadata user_id={user_id}")
+                return jsonify({'error': 'User ID mismatch between token and metadata'}), 403
+
+            user = User.query.get(user_id)
             if not user:
                 return jsonify({'error': 'User not found'}), 404
 
@@ -207,9 +232,24 @@ def confirm_payment(current_user=None):
 
             return jsonify({'message': 'Subscription activated successfully'}), 200
 
-        return jsonify({'error': 'Invalid plan'}), 400
+        return jsonify({'error': 'Invalid plan specified in metadata'}), 400
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error confirming payment: session_id={session_id}, error={str(e)}")
-        return jsonify({'error': 'Failed to confirm payment'}), 500
+        return jsonify({'error': f'Failed to confirm payment: {str(e)}'}), 500
+
+@subscription_routes.route('/status', methods=['GET'])
+@token_required
+def subscription_status(current_user=None):
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    user_id = current_user.get("user_id")
+    if user_id and str(user_id).startswith('user_'):
+        user_id = int(user_id.replace('user_', ''))  # Cast to integer
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    return jsonify({'subscription_tier': user.subscription_tier.value}), 200
