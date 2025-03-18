@@ -4,11 +4,19 @@ import os
 import uuid
 
 def generate_pdf_report(report_data):
-    """Generate a PDF report and return its URL (simulated)."""
-    # Simulate PDF generation (in a real app, this would save to a file system or cloud storage)
+    """Generate a PDF report and return its accessible URL."""
+    
+    # Generate unique filename
     filename = f"report_{uuid.uuid4()}.pdf"
-    filepath = os.path.join("/tmp", filename)
-
+    
+    # Define directory to save PDF (persistent)
+    reports_dir = os.path.join(os.getcwd(), "backend", "static", "reports")
+    os.makedirs(reports_dir, exist_ok=True)  # Ensure folder exists
+    
+    # Full path to save the PDF
+    filepath = os.path.join(reports_dir, filename)
+    
+    # Generate PDF content
     c = canvas.Canvas(filepath, pagesize=letter)
     c.drawString(100, 750, "HealthTracker Doctor Report")
     c.drawString(100, 730, f"User ID: {report_data['user_id']}")
@@ -19,7 +27,7 @@ def generate_pdf_report(report_data):
     c.drawString(100, 630, f"Care Recommendation: {report_data['care_recommendation']}")
     c.save()
 
-    # In a real app, upload this file to cloud storage (e.g., AWS S3) and return a URL
-    # For now, return a fake URL
-    fake_url = f"https://healthtrackermichele.onrender.com/reports/{filename}"
-    return fake_url
+    # Return public URL (adjusted to point to static folder)
+    file_url = f"https://healthtrackermichele.onrender.com/static/reports/{filename}"
+    
+    return file_url
