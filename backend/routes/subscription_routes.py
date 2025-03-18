@@ -86,8 +86,8 @@ def upgrade():
             db.session.add(report)
             db.session.commit()
 
-            success_url = f"{BASE_URL}/chat#session_id={{CHECKOUT_SESSION_ID}}"
-            logger.info(f"Stripe checkout - success_url set to: {success_url}")
+            success_url = f"{BASE_URL}/chat?session_id={{CHECKOUT_SESSION_ID}}"
+            logger.info(f"Stripe success URL set to: {success_url}")
             checkout_session = stripe.checkout.Session.create(
                 payment_method_types=['card'],
                 line_items=[{
@@ -109,15 +109,16 @@ def upgrade():
                 success_url=success_url,
                 cancel_url=f"{BASE_URL}/chat",
             )
-            logger.info(f"Stripe checkout session created: {checkout_session.id}")
+            logger.info(f"Stripe checkout session created with ID: {checkout_session.id}")
+            logger.info(f"Checkout URL provided to client: {checkout_session.url}")
             return jsonify({'checkout_url': checkout_session.url}), 200
 
         elif plan == 'subscription':
             if not user:
                 return jsonify({'error': 'Authentication required for subscription purchase'}), 401
 
-            success_url = f"{BASE_URL}/chat#session_id={{CHECKOUT_SESSION_ID}}"
-            logger.info(f"Stripe checkout - success_url set to: {success_url}")
+            success_url = f"{BASE_URL}/chat?session_id={{CHECKOUT_SESSION_ID}}"
+            logger.info(f"Stripe success URL set to: {success_url}")
             checkout_session = stripe.checkout.Session.create(
                 payment_method_types=['card'],
                 line_items=[{
@@ -138,7 +139,8 @@ def upgrade():
                 success_url=success_url,
                 cancel_url=f"{BASE_URL}/chat",
             )
-            logger.info(f"Stripe checkout session created: {checkout_session.id}")
+            logger.info(f"Stripe checkout session created with ID: {checkout_session.id}")
+            logger.info(f"Checkout URL provided to client: {checkout_session.url}")
             return jsonify({'checkout_url': checkout_session.url}), 200
 
         return jsonify({'error': 'Invalid plan specified'}), 400
