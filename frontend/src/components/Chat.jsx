@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import PropTypes from 'prop-types';
 import { debounce } from 'lodash';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from './AuthProvider'; // Updated import path
+import { useAuth } from './AuthProvider';
+import axios from 'axios'; // Added axios import
 import '../styles/Chat.css';
 
 const CONFIG = {
@@ -46,7 +47,7 @@ class ChatErrorBoundary extends React.Component {
   }
 }
 
-const Message = memo(({ message, onRetry, index, onUpgradeAction }) => {
+const Message = memo(({ message, onRetry, index, onUpgradeAction, assessmentData }) => {
   const { sender, text, confidence, careRecommendation, isAssessment, triageLevel, isUpgradeOptions, isMildCase } = message;
   let displayText = text
     .replace(/\s*\(Medical Condition\)\s*/g, '')
@@ -157,6 +158,13 @@ Message.propTypes = {
   onRetry: PropTypes.func.isRequired,
   index: PropTypes.number.isRequired,
   onUpgradeAction: PropTypes.func,
+  assessmentData: PropTypes.shape({
+    condition: PropTypes.string,
+    confidence: PropTypes.number,
+    triageLevel: PropTypes.string,
+    recommendation: PropTypes.string,
+    assessmentId: PropTypes.number,
+  }),
 };
 
 const Chat = () => {
@@ -204,7 +212,6 @@ const Chat = () => {
     debouncedScrollToBottom();
   }, [messages, typing, debouncedScrollToBottom]);
 
-  // Token refresh
   useEffect(() => {
     if (isAuthenticated) {
       const refreshInterval = setInterval(() => {
@@ -214,23 +221,23 @@ const Chat = () => {
     }
   }, [isAuthenticated, refreshToken]);
 
-  // Report confirmation
   useEffect(() => {
     const sessionId = new URLSearchParams(location.search).get('session_id');
     if (sessionId) {
-      fetch(CONFIG.CONFIRM_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('jwt_token') || ''}`,
-        },
-        credentials: 'include',
-        body: JSON.stringify({ session_id: sessionId }),
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data.report_url) {
-            setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${data.report_url})`, isAssessment: false }]);
+      axios.post(
+        CONFIG.CONFIRM_URL,
+        { session_id: sessionId },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('jwt_token') || ''}`,
+          },
+          withCredentials: true,
+        }
+      )
+        .then(res => {
+          if (res.data.report_url) {
+            setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${res.data.report_url})`, isAssessment: false }]);
           } else {
             setMessages(prev => [...prev, { sender: 'bot', text: 'Payment confirmed, but report generation failed. Please contact support.', isAssessment: false }]);
           }
@@ -253,27 +260,44 @@ const Chat = () => {
     }, thinkingDelay);
   }, []);
 
-  const handleUpgradeAction = useCallback((action, assessmentId) => {
+  const handleUpgradeAction = useCallback((action) => {
     const token = localStorage.getItem('jwt_token') || '';
     if (action === 'premium') {
       if (!isAuthenticated) navigate('/auth');
       else navigate('/subscribe');
     } else if (action === 'report') {
-      fetch(`${CONFIG.SUBSCRIPTION_URL}/upgrade`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        credentials: 'include',
-        body: JSON.stringify({ plan: 'one_time', assessment_id: assessmentId || latestAssessment?.assessmentId }),
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data.checkout_url) window.location.href = data.checkout_url;
+      const payload = isAuthenticated
+        ? { plan: 'one_time', assessment_id: latestAssessment?.assessmentId }
+        : {
+            plan: 'one_time',
+            assessment_data: {
+              condition_common: latestAssessment?.condition || 'Unknown',
+              condition_medical: 'N/A',
+              confidence: latestAssessment?.confidence || 0,
+              triage_level: latestAssessment?.triageLevel || 'MODERATE',
+              care_recommendation: latestAssessment?.recommendation || 'Consult a healthcare provider',
+            },
+          };
+
+      axios.post(
+        `${CONFIG.SUBSCRIPTION_URL}/upgrade`,
+        payload,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          withCredentials: true,
+        }
+      )
+        .then(res => {
+          if (res.data.checkout_url) window.location.href = res.data.checkout_url;
           else addBotMessage('Failed to initiate report purchase. Please try again.');
         })
-        .catch(err => addBotMessage('Failed to initiate report purchase. Please try again.'));
+        .catch(err => {
+          console.error('Error initiating report purchase:', err);
+          addBotMessage('Failed to initiate report purchase. Please try again.');
+        });
     } else if (action === 'later') {
       addBotMessage("No problem! Let me know if you have any other questions or symptoms to discuss.");
     }
@@ -320,7 +344,7 @@ const Chat = () => {
             confidence,
             triageLevel: triage_level,
             recommendation: care_recommendation,
-            assessmentId: assessment_id
+            assessmentId: assessment_id,
           });
 
           setTimeout(() => {
@@ -378,7 +402,14 @@ const Chat = () => {
         </div>
         <div className="messages-container" role="log" aria-live="polite">
           {messages.map((msg, i) => (
-            <Message key={i} message={msg} onRetry={() => {}} index={i} onUpgradeAction={handleUpgradeAction} />
+            <Message
+              key={i}
+              message={msg}
+              onRetry={() => {}}
+              index={i}
+              onUpgradeAction={handleUpgradeAction}
+              assessmentData={latestAssessment}
+            />
           ))}
           {typing && (
             <div className="message-row">
