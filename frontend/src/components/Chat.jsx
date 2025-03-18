@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import { debounce } from 'lodash';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
-import axios from 'axios'; // Added axios import
+import axios from 'axios';
 import '../styles/Chat.css';
 
 const CONFIG = {
@@ -19,6 +19,7 @@ const CONFIG = {
   SALES_PITCH_DELAY: 1000,
   UPGRADE_OPTIONS_DELAY: 1000,
   LOCAL_STORAGE_KEY: 'healthtracker_chat_messages',
+  REPORT_URL_KEY: 'healthtracker_report_url', // New key for report URL
   DEBUG_MODE: process.env.NODE_ENV === 'development',
 };
 
@@ -196,6 +197,20 @@ const Chat = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, 100), []);
 
+  // Check for stored report URL on mount
+  useEffect(() => {
+    const storedReport = localStorage.getItem(CONFIG.REPORT_URL_KEY);
+    if (storedReport) {
+      console.log('Found stored report URL:', storedReport); // Debug log
+      // Check if the report message already exists to avoid duplicates
+      const hasReportMessage = messages.some(msg => msg.text.includes('Your one-time report is ready!') && msg.sender === 'bot');
+      if (!hasReportMessage) {
+        setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${storedReport})`, isAssessment: false }]);
+      }
+      localStorage.removeItem(CONFIG.REPORT_URL_KEY); // Clear after displaying
+    }
+  }, []);
+
   useEffect(() => {
     focusInput();
     checkAuth();
@@ -223,10 +238,11 @@ const Chat = () => {
 
   useEffect(() => {
     const sessionId = new URLSearchParams(location.search).get('session_id');
+    console.log('Detected session_id:', sessionId); // Debug log
     if (sessionId) {
-      axios.post(
-        CONFIG.CONFIRM_URL,
-        { session_id: sessionId },
+      console.log('Calling /api/subscription/confirm with session_id:', sessionId); // Debug log
+      axios.get(
+        `${CONFIG.CONFIRM_URL}?session_id=${sessionId}`,
         {
           headers: {
             'Content-Type': 'application/json',
@@ -236,19 +252,22 @@ const Chat = () => {
         }
       )
         .then(res => {
-          if (res.data.report_url) {
+          console.log('Confirm response:', res.data); // Debug log
+          if (res.data.success && res.data.report_url) {
+            // Save to localStorage as a fallback for page refreshes
+            console.log('Saving report URL to localStorage:', res.data.report_url); // Debug log
+            localStorage.setItem(CONFIG.REPORT_URL_KEY, res.data.report_url);
             setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${res.data.report_url})`, isAssessment: false }]);
           } else {
             setMessages(prev => [...prev, { sender: 'bot', text: 'Payment confirmed, but report generation failed. Please contact support.', isAssessment: false }]);
           }
         })
         .catch(err => {
-          console.error('Error confirming report:', err);
+          console.error('Error confirming report:', err.response?.data || err.message); // Enhanced error logging
           setMessages(prev => [...prev, { sender: 'bot', text: 'Failed to confirm report. Please contact support.', isAssessment: false }]);
         });
-      navigate('/chat', { replace: true });
     }
-  }, [location, navigate]);
+  }, [location]);
 
   const addBotMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null, isUpgradeOptions = false, isMildCase = false) => {
     setTyping(true);

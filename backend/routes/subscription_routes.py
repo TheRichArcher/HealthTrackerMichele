@@ -159,25 +159,29 @@ def upgrade():
         logger.error(f"Error initiating checkout: user_id={user_id}, plan={plan}, error={str(e)}")
         return jsonify({'error': f'Failed to initiate checkout: {str(e)}'}), 500
 
-@subscription_routes.route('/confirm', methods=['POST'])
+@subscription_routes.route('/confirm', methods=['GET'])
 def confirm_payment():
-    try:
-        data = request.get_json()
-        session_id = data.get('session_id')
+    session_id = request.args.get('session_id')
+    logger.info(f"Received confirm request with session_id: {session_id}")  # Added logging
 
+    try:
         if not session_id:
+            logger.error("No session_id provided in query parameters")
             return jsonify({'error': 'Session ID is required'}), 400
 
         session = stripe.checkout.Session.retrieve(session_id)
         if session.payment_status != 'paid':
+            logger.error(f"Payment not completed for session {session_id}")
             return jsonify({'error': 'Payment not completed'}), 400
 
         user_id = session.metadata.get('user_id')
         if not user_id:
+            logger.error(f"User ID not found in metadata for session {session_id}")
             return jsonify({'error': 'User ID not found in metadata'}), 400
 
         plan = session.metadata.get('plan')
         if not plan:
+            logger.error(f"Plan not found in metadata for session {session_id}")
             return jsonify({'error': 'Plan not found in metadata'}), 400
 
         # Check authentication
@@ -202,18 +206,22 @@ def confirm_payment():
         if plan == 'one_time':
             report_id = session.metadata.get('report_id')
             if not report_id:
+                logger.error(f"Report ID not found in metadata for session {session_id}")
                 return jsonify({'error': 'Report ID not found in metadata'}), 400
 
             report = Report.query.get(report_id)
             if not report:
+                logger.error(f"Report not found for report_id {report_id}")
                 return jsonify({'error': 'Report not found'}), 404
 
             # For authenticated users, validate user_id
             if is_authenticated_user and report.user_id != user_id:
+                logger.error(f"Unauthorized access to report for user_id {user_id}, report_id {report_id}")
                 return jsonify({'error': 'Unauthorized access to report'}), 403
 
             # For unauthenticated users, validate temp_user_id
             if not is_authenticated_user and report.temp_user_id != user_id:
+                logger.error(f"Unauthorized access to report for temp_user_id {user_id}, report_id {report_id}")
                 return jsonify({'error': 'Unauthorized access to report'}), 403
 
             # Get assessment data
@@ -223,6 +231,7 @@ def confirm_payment():
             if assessment_id and assessment_id != 'none':
                 symptom_log = SymptomLog.query.get(assessment_id)
                 if not symptom_log:
+                    logger.error(f"Associated assessment not found for assessment_id {assessment_id}")
                     return jsonify({'error': 'Associated assessment not found'}), 400
 
                 notes = json.loads(symptom_log.notes) if symptom_log.notes and symptom_log.notes.startswith('{') else {}
@@ -248,10 +257,12 @@ def confirm_payment():
                     'care_recommendation': assessment_data.get('care_recommendation', 'Consult a healthcare provider')
                 }
             else:
+                logger.error(f"Assessment data not found in metadata for session {session_id}")
                 return jsonify({'error': 'Assessment data not found in metadata'}), 400
 
             # Generate the report PDF
             report_url = generate_pdf_report(report_data)
+            logger.info(f"Generated report URL for session {session_id}: {report_url}")
 
             report.status = 'COMPLETED'
             report.report_url = report_url
@@ -262,10 +273,12 @@ def confirm_payment():
                 user.subscription_tier = UserTierEnum.ONE_TIME.value
                 db.session.commit()
 
-            return jsonify({'report_url': report_url}), 200
+            logger.info(f"Successfully confirmed one-time report for session {session_id}, report_id {report_id}")
+            return jsonify({'success': True, 'report_url': report_url}), 200
 
         elif plan == 'subscription':
             if not is_authenticated_user:
+                logger.error(f"Authentication required for subscription confirmation, session {session_id}")
                 return jsonify({'error': 'Authentication required for subscription confirmation'}), 401
 
             if current_user != user_id:
@@ -274,19 +287,22 @@ def confirm_payment():
 
             user = User.query.get(user_id)
             if not user:
+                logger.error(f"User not found for user_id {user_id}")
                 return jsonify({'error': 'User not found'}), 404
 
             user.subscription_tier = UserTierEnum.PAID.value
             user.updated_at = datetime.utcnow()
             db.session.commit()
 
-            return jsonify({'message': 'Subscription activated successfully'}), 200
+            logger.info(f"Successfully confirmed subscription for session {session_id}, user_id {user_id}")
+            return jsonify({'success': True, 'message': 'Subscription activated successfully'}), 200
 
+        logger.error(f"Invalid plan specified in metadata: {plan}")
         return jsonify({'error': 'Invalid plan specified in metadata'}), 400
 
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error confirming payment: session_id={session_id}, error={str(e)}")
+        logger.error(f"Error confirming payment: session_id={session_id}, error={str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to confirm payment: {str(e)}'}), 500
 
 @subscription_routes.route('/status', methods=['GET'])
