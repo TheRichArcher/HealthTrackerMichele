@@ -19,7 +19,7 @@ const CONFIG = {
   SALES_PITCH_DELAY: 1000,
   UPGRADE_OPTIONS_DELAY: 1000,
   LOCAL_STORAGE_KEY: 'healthtracker_chat_messages',
-  REPORT_URL_KEY: 'healthtracker_report_url', // New key for report URL
+  REPORT_URL_KEY: 'healthtracker_report_url',
   DEBUG_MODE: process.env.NODE_ENV === 'development',
 };
 
@@ -201,13 +201,12 @@ const Chat = () => {
   useEffect(() => {
     const storedReport = localStorage.getItem(CONFIG.REPORT_URL_KEY);
     if (storedReport) {
-      console.log('Found stored report URL:', storedReport); // Debug log
-      // Check if the report message already exists to avoid duplicates
+      console.log('Found stored report URL:', storedReport);
       const hasReportMessage = messages.some(msg => msg.text.includes('Your one-time report is ready!') && msg.sender === 'bot');
       if (!hasReportMessage) {
         setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${storedReport})`, isAssessment: false }]);
       }
-      localStorage.removeItem(CONFIG.REPORT_URL_KEY); // Clear after displaying
+      localStorage.removeItem(CONFIG.REPORT_URL_KEY);
     }
   }, []);
 
@@ -238,32 +237,37 @@ const Chat = () => {
 
   useEffect(() => {
     const sessionId = new URLSearchParams(location.search).get('session_id');
-    console.log('Detected session_id:', sessionId); // Debug log
+    console.log('Detected session_id:', sessionId);
     if (sessionId) {
-      console.log('Calling /api/subscription/confirm with session_id:', sessionId); // Debug log
+      console.log('Calling /api/subscription/confirm with session_id:', sessionId);
       axios.get(
         `${CONFIG.CONFIRM_URL}?session_id=${sessionId}`,
         {
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('jwt_token') || ''}`,
+            'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`,
           },
           withCredentials: true,
         }
       )
         .then(res => {
-          console.log('Confirm response:', res.data); // Debug log
+          console.log('Confirm response:', res.data);
           if (res.data.success && res.data.report_url) {
-            // Save to localStorage as a fallback for page refreshes
-            console.log('Saving report URL to localStorage:', res.data.report_url); // Debug log
+            console.log('Saving report URL to localStorage:', res.data.report_url);
             localStorage.setItem(CONFIG.REPORT_URL_KEY, res.data.report_url);
             setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${res.data.report_url})`, isAssessment: false }]);
+            window.history.replaceState({}, document.title, '/chat');
           } else {
             setMessages(prev => [...prev, { sender: 'bot', text: 'Payment confirmed, but report generation failed. Please contact support.', isAssessment: false }]);
           }
         })
         .catch(err => {
-          console.error('Error confirming report:', err.response?.data || err.message); // Enhanced error logging
+          console.error('Error confirming report:', {
+            status: err.response?.status,
+            data: err.response?.data,
+            message: err.message,
+            config: err.config,
+          });
           setMessages(prev => [...prev, { sender: 'bot', text: 'Failed to confirm report. Please contact support.', isAssessment: false }]);
         });
     }
@@ -280,7 +284,7 @@ const Chat = () => {
   }, []);
 
   const handleUpgradeAction = useCallback((action) => {
-    const token = localStorage.getItem('jwt_token') || '';
+    const token = localStorage.getItem('access_token') || '';
     if (action === 'premium') {
       if (!isAuthenticated) navigate('/auth');
       else navigate('/subscribe');
@@ -329,7 +333,7 @@ const Chat = () => {
     setLoading(true);
     setTyping(true);
 
-    const token = localStorage.getItem('jwt_token') || '';
+    const token = localStorage.getItem('access_token') || '';
     const conversationHistory = messages.map(msg => ({ message: msg.text, isBot: msg.sender === 'bot' }));
 
     try {
@@ -391,7 +395,7 @@ const Chat = () => {
     if (loading || resetting) return;
     setResetting(true);
     try {
-      const token = localStorage.getItem('jwt_token') || '';
+      const token = localStorage.getItem('access_token') || '';
       const response = await fetch(CONFIG.RESET_URL, {
         method: 'POST',
         headers: {
