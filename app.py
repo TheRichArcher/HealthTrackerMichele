@@ -37,7 +37,7 @@ def create_app():
     app = Flask(
         __name__,
         static_folder=os.path.abspath('backend/static/dist'),
-        static_url_path=''  # Serve static files from root
+        static_url_path='/static'  # Serve static files from /static/<filename>
     )
 
     # Log the resolved static folder path
@@ -126,10 +126,10 @@ def create_app():
             db.create_all()
             logger.info('✅ Database tables initialized.')
         except OperationalError as e:
-            logger.critical(f"❌ Database connection error: {str(e)}")
+            logger.critical(f"❌ Database connection error: {str(e)}", exc_info=True)
             raise
         except Exception as e:
-            logger.critical(f"❌ Database initialization failed: {str(e)}")
+            logger.critical(f"❌ Database initialization failed: {str(e)}", exc_info=True)
             raise
 
     # Token blacklist handler
@@ -248,10 +248,10 @@ def create_app():
                 'jwt_data': jwt_data
             }), 200
         except Exception as e:
-            logger.error(f"Debug Token: Validation failed: {str(e)}")
+            logger.error(f"Debug Token: Validation failed: {str(e)}", exc_info=True)
             return jsonify({'error': f'Token validation failed: {str(e)}'}), 500
 
-    # Serve React Frontend with enhanced logging
+    # Serve React Frontend
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve(path):
@@ -260,13 +260,19 @@ def create_app():
             logger.info("Path starts with 'api/', returning 404")
             return {'error': 'Not Found'}, 404
 
-        static_path = os.path.join(app.static_folder, path)
-        if path and os.path.exists(static_path):
-            logger.info(f"Serving static file: {static_path}")
-            return send_from_directory(app.static_folder, path)
+        # Serve known static assets (temporary workaround for current build)
+        if path.startswith('assets/') or path in ('doctor-avatar.png', 'user-avatar.png'):
+            static_path = os.path.join(app.static_folder, path)
+            if os.path.exists(static_path):
+                logger.info(f"Serving static file: {static_path}")
+                return send_from_directory(app.static_folder, path)
+            else:
+                logger.error(f"Static file not found: {static_path}")
+                return jsonify({'error': 'Static file not found'}), 404
 
+        # Serve index.html for all other paths (e.g., /chat, /dashboard)
         index_path = os.path.join(app.static_folder, 'index.html')
-        logger.info(f"Attempting to serve index.html from: {index_path}")
+        logger.info(f"Serving index.html for path: {path}")
         if not os.path.exists(index_path):
             logger.error("index.html not found in the static directory")
             return jsonify({'error': 'Frontend application is missing'}), 404
@@ -275,8 +281,8 @@ def create_app():
             logger.info("Serving index.html")
             return send_from_directory(app.static_folder, 'index.html')
         except Exception as e:
-            logger.error(f"Error serving index.html: {str(e)}")
-            return jsonify({'error': 'Failed to serve application'}), 500
+            logger.error(f"Exception serving index.html: {str(e)}", exc_info=True)
+            return jsonify({'error': 'Server error while serving application'}), 500
 
     # Health check endpoint
     @app.route('/health', methods=['GET'])
@@ -285,7 +291,7 @@ def create_app():
             db.session.execute(text("SELECT 1"))
             return {"status": "healthy", "database": "connected"}, 200
         except Exception as e:
-            logger.error(f"Health check failed: {str(e)}")
+            logger.error(f"Health check failed: {str(e)}", exc_info=True)
             return {"status": "unhealthy", "database": "disconnected"}, 500
 
     return app

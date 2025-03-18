@@ -8,7 +8,7 @@ export default defineConfig({
       jsxRuntime: 'classic',
     }),
   ],
-  base: '/',
+  base: '/static/',  // Update to match static_url_path in app.py
   build: {
     outDir: '../backend/static/dist',
     emptyOutDir: true,
