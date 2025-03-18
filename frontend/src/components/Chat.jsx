@@ -197,7 +197,6 @@ const Chat = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, 100), []);
 
-  // Check for stored report URL on mount
   useEffect(() => {
     const storedReport = localStorage.getItem(CONFIG.REPORT_URL_KEY);
     if (storedReport) {
@@ -236,8 +235,13 @@ const Chat = () => {
   }, [isAuthenticated, refreshToken]);
 
   useEffect(() => {
+    console.log('Session Check - window.location:', window.location);
+    console.log('Session Check - location:', location);
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
-    const sessionId = hashParams.get('session_id') || new URLSearchParams(location.search).get('session_id');
+    const searchParams = new URLSearchParams(location.search);
+    const sessionId = hashParams.get('session_id') || searchParams.get('session_id');
+    console.log('Session Check - hashParams:', hashParams.toString());
+    console.log('Session Check - searchParams:', searchParams.toString());
     console.log('Detected session_id:', sessionId);
     if (sessionId) {
       console.log('Calling /api/subscription/confirm with session_id:', sessionId);

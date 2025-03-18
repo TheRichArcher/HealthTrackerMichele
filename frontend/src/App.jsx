@@ -1,7 +1,7 @@
 import React, { Suspense, Component } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
-import AuthProvider from './components/AuthProvider'; // Default import
-import { useAuth } from './components/AuthProvider'; // Named import
+import AuthProvider from './components/AuthProvider';
+import { useAuth } from './components/AuthProvider';
 
 // Component Imports
 import Chat from './components/Chat';
@@ -53,13 +53,13 @@ class ErrorBoundary extends Component {
 // Debug Logger Component
 function DebugLogger() {
     const location = useLocation();
-    console.log('App Location:', location);
+    console.log('App Location:', JSON.stringify(location));
     return null;
 }
 
-// PrivateRoute Wrapper (now using useAuth directly)
+// PrivateRoute Wrapper
 const PrivateRouteWrapper = ({ children }) => {
-    const { isAuthenticated, isLoading } = useAuth(); // Safe to use here since wrapped by AuthProvider
+    const { isAuthenticated, isLoading } = useAuth();
 
     if (isLoading) {
         return <LoadingSpinner message="Checking authentication..." />;
@@ -85,7 +85,7 @@ const App = () => {
                             <Route path="/" element={<Chat />} />
                             <Route path="/auth" element={<AuthPage />} />
                             <Route path="/library" element={<Library />} />
-                            <Route path="/one-time-report" element={<OneTimeReportPage />} /> {/* Made public */}
+                            <Route path="/one-time-report" element={<OneTimeReportPage />} />
 
                             {/* Protected Routes */}
                             <Route 
@@ -149,7 +149,7 @@ const App = () => {
                                 element={<div>Payment cancelled. <Link to="/subscription">Try again</Link></div>} 
                             /> 
 
-                            {/* Redirects - Direct to AuthPage instead of redirecting */}
+                            {/* Redirects */}
                             <Route path="/login" element={<AuthPage />} />
                             <Route path="/signup" element={<AuthPage initialMode="signup" />} />
                             <Route path="*" element={<Navigate to="/" replace />} />
