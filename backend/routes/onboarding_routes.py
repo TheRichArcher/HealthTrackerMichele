@@ -1,31 +1,21 @@
+# backend/routes/onboarding_routes.py
 from flask import Blueprint, request, jsonify
 from backend.extensions import db
 from backend.models import Symptom, SymptomLog
 from datetime import datetime
-from dotenv import load_dotenv
-import openai
 import logging
-import time
 import re
 import os
-from typing import Optional
+from backend.utils.openai_utils import call_openai_api
 
 # Load environment variables from .env in backend folder
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../.env"))
-
-# Get OpenAI API key
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    logging.warning("⚠️ OpenAI API key is missing! Make sure .env is loaded.")
-
-# Configure logging
+os.environ.setdefault("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", ""))
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.DEBUG
 )
 logger = logging.getLogger(__name__)
 
-# Blueprint setup - removed url_prefix to let app.py handle it
 onboarding_routes = Blueprint('onboarding_routes', __name__)
 
 # Constants
@@ -35,12 +25,11 @@ CONFIDENCE_THRESHOLD = 90
 CONFIDENCE_INCREMENT = 15
 MAX_QUESTIONS_PER_SESSION = 20
 SEVERITY_SCORE_THRESHOLD = 9
-MODEL_NAME = "gpt-4o"  # Changed from gpt-4-turbo to gpt-4o
 MAX_TOKENS = 400
-DEFAULT_TEMPERATURE = 0.7
+TEMPERATURE = 0.7
 
 EMERGENCY_KEYWORDS = [
-    "chest pain", "shortness of breath", "tightness", "weakness", 
+    "chest pain", "shortness of breath", "tightness", "weakness",
     "slurred speech", "fainting", "vision loss", "abnormal heartbeat",
     "numbness", "severe headache"
 ]
@@ -63,77 +52,6 @@ def check_for_emergency(symptom_text: str, severity_score: int) -> bool:
     """Check if symptoms indicate an emergency situation."""
     count = sum(1 for keyword in EMERGENCY_KEYWORDS if re.search(rf"\b{re.escape(keyword)}\b", symptom_text, re.IGNORECASE))
     return count >= 2 or severity_score >= SEVERITY_SCORE_THRESHOLD
-
-def send_openai_request(prompt: str) -> str:
-    """Send request to OpenAI API with proper error handling and retries."""
-    fallback_question = "Can you provide more details?"
-    
-    if not api_key:
-        logger.error("OpenAI API key is missing")
-        return fallback_question
-
-    client = openai.OpenAI(api_key=api_key)
-
-    for attempt in range(MAX_RETRIES):
-        try:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Sending OpenAI request (attempt {attempt + 1})")
-                logger.debug(f"Prompt: {prompt}")
-
-            response = client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": "You are a medical assistant helping with symptom analysis. Focus on asking clear, specific questions to understand the patient's condition. For chest pain or shortness of breath, prioritize questions about cardiovascular symptoms."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=MAX_TOKENS,
-                temperature=DEFAULT_TEMPERATURE
-            )
-
-            response_text = response.choices[0].message.content.strip() if response.choices else ""
-            if not response_text:
-                logger.error(f"Empty response from OpenAI (attempt {attempt + 1})")
-                if attempt == MAX_RETRIES - 1:
-                    return fallback_question
-                time.sleep(RETRY_DELAY)
-                continue
-
-            logger.debug(f"OpenAI response: {response_text[:100]}...")  # Log first 100 chars
-            return response_text
-
-        except openai.RateLimitError as e:
-            logger.error(f"OpenAI rate limit exceeded (attempt {attempt + 1}): {e}")
-            if attempt == MAX_RETRIES - 1:
-                return fallback_question
-            time.sleep(RETRY_DELAY * (attempt + 2))  # Longer delay for rate limits
-
-        except openai.APIConnectionError as e:
-            logger.error(f"OpenAI API connection error (attempt {attempt + 1}): {e}")
-            if attempt == MAX_RETRIES - 1:
-                return fallback_question
-            time.sleep(RETRY_DELAY * (attempt + 1))
-
-        except openai.APIError as e:
-            logger.error(f"OpenAI API error (attempt {attempt + 1}): {e}")
-            if attempt == MAX_RETRIES - 1:
-                return fallback_question
-            time.sleep(RETRY_DELAY * (attempt + 1))
-
-        except openai.AuthenticationError as e:
-            logger.error(f"OpenAI authentication error: {e}")
-            return fallback_question
-
-        except openai.InvalidRequestError as e:
-            logger.error(f"OpenAI invalid request error: {e}")
-            return fallback_question
-
-        except Exception as e:
-            logger.error(f"Unexpected error (attempt {attempt + 1}): {e}")
-            if attempt == MAX_RETRIES - 1:
-                return fallback_question
-            time.sleep(RETRY_DELAY)
-
-    return fallback_question
 
 def ensure_single_question(response_text: str) -> str:
     """Extract and return a single question from the response."""
@@ -167,7 +85,6 @@ def onboarding():
             return jsonify({"next_question": "Onboarding complete! We've gathered enough information."})
 
         try:
-            # Check if symptom exists, create if it doesn't
             symptom_obj = Symptom.query.filter_by(name=initial_symptom).first()
             if not symptom_obj:
                 symptom_obj = Symptom(name=initial_symptom)
@@ -194,13 +111,12 @@ def onboarding():
             "For chest pain, shortness of breath, or cardiovascular symptoms, prioritize questions about heart-related conditions. "
             "For symptoms like dizziness or headache, ask about environmental factors like heat exposure."
         )
-        prompt = (
-            f"The patient mentioned: '{initial_symptom}'.\n"
-            f"Details so far: '{previous_answers}'.\n"
-            f"{system_instruction} What is a relevant follow-up question?"
-        )
+        prompt = [
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": f"The patient mentioned: '{initial_symptom}'.\nDetails so far: '{previous_answers}'.\nWhat is a relevant follow-up question?"}
+        ]
 
-        next_question = send_openai_request(prompt)
+        next_question = call_openai_api(prompt, max_tokens=MAX_TOKENS)
         next_question = ensure_single_question(next_question)
 
         return jsonify({
