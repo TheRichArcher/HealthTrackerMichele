@@ -40,6 +40,10 @@ def create_app():
         static_url_path=''  # Serve static files from root
     )
 
+    # Log the resolved static folder path
+    logger = logging.getLogger(__name__)
+    logger.info(f"Resolved static folder: {app.static_folder}")
+
     # Configure app with values from environment variables and Config
     app.config.update(
         JWT_SECRET_KEY=os.getenv('JWT_SECRET_KEY'),
@@ -49,7 +53,6 @@ def create_app():
         SECRET_KEY=os.getenv('SECRET_KEY'),
         JWT_BLACKLIST_ENABLED=True,
         JWT_BLACKLIST_TOKEN_CHECKS=['access', 'refresh'],
-        # Enhanced CORS configuration
         CORS_ORIGINS=os.getenv('CORS_ORIGINS', 'https://healthtrackermichele.onrender.com,http://localhost:3000').split(","),
         CORS_HEADERS=["Content-Type", "Authorization"],
         CORS_SUPPORTS_CREDENTIALS=True
@@ -64,9 +67,8 @@ def create_app():
             logging.StreamHandler()
         ]
     )
-    logger = logging.getLogger(__name__)
 
-    # Log the JWT_SECRET_KEY with masking for security (be cautious in production)
+    # Log the JWT_SECRET_KEY with masking for security
     logger.info(f"JWT_SECRET_KEY loaded: {os.getenv('JWT_SECRET_KEY')[:6]}****")
 
     # Database Configuration
@@ -75,7 +77,6 @@ def create_app():
         raise ValueError("DATABASE_URL environment variable is not set")
     logger.info(f"Original DATABASE_URL: {DATABASE_URL}")
 
-    # Modify the URL to handle SSL and driver properly
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
     if DATABASE_URL.startswith("postgresql://"):
@@ -91,7 +92,6 @@ def create_app():
     logger.info(f"Modified DATABASE_URL: {DATABASE_URL}")
     app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 
-    # Initialize SQLAlchemy engine with custom pool settings
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
         'pool_size': 10,
         'max_overflow': 20,
@@ -99,7 +99,7 @@ def create_app():
         'pool_pre_ping': True
     }
 
-    # Initialize extensions with updated CORS settings
+    # Initialize extensions
     db.init_app(app)
     bcrypt.init_app(app)
     cors.init_app(app,
@@ -115,7 +115,6 @@ def create_app():
     # Database initialization with connection test
     with app.app_context():
         try:
-            # Test database connection before creating tables
             engine = create_engine(DATABASE_URL, **app.config['SQLALCHEMY_ENGINE_OPTIONS'])
             with engine.connect() as connection:
                 result = connection.execute(text("SELECT 1"))
@@ -124,7 +123,6 @@ def create_app():
                     logger.info("✅ Database connection successful!")
                 else:
                     raise Exception("Unexpected result from SELECT 1")
-            # Proceed with table creation
             db.create_all()
             logger.info('✅ Database tables initialized.')
         except OperationalError as e:
@@ -152,13 +150,12 @@ def create_app():
     from backend.routes.data_exporter import data_exporter
     from backend.routes.subscription_routes import subscription_routes
 
-    # Register blueprints with proper URL prefixes
     blueprints = [
         (symptom_routes, '/api/symptoms'),
         (health_data_routes, '/api/health-data'),
         (report_routes, '/api/reports'),
         (user_routes, '/api'),
-        (utils_health_bp, '/api'),  # Corrected from utils_health_routes to utils_health_bp
+        (utils_health_bp, '/api'),
         (library_routes, '/api/library'),
         (onboarding_routes, '/api/onboarding'),
         (data_exporter, '/api/export'),
@@ -171,7 +168,6 @@ def create_app():
     # Create a new blueprint for top-level routes
     top_level_routes = Blueprint('top_level_routes', __name__)
 
-    # Logout route (added from updated version)
     @top_level_routes.route('/logout/', methods=['POST'])
     @jwt_required()
     def logout():
@@ -181,7 +177,6 @@ def create_app():
         db.session.commit()
         return jsonify({'message': 'Logged out successfully'}), 200
 
-    # Register the top-level blueprint
     app.register_blueprint(top_level_routes)
 
     # Debug logging for registered routes
@@ -223,25 +218,18 @@ def create_app():
             'msg': 'Token has been revoked'
         }), 401
 
-    # Debug endpoint to inspect token validation with production check
+    # Debug endpoint to inspect token validation
     @app.route('/api/debug/token', methods=['GET'])
     @jwt_required()
     def debug_token():
         try:
-            # Disable in production for security
             if os.getenv("FLASK_ENV", "production") == "production":
                 return jsonify({"error": "Token debugging is disabled in production"}), 403
-
-            # Get the raw token from the Authorization header
             auth_header = request.headers.get('Authorization', '')
             if not auth_header.startswith('Bearer '):
                 return jsonify({'error': 'Bearer token missing'}), 400
             token = auth_header.split(' ')[1]
-
-            # Log the raw token
             logger.info(f"Debug Token: Raw token received: {token}")
-
-            # Decode the token without verification to inspect its contents
             from jwt import decode as jwt_decode, exceptions as jwt_exceptions
             try:
                 decoded_token = jwt_decode(token, options={"verify_signature": False})
@@ -249,39 +237,43 @@ def create_app():
             except jwt_exceptions.DecodeError as e:
                 logger.error(f"Debug Token: Failed to decode token: {str(e)}")
                 return jsonify({'error': f'Token decode error: {str(e)}'}), 400
-
-            # Attempt to validate the token using JWTManager
             current_user = get_jwt_identity()
             jwt_data = get_jwt()
             logger.info(f"Debug Token: Validated identity: {current_user}")
             logger.info(f"Debug Token: JWT data: {jwt_data}")
-
             return jsonify({
                 'status': 'success',
                 'message': 'Token validated',
                 'identity': current_user,
                 'jwt_data': jwt_data
             }), 200
-
         except Exception as e:
             logger.error(f"Debug Token: Validation failed: {str(e)}")
             return jsonify({'error': f'Token validation failed: {str(e)}'}), 500
 
-    # Serve React Frontend with error handling
+    # Serve React Frontend with enhanced logging
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve(path):
+        logger.info(f"Requested path: {path}")
         if path.startswith('api/'):
+            logger.info("Path starts with 'api/', returning 404")
             return {'error': 'Not Found'}, 404
 
-        if path and os.path.exists(os.path.join(app.static_folder, path)):
+        static_path = os.path.join(app.static_folder, path)
+        if path and os.path.exists(static_path):
+            logger.info(f"Serving static file: {static_path}")
             return send_from_directory(app.static_folder, path)
 
-        try:
-            return send_from_directory(app.static_folder, 'index.html')
-        except FileNotFoundError:
+        index_path = os.path.join(app.static_folder, 'index.html')
+        logger.info(f"Attempting to serve index.html from: {index_path}")
+        if not os.path.exists(index_path):
             logger.error("index.html not found in the static directory")
             return jsonify({'error': 'Frontend application is missing'}), 404
+
+        try:
+            logger.info("Serving index.html")
+            return send_from_directory(app.static_folder, 'index.html')
         except Exception as e:
             logger.error(f"Error serving index.html: {str(e)}")
             return jsonify({'error': 'Failed to serve application'}), 500
@@ -306,6 +298,6 @@ application = app
 
 # Run Flask application
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 10000))  # Default to Render's expected port
+    port = int(os.getenv('PORT', 10000))
     app.logger.info(f'Starting server on port {port}')
     app.run(host='0.0.0.0', port=port, debug=os.getenv('DEBUG', 'False') == 'True')
