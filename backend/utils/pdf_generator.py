@@ -10,7 +10,7 @@ def generate_pdf_report(report_data):
     filename = f"report_{uuid.uuid4()}.pdf"
     
     # Define directory to save PDF (persistent)
-    reports_dir = os.path.join(os.getcwd(), "backend", "static", "reports")
+    reports_dir = "/opt/render/project/src/backend/static/reports"
     os.makedirs(reports_dir, exist_ok=True)  # Ensure folder exists
     
     # Full path to save the PDF
