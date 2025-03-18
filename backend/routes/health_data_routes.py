@@ -1,69 +1,27 @@
+# backend/routes/health_data_routes.py
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
 from backend.extensions import db
 from backend.models import HealthData, User, UserTierEnum
 import logging
 from datetime import datetime
-import openai
-import os
-import time
-import json
+from backend.utils.openai_utils import call_openai_api
 
 # Logger setup
 logger = logging.getLogger("health_data_routes")
 health_data_routes = Blueprint("health_data_routes", __name__, url_prefix="/api/health-data")
 
-# OpenAI setup
-openai.api_key = os.getenv("OPENAI_API_KEY")
-if not openai.api_key:
-    raise ValueError("OPENAI_API_KEY environment variable not set")
-
-# Constants
-MAX_RETRIES = 3
-RETRY_DELAY = 2
-MAX_TOKENS = 1000
-TEMPERATURE = 0.7
-
 def is_premium_user(user):
+    """Check if the user has a premium subscription tier."""
     return getattr(user, "subscription_tier", UserTierEnum.FREE.value) in {
         UserTierEnum.PAID.value,
         UserTierEnum.ONE_TIME.value
     }
 
-def call_openai_api(messages, retry_count=0):
-    if retry_count >= MAX_RETRIES:
-        logger.error("Max retries reached for OpenAI API call")
-        return "Unable to generate insights at this time."
-    try:
-        response = openai.chat.completions.create(
-            model="gpt-4o",  # Changed from gpt-4-turbo to gpt-4o
-            messages=messages,
-            temperature=TEMPERATURE,
-            max_tokens=MAX_TOKENS
-        )
-        content = response.choices[0].message.content.strip() if response.choices else ""
-        logger.info(f"Raw OpenAI response: {content[:100]}...")  # Log first 100 chars
-        
-        if not content:
-            logger.warning("Empty response from OpenAI")
-            time.sleep(RETRY_DELAY)
-            return call_openai_api(messages, retry_count + 1)
-        return content
-    except openai.RateLimitError:
-        wait_time = min(10, (2 ** retry_count) * RETRY_DELAY)
-        logger.warning(f"Rate limit hit. Retrying in {wait_time} seconds...")
-        time.sleep(wait_time)
-        return call_openai_api(messages, retry_count + 1)
-    except openai.OpenAIError as e:
-        logger.error(f"OpenAI API error: {str(e)}", exc_info=True)
-        return "Error connecting to AI service."
-    except Exception as e:
-        logger.error(f"Unexpected error calling OpenAI API: {str(e)}", exc_info=True)
-        return "An unexpected error occurred."
-
-# Route for GET all health data
+# Route to fetch all health data
 @health_data_routes.route("/", methods=["GET"])
 def get_all_health_data():
+    """Retrieve all health data records."""
     try:
         health_records = HealthData.query.all()
         return jsonify({"health_data": [
@@ -79,9 +37,10 @@ def get_all_health_data():
         logger.error(f"Error fetching all health data: {str(e)}", exc_info=True)
         return jsonify({"error": "Error fetching health data."}), 500
 
-# Route to log health data
+# Route to log new health data
 @health_data_routes.route("/", methods=["POST"])
 def log_health_data():
+    """Log a new health data entry for a user."""
     try:
         data = request.get_json()
         user_id = data.get("user_id")
@@ -96,10 +55,7 @@ def log_health_data():
         if not user:
             return jsonify({"error": "User not found."}), 404
 
-        try:
-            recorded_at = datetime.strptime(recorded_at, "%Y-%m-%d %H:%M:%S") if recorded_at else datetime.utcnow()
-        except (TypeError, ValueError):
-            recorded_at = datetime.utcnow()
+        recorded_at = datetime.strptime(recorded_at, "%Y-%m-%d %H:%M:%S") if recorded_at else datetime.utcnow()
 
         new_health_data = HealthData(user_id=user_id, data_type=data_type, value=value, recorded_at=recorded_at)
         db.session.add(new_health_data)
@@ -119,9 +75,10 @@ def log_health_data():
         logger.error(f"Error logging health data: {str(e)}", exc_info=True)
         return jsonify({"error": "Error logging health data."}), 500
 
-# Route to retrieve health data for a user
+# Route to retrieve health data for a specific user
 @health_data_routes.route("/user/<int:user_id>", methods=["GET"])
 def get_health_data(user_id):
+    """Retrieve health data records for a specific user."""
     try:
         user = User.query.get(user_id)
         if not user:
@@ -144,36 +101,32 @@ def get_health_data(user_id):
         logger.error(f"Error fetching health data: {str(e)}", exc_info=True)
         return jsonify({"error": "Error fetching health data."}), 500
 
-# New route to generate AI-driven health insights
+# Route to generate AI-driven health insights
 @health_data_routes.route("/user/<int:user_id>/insights", methods=["GET"])
 def get_health_insights(user_id):
+    """Generate AI-driven insights based on a user's health data."""
     try:
-        # Verify JWT and get user
         verify_jwt_in_request(optional=True)
         authenticated_user_id = get_jwt_identity()
         user = User.query.get(user_id)
         if not user:
             return jsonify({"error": "User not found."}), 404
 
-        # Restrict to authenticated user or premium users
         if authenticated_user_id != user_id and not is_premium_user(user):
             return jsonify({
                 "error": "Premium subscription required to view insights.",
                 "requires_upgrade": True
             }), 403
 
-        # Fetch health data
         health_records = HealthData.query.filter_by(user_id=user_id).order_by(HealthData.recorded_at.desc()).limit(50).all()
         if not health_records:
             return jsonify({"message": "No health data available to analyze."}), 200
 
-        # Format health data for OpenAI
         health_data_text = "\n".join([
             f"{record.data_type}: {record.value} (recorded on {record.recorded_at.strftime('%Y-%m-%d %H:%M:%S')})"
             for record in health_records
         ])
 
-        # Prepare OpenAI prompt
         prompt = [
             {
                 "role": "system",
@@ -185,9 +138,7 @@ def get_health_insights(user_id):
             }
         ]
 
-        # Call OpenAI API
-        insights = call_openai_api(prompt)
-
+        insights = call_openai_api(prompt, max_tokens=500)
         return jsonify({
             "insights": insights,
             "health_data_count": len(health_records)
@@ -199,6 +150,7 @@ def get_health_insights(user_id):
 # Route to delete a specific health data entry
 @health_data_routes.route("/<int:data_id>", methods=["DELETE"])
 def delete_health_data(data_id):
+    """Delete a specific health data entry."""
     try:
         health_data = HealthData.query.get(data_id)
         if not health_data:
