@@ -1,21 +1,21 @@
 import React, { Suspense, Component } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
-import AuthProvider from './components/AuthProvider';
-import { useAuth } from './components/AuthProvider';
+import AuthProvider from './AuthProvider';
+import { useAuth } from './AuthProvider';
 
 // Component Imports
-import Chat from './components/Chat';
-import MedicalInfo from './components/MedicalInfo';
-import Library from './components/Library';
-import Dashboard from './components/Dashboard';
-import Onboarding from './components/Onboarding';
-import SymptomLogger from './components/SymptomLogger';
-import Report from './components/Report';
-import AuthPage from './components/AuthPage';
-import SubscriptionPage from './components/SubscriptionPage';
-import OneTimeReportPage from './components/OneTimeReportPage';
-import Navbar from './components/Navbar';
-import LoadingSpinner from './components/LoadingSpinner';
+import Chat from './Chat';
+import MedicalInfo from './MedicalInfo';
+import Library from './Library';
+import Dashboard from './Dashboard';
+import Onboarding from './Onboarding';
+import SymptomLogger from './SymptomLogger';
+import Report from './Report';
+import AuthPage from './AuthPage';
+import SubscriptionPage from './SubscriptionPage';
+import OneTimeReportPage from './OneTimeReportPage';
+import Navbar from './Navbar';
+import LoadingSpinner from './LoadingSpinner';
 
 // Styles
 import './styles/App.css';
@@ -83,6 +83,7 @@ const App = () => {
                         <Routes>
                             {/* Public Routes */}
                             <Route path="/" element={<Chat />} />
+                            <Route path="/chat" element={<Chat />} /> {/* Added /chat route */}
                             <Route path="/auth" element={<AuthPage />} />
                             <Route path="/library" element={<Library />} />
                             <Route path="/one-time-report" element={<OneTimeReportPage />} />

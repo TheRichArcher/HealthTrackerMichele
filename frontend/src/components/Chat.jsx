@@ -235,22 +235,21 @@ const Chat = () => {
   }, [isAuthenticated, refreshToken]);
 
   useEffect(() => {
-    console.log('Session Check - window.location:', window.location);
-    console.log('Session Check - location:', location);
-    const hashParams = new URLSearchParams(window.location.hash.substring(1));
     const searchParams = new URLSearchParams(location.search);
-    const sessionId = hashParams.get('session_id') || searchParams.get('session_id');
-    console.log('Session Check - hashParams:', hashParams.toString());
+    const sessionId = searchParams.get('session_id');
+    console.log('Session Check - location:', location);
     console.log('Session Check - searchParams:', searchParams.toString());
     console.log('Detected session_id:', sessionId);
+
     if (sessionId) {
       console.log('Calling /api/subscription/confirm with session_id:', sessionId);
+      const token = localStorage.getItem('access_token') || '';
       axios.get(
         `${CONFIG.CONFIRM_URL}?session_id=${sessionId}`,
         {
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`,
+            'Authorization': `Bearer ${token}`,
           },
           withCredentials: true,
         }
@@ -263,6 +262,7 @@ const Chat = () => {
             setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${res.data.report_url})`, isAssessment: false }]);
             window.history.replaceState({}, document.title, '/chat');
           } else {
+            console.warn('Confirm succeeded but no report_url:', res.data);
             setMessages(prev => [...prev, { sender: 'bot', text: 'Payment confirmed, but report generation failed. Please contact support.', isAssessment: false }]);
           }
         })
@@ -273,10 +273,13 @@ const Chat = () => {
             message: err.message,
             config: err.config,
           });
-          setMessages(prev => [...prev, { sender: 'bot', text: 'Failed to confirm report. Please contact support.', isAssessment: false }]);
+          let errorMsg = 'Failed to confirm report. Please contact support.';
+          if (err.response?.status === 401) errorMsg = 'Authentication failed. Please log in again.';
+          else if (err.response?.status === 403) errorMsg = 'Unauthorized access. Please try again or log in.';
+          setMessages(prev => [...prev, { sender: 'bot', text: errorMsg, isAssessment: false }]);
         });
     }
-  }, [location]);
+  }, [location.search]);
 
   const addBotMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null, isUpgradeOptions = false, isMildCase = false) => {
     setTyping(true);
