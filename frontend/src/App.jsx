@@ -1,5 +1,5 @@
 import React, { Suspense, Component } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import AuthProvider from './components/AuthProvider'; // Default import
 import { useAuth } from './components/AuthProvider'; // Named import
 
@@ -48,6 +48,13 @@ class ErrorBoundary extends Component {
         }
         return this.props.children;
     }
+}
+
+// Debug Logger Component
+function DebugLogger() {
+    const location = useLocation();
+    console.log('App Location:', location);
+    return null;
 }
 
 // PrivateRoute Wrapper (now using useAuth directly)
@@ -147,6 +154,7 @@ const App = () => {
                             <Route path="/signup" element={<AuthPage initialMode="signup" />} />
                             <Route path="*" element={<Navigate to="/" replace />} />
                         </Routes>
+                        <DebugLogger />
                     </Suspense>
                 </main>
             </ErrorBoundary>

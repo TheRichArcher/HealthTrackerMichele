@@ -236,7 +236,8 @@ const Chat = () => {
   }, [isAuthenticated, refreshToken]);
 
   useEffect(() => {
-    const sessionId = new URLSearchParams(location.search).get('session_id');
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const sessionId = hashParams.get('session_id') || new URLSearchParams(location.search).get('session_id');
     console.log('Detected session_id:', sessionId);
     if (sessionId) {
       console.log('Calling /api/subscription/confirm with session_id:', sessionId);

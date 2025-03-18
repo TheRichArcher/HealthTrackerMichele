@@ -104,7 +104,7 @@ def upgrade():
                     'assessment_data': json.dumps(assessment_data) if assessment_data else 'none',
                     'report_id': report.id
                 },
-                success_url=f"{BASE_URL}/chat?session_id={{CHECKOUT_SESSION_ID}}",
+                success_url=f"{BASE_URL}/chat#session_id={{CHECKOUT_SESSION_ID}}",
                 cancel_url=f"{BASE_URL}/chat",
             )
             return jsonify({'checkout_url': checkout_session.url}), 200
@@ -130,7 +130,7 @@ def upgrade():
                     'plan': 'subscription',
                     'assessment_id': str(assessment_id) if assessment_id else 'none'
                 },
-                success_url=f"{BASE_URL}/chat?session_id={{CHECKOUT_SESSION_ID}}",
+                success_url=f"{BASE_URL}/chat#session_id={{CHECKOUT_SESSION_ID}}",
                 cancel_url=f"{BASE_URL}/chat",
             )
             return jsonify({'checkout_url': checkout_session.url}), 200
