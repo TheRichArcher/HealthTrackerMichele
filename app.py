@@ -15,6 +15,7 @@ from backend.extensions import db, bcrypt, cors, migrate
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
 from flask_cors import cross_origin
+from jwt import decode as jwt_decode, exceptions as jwt_exceptions
 
 # Load environment variables
 load_dotenv()
@@ -230,7 +231,6 @@ def create_app():
                 return jsonify({'error': 'Bearer token missing'}), 400
             token = auth_header.split(' ')[1]
             logger.info(f"Debug Token: Raw token received: {token}")
-            from jwt import decode as jwt_decode, exceptions as jwt_exceptions
             try:
                 decoded_token = jwt_decode(token, options={"verify_signature": False})
                 logger.info(f"Debug Token: Decoded token (unverified): {decoded_token}")
@@ -283,6 +283,20 @@ def create_app():
         except Exception as e:
             logger.error(f"Exception serving index.html: {str(e)}", exc_info=True)
             return jsonify({'error': 'Server error while serving application'}), 500
+
+    # Serve PDF reports
+    @app.route('/static/reports/<path:filename>')
+    def serve_report(filename):
+        logger.info(f"Serving report file: {filename}")
+        reports_dir = os.path.join('/opt/render/project/src/backend/static/reports')
+        if not os.path.exists(reports_dir):
+            logger.error(f"Reports directory not found: {reports_dir}")
+            return jsonify({'error': 'Reports directory not found'}), 404
+        try:
+            return send_from_directory(reports_dir, filename)
+        except Exception as e:
+            logger.error(f"Exception serving report file {filename}: {str(e)}", exc_info=True)
+            return jsonify({'error': f'Failed to serve report file: {str(e)}'}), 500
 
     # Health check endpoint
     @app.route('/health', methods=['GET'])
