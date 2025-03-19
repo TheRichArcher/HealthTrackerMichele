@@ -1,9 +1,11 @@
 import json
 import logging
 import random
+import os
 from typing import Dict, Optional
 from flask import current_app
 from backend.models import User, UserTierEnum  # Explicitly import User
+from openai import OpenAI  # Import OpenAI client here
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -242,3 +244,11 @@ def clean_ai_response(
             "care_recommendation": None,
             "requires_upgrade": False
         }
+
+# ✅ ADDED FUNCTION:
+def get_openai_client():
+    """
+    Returns an OpenAI client instance using the API key from environment variables.
+    """
+    api_key = os.getenv("OPENAI_API_KEY")
+    return OpenAI(api_key=api_key)
