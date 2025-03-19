@@ -1,20 +1,28 @@
+# backend/app.py
 import os
 import logging
+from logging.handlers import RotatingFileHandler
 from datetime import timedelta
-from flask import Flask, jsonify, request, send_from_directory, Blueprint  # Added Blueprint import
-from flask_jwt_extended import JWTManager
-from flask_sqlalchemy import SQLAlchemy
-from flask_bcrypt import Bcrypt
-from flask_cors import CORS
-from flask_migrate import Migrate
+from flask import Flask, send_from_directory, jsonify, request
+from flask_jwt_extended import JWTManager, verify_jwt_in_request, get_jwt, get_jwt_identity
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
 from jwt import decode as jwt_decode, exceptions as jwt_exceptions
-from dotenv import load_dotenv  # Already added in the previous fix
+from backend.extensions import db, bcrypt, migrate, cors, init_extensions
+from backend.routes.user_routes import user_routes
+from backend.routes.symptom_routes import symptom_routes
+from backend.routes.health_data_routes import health_data_routes
+from backend.routes.report_routes import report_routes
+from backend.routes.utils_health_routes import utils_health_bp
+from backend.routes.library_routes import library_routes
+from backend.routes.onboarding_routes import onboarding_routes
+from backend.routes.data_exporter import data_exporter
+from backend.routes.subscription_routes import subscription_routes
+from backend.models import RevokedToken
+from flask import Blueprint
 
-# Load environment variables from a .env file (if present)
-os.environ.setdefault('LOG_LEVEL', 'INFO')
-os.environ.setdefault('LOG_FILE', 'app.log')
+# Load environment variables from .env file
 load_dotenv()
 
 # Validate required environment variables
@@ -25,106 +33,74 @@ if missing_vars:
     print(f"❌ ERROR: {error_message}")
     raise RuntimeError(error_message)
 
-# Configuration class for token expiry settings
-class Config:
-    JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=1)  # Access token expires in 1 hour
-    JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=30)  # Refresh token expires in 30 days
-
-# Initialize Flask application
+# Initialize Flask app
 app = Flask(
     __name__,
     static_folder=os.path.abspath('backend/static/dist'),
-    static_url_path='/static'  # Serve static files from /static/<filename>
+    static_url_path='/static'
 )
 
-# Set up logging
-logging.basicConfig(
-    level=getattr(logging, os.getenv('LOG_LEVEL').upper()),
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[
-        logging.FileHandler(os.getenv('LOG_FILE')),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
-# Log the resolved static folder path
-logger.info(f"Resolved static folder: {app.static_folder}")
-
-# Configure the Flask app with environment variables and settings
-app.config.update(
-    JWT_SECRET_KEY=os.getenv('JWT_SECRET_KEY'),
-    JWT_ACCESS_TOKEN_EXPIRES=Config.JWT_ACCESS_TOKEN_EXPIRES,
-    JWT_REFRESH_TOKEN_EXPIRES=Config.JWT_REFRESH_TOKEN_EXPIRES,
-    SQLALCHEMY_TRACK_MODIFICATIONS=False,
-    SECRET_KEY=os.getenv('SECRET_KEY'),
-    JWT_BLACKLIST_ENABLED=True,
-    JWT_BLACKLIST_TOKEN_CHECKS=['access', 'refresh'],
-    CORS_ORIGINS=os.getenv('CORS_ORIGINS', 'https://healthtrackermichele.onrender.com,http://localhost:3000').split(","),
-    CORS_HEADERS=["Content-Type", "Authorization"],
-    CORS_SUPPORTS_CREDENTIALS=True,
-    FRONTEND_URL=os.getenv('FRONTEND_URL', 'https://healthtrackermichele.onrender.com')  # Added FRONTEND_URL with default
-)
-
-# Log the JWT_SECRET_KEY with partial masking for security
-logger.info(f"JWT_SECRET_KEY loaded: {os.getenv('JWT_SECRET_KEY')[:6]}****")
-
-# Database Configuration
-DATABASE_URL = os.getenv('DATABASE_URL')
-if not DATABASE_URL:
-    raise ValueError("DATABASE_URL environment variable is not set")
-logger.info(f"Original DATABASE_URL: {DATABASE_URL}")
-
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
-if DATABASE_URL.startswith("postgresql://"):
-    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://")
-    if "sslmode=" not in DATABASE_URL:
-        if "?" in DATABASE_URL:
-            DATABASE_URL += "&sslmode=require"
+# Configure DATABASE_URL for Render.com (replace 'postgresql://' with 'postgresql+psycopg://' and add sslmode)
+database_url = os.getenv('DATABASE_URL', 'sqlite:///health_tracker.db')
+if database_url.startswith('postgres://'):
+    database_url = database_url.replace('postgres://', 'postgresql://')
+if database_url.startswith('postgresql://'):
+    database_url = database_url.replace('postgresql://', 'postgresql+psycopg://', 1)
+    if 'sslmode' not in database_url:
+        if "?" in database_url:
+            database_url += "&sslmode=require"
         else:
-            DATABASE_URL += "?sslmode=require"
-    elif "sslmode=disable" in DATABASE_URL:
-        logger.warning("SSL mode is disabled, which is insecure for production")
+            database_url += "?sslmode=require"
+    elif "sslmode=disable" in database_url:
+        print("WARNING: SSL mode is disabled, which is insecure for production")
 
-logger.info(f"Modified DATABASE_URL: {DATABASE_URL}")
-app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
+# Configuration
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
+app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=1)  # 1 hour
+app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=30)  # 30 days
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_size': 10,
     'max_overflow': 20,
     'pool_timeout': 30,
     'pool_pre_ping': True
 }
+app.config['CORS_ORIGINS'] = os.getenv('CORS_ORIGINS', 'https://healthtrackermichele.onrender.com,http://localhost:5173,http://localhost:5000').split(',')
+app.config['CORS_HEADERS'] = ['Content-Type', 'Authorization']
+app.config['CORS_SUPPORTS_CREDENTIALS'] = True
+app.config['FRONTEND_URL'] = os.getenv('FRONTEND_URL', 'https://healthtrackermichele.onrender.com')
+app.config['JWT_BLACKLIST_ENABLED'] = True
+app.config['JWT_BLACKLIST_TOKEN_CHECKS'] = ['access', 'refresh']
 
-# Initialize extensions
-db = SQLAlchemy(app)
-bcrypt = Bcrypt(app)
-cors = CORS(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}}, allow_headers=app.config["CORS_HEADERS"], supports_credentials=app.config["CORS_SUPPORTS_CREDENTIALS"])
-migrate = Migrate(app, db)
+# Setup logging
+log_level = os.getenv('LOG_LEVEL', 'DEBUG').upper()  # Changed to DEBUG for detailed logging
+log_file = os.getenv('LOG_FILE', 'health_tracker.log')
+numeric_level = getattr(logging, log_level, logging.DEBUG)
+logger = logging.getLogger()
+logger.setLevel(numeric_level)
+
+# File handler with rotation
+file_handler = RotatingFileHandler(log_file, maxBytes=1024*1024*10, backupCount=5)
+file_handler.setLevel(numeric_level)
+formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
+# Console handler
+console_handler = logging.StreamHandler()
+console_handler.setLevel(numeric_level)
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
+
+logger.info(f"Resolved static folder: {app.static_folder}")
+logger.info(f"JWT_SECRET_KEY loaded: {app.config['JWT_SECRET_KEY'][:5]}****")
+logger.info(f"Original DATABASE_URL: {os.getenv('DATABASE_URL')}")
+logger.info(f"Modified DATABASE_URL: {database_url}")
+
+# Initialize JWT
 jwt = JWTManager(app)
-
-# Import models
-from backend.models import User, Symptom, SymptomLog, Report, HealthData, RevokedToken
-
-# Database initialization with connection test
-with app.app_context():
-    try:
-        engine = create_engine(DATABASE_URL, **app.config['SQLALCHEMY_ENGINE_OPTIONS'])
-        with engine.connect() as connection:
-            result = connection.execute(text("SELECT 1"))
-            row = result.fetchone()
-            if row and row[0] == 1:
-                logger.info("✅ Database connection successful!")
-            else:
-                raise Exception("Unexpected result from SELECT 1")
-        db.create_all()
-        logger.info('✅ Database tables initialized.')
-    except OperationalError as e:
-        logger.critical(f"❌ Database connection error: {str(e)}", exc_info=True)
-        raise
-    except Exception as e:
-        logger.critical(f"❌ Database initialization failed: {str(e)}", exc_info=True)
-        raise
 
 # Token blacklist handler
 @jwt.token_in_blocklist_loader
@@ -132,58 +108,6 @@ def check_if_token_revoked(jwt_header, jwt_payload):
     jti = jwt_payload["jti"]
     token = RevokedToken.query.filter_by(jti=jti).first()
     return token is not None
-
-# Define blueprints
-symptom_routes = Blueprint('symptom_routes', __name__, url_prefix='/api/symptoms')
-health_data_routes = Blueprint('health_data_routes', __name__, url_prefix='/api/health-data')
-report_routes = Blueprint('report_routes', __name__, url_prefix='/api/reports')
-user_routes = Blueprint('user_routes', __name__, url_prefix='/api')
-utils_health_bp = Blueprint('utils_health_routes', __name__, url_prefix='/api')
-library_routes = Blueprint('library_routes', __name__, url_prefix='/api/library')
-onboarding_routes = Blueprint('onboarding_routes', __name__, url_prefix='/api/onboarding')
-data_exporter = Blueprint('data_exporter', __name__, url_prefix='/api/export')
-subscription_routes = Blueprint('subscription_routes', __name__, url_prefix='/api/subscription')
-
-# Register blueprints
-app.register_blueprint(symptom_routes)
-app.register_blueprint(health_data_routes)
-app.register_blueprint(report_routes)
-app.register_blueprint(user_routes)
-app.register_blueprint(utils_health_bp)
-app.register_blueprint(library_routes)
-app.register_blueprint(onboarding_routes)
-app.register_blueprint(data_exporter)
-app.register_blueprint(subscription_routes)
-
-# Create a blueprint for top-level routes
-top_level_routes = Blueprint('top_level_routes', __name__)
-
-@top_level_routes.route('/logout/', methods=['POST'])
-def logout():
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith('Bearer '):
-        return jsonify({'status': 401, 'sub_status': 44, 'msg': 'Missing authorization token'}), 401
-
-    try:
-        from flask_jwt_extended import verify_jwt_in_request, get_jwt
-        verify_jwt_in_request()
-        jti = get_jwt()['jti']
-        from backend.models import RevokedToken
-        revoked_token = RevokedToken(jti=jti)
-        db.session.add(revoked_token)
-        db.session.commit()
-        return jsonify({'message': 'Logged out successfully'}), 200
-    except Exception as e:
-        logger.error(f"Logout failed: {str(e)}", exc_info=True)
-        return jsonify({'status': 500, 'msg': 'Internal server error'}), 500
-
-app.register_blueprint(top_level_routes)
-
-# Debug logging for registered routes
-logger.info("=== Registered Routes ===")
-for rule in app.url_map.iter_rules():
-    logger.info(f"{rule.endpoint}: {rule.rule}")
-logger.info("=======================")
 
 # JWT error handlers
 @jwt.expired_token_loader
@@ -218,7 +142,83 @@ def revoked_token_callback(jwt_header, jwt_payload):
         'msg': 'Token has been revoked'
     }), 401
 
-# Debug endpoint to inspect token validation
+# Initialize Flask extensions
+init_extensions(app)
+
+# Test database connection and initialize tables
+with app.app_context():
+    try:
+        engine = create_engine(database_url, **app.config['SQLALCHEMY_ENGINE_OPTIONS'])
+        with engine.connect() as connection:
+            result = connection.execute(text("SELECT 1"))
+            row = result.fetchone()
+            if row and row[0] == 1:
+                logger.info("✅ Database connection successful!")
+            else:
+                raise Exception("Unexpected result from SELECT 1")
+    except OperationalError as e:
+        logger.critical(f"❌ Database connection error: {str(e)}", exc_info=True)
+        raise
+    except Exception as e:
+        logger.critical(f"❌ Database initialization failed: {str(e)}", exc_info=True)
+        raise
+
+# Note: Database tables are initialized via Alembic migrations (alembic upgrade head) during deployment.
+# If running locally, ensure migrations are applied by running:
+#   flask db init  # (if not already initialized)
+#   flask db migrate
+#   flask db upgrade
+
+# Log all incoming requests
+@app.before_request
+def log_request():
+    logger.debug(f"Request: {request.method} {request.path} from {request.headers.get('Origin')} with headers: {dict(request.headers)}")
+
+# Register Blueprints
+app.register_blueprint(user_routes, url_prefix='/api')
+app.register_blueprint(symptom_routes, url_prefix='/api/symptoms')
+app.register_blueprint(health_data_routes, url_prefix='/api/health-data')
+app.register_blueprint(report_routes, url_prefix='/api/reports')
+app.register_blueprint(utils_health_bp, url_prefix='/api')
+app.register_blueprint(library_routes, url_prefix='/api/library')
+app.register_blueprint(onboarding_routes, url_prefix='/api/onboarding')
+app.register_blueprint(data_exporter, url_prefix='/api/export')
+app.register_blueprint(subscription_routes, url_prefix='/api/subscription')
+
+# Top-level routes for logout
+top_level_routes = Blueprint('top_level_routes', __name__)
+
+@top_level_routes.route('/logout/', methods=['POST'])
+def logout():
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'status': 401, 'sub_status': 44, 'msg': 'Missing authorization token'}), 401
+
+    try:
+        verify_jwt_in_request()
+        jti = get_jwt()['jti']
+        revoked_token = RevokedToken(jti=jti)
+        db.session.add(revoked_token)
+        db.session.commit()
+        return jsonify({'message': 'Logged out successfully'}), 200
+    except Exception as e:
+        logger.error(f"Logout failed: {str(e)}", exc_info=True)
+        return jsonify({'status': 500, 'msg': 'Internal server error'}), 500
+
+app.register_blueprint(top_level_routes)
+
+# CORS preflight OPTIONS handler
+@app.route('/api/<path:path>', methods=['OPTIONS'])
+def handle_options(path):
+    logger.debug(f"Handling OPTIONS request for /api/{path} from {request.headers.get('Origin')}")
+    response = jsonify({})
+    response.headers['Access-Control-Allow-Origin'] = 'https://healthtrackermichele.onrender.com'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    response.headers['Access-Control-Allow-Credentials'] = 'true'
+    return response, 200
+
+# Debug endpoint for token validation
 @app.route('/api/debug/token', methods=['GET'])
 def debug_token():
     auth_header = request.headers.get('Authorization', '')
@@ -226,7 +226,6 @@ def debug_token():
         return jsonify({'error': 'Bearer token missing'}), 400
 
     try:
-        from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity, get_jwt
         verify_jwt_in_request()
         if os.getenv("FLASK_ENV", "production") == "production":
             return jsonify({"error": "Token debugging is disabled in production"}), 403
@@ -252,14 +251,36 @@ def debug_token():
         logger.error(f"Debug Token: Validation failed: {str(e)}", exc_info=True)
         return jsonify({'error': f'Token validation failed: {str(e)}'}), 500
 
-# Serve React Frontend
+# Log registered routes
+logger.info("=== Registered Routes ===")
+for rule in app.url_map.iter_rules():
+    logger.info(f"{rule.endpoint}: {rule}")
+logger.info("=======================")
+
+# Serve PDF reports
+reports_dir = os.path.join('/opt/render/project/src/backend/static/reports')
+os.makedirs(reports_dir, exist_ok=True)
+
+@app.route('/static/reports/<path:filename>')
+def serve_report(filename):
+    logger.info(f"Serving report file: {filename}")
+    if not os.path.exists(reports_dir):
+        logger.error(f"Reports directory not found: {reports_dir}")
+        return jsonify({'error': 'Reports directory not found'}), 404
+    try:
+        return send_from_directory(reports_dir, filename)
+    except Exception as e:
+        logger.error(f"Exception serving report file {filename}: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to serve report file: {str(e)}'}), 500
+
+# Serve React frontend
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
-def serve(path):
+def serve_frontend(path):
     logger.info(f"Requested path: {path}")
     if path.startswith('api/'):
         logger.info("Path starts with 'api/', returning 404")
-        return {'error': 'Not Found'}, 404
+        return jsonify({'error': 'Not Found'}), 404
 
     # Serve known static assets
     if path.startswith('assets/') or path in ('doctor-avatar.png', 'user-avatar.png'):
@@ -285,34 +306,30 @@ def serve(path):
         logger.error(f"Exception serving index.html: {str(e)}", exc_info=True)
         return jsonify({'error': 'Server error while serving application'}), 500
 
-# Serve PDF reports
-@app.route('/static/reports/<path:filename>')
-def serve_report(filename):
-    logger.info(f"Serving report file: {filename}")
-    reports_dir = os.path.join('/opt/render/project/src/backend/static/reports')
-    if not os.path.exists(reports_dir):
-        logger.error(f"Reports directory not found: {reports_dir}")
-        return jsonify({'error': 'Reports directory not found'}), 404
-    try:
-        return send_from_directory(reports_dir, filename)
-    except Exception as e:
-        logger.error(f"Exception serving report file {filename}: {str(e)}", exc_info=True)
-        return jsonify({'error': f'Failed to serve report file: {str(e)}'}), 500
-
 # Health check endpoint
 @app.route('/health', methods=['GET'])
 def health_check():
     try:
         db.session.execute(text("SELECT 1"))
-        return {"status": "healthy", "database": "connected"}, 200
+        return jsonify({"status": "healthy", "database": "connected"}), 200
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}", exc_info=True)
-        return {"status": "unhealthy", "database": "disconnected"}, 500
+        return jsonify({"status": "unhealthy", "database": "disconnected"}), 500
+
+# Error handling
+@app.errorhandler(404)
+def not_found(error):
+    logger.warning(f"404 error: {str(error)}")
+    return jsonify({"error": "Not found"}), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    logger.error(f"Internal server error: {str(error)}")
+    return jsonify({"error": "Internal server error"}), 500
 
 # WSGI application
 application = app
 
-# Run Flask application
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 10000))
     app.logger.info(f'Starting server on port {port}')
