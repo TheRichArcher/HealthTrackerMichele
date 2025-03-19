@@ -87,6 +87,11 @@ const App = () => {
                             <Route path="/auth" element={<AuthPage />} />
                             <Route path="/library" element={<Library />} />
                             <Route path="/one-time-report" element={<OneTimeReportPage />} />
+                            <Route path="/subscription" element={<SubscriptionPage />} />
+                            <Route 
+                                path="/cancel" 
+                                element={<div>Payment cancelled. <Link to="/subscription">Try again</Link></div>} 
+                            />
 
                             {/* Protected Routes */}
                             <Route 
@@ -130,25 +135,13 @@ const App = () => {
                                 } 
                             />
                             <Route 
-                                path="/subscription" 
-                                element={
-                                    <PrivateRouteWrapper>
-                                        <SubscriptionPage />
-                                    </PrivateRouteWrapper>
-                                } 
-                            /> 
-                            <Route 
                                 path="/success" 
                                 element={
                                     <PrivateRouteWrapper>
                                         <SubscriptionPage />
                                     </PrivateRouteWrapper>
                                 } 
-                            /> 
-                            <Route 
-                                path="/cancel" 
-                                element={<div>Payment cancelled. <Link to="/subscription">Try again</Link></div>} 
-                            /> 
+                            />
 
                             {/* Redirects */}
                             <Route path="/login" element={<AuthPage />} />
