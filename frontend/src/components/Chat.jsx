@@ -199,15 +199,50 @@ const Chat = () => {
 
   useEffect(() => {
     const storedReport = localStorage.getItem(CONFIG.REPORT_URL_KEY);
-    if (storedReport) {
-      console.log('Found stored report URL:', storedReport);
-      const hasReportMessage = messages.some(msg => msg.text.includes('Your one-time report is ready!') && msg.sender === 'bot');
-      if (!hasReportMessage) {
-        setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${storedReport})`, isAssessment: false }]);
-      }
+    const reportFromState = location.state?.reportUrl;
+    if (reportFromState) {
+      setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${reportFromState})`, isAssessment: false }]);
+      window.history.replaceState({}, document.title, '/chat');
+    } else if (storedReport && !messages.some(msg => msg.text.includes(storedReport))) {
+      setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${storedReport})`, isAssessment: false }]);
       localStorage.removeItem(CONFIG.REPORT_URL_KEY);
     }
-  }, []);
+
+    const searchParams = new URLSearchParams(location.search);
+    const sessionId = searchParams.get('session_id');
+    if (sessionId && !reportFromState) {
+      console.log('Calling /api/subscription/confirm with session_id:', sessionId);
+      const token = localStorage.getItem('access_token') || '';
+      axios.get(
+        `${CONFIG.CONFIRM_URL}?session_id=${sessionId}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          withCredentials: true,
+        }
+      )
+        .then(res => {
+          console.log('Confirm response:', res.data);
+          if (res.data.success && res.data.report_url) {
+            localStorage.setItem(CONFIG.REPORT_URL_KEY, res.data.report_url);
+            setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${res.data.report_url})`, isAssessment: false }]);
+            window.history.replaceState({}, document.title, '/chat');
+          } else {
+            setMessages(prev => [...prev, { sender: 'bot', text: 'Payment confirmed, but report generation failed. Please contact support.', isAssessment: false }]);
+          }
+        })
+        .catch(err => {
+          console.error('Error confirming report:', err.response?.status);
+          if (err.response?.status === 401) {
+            setMessages(prev => [...prev, { sender: 'bot', text: 'Session expired. Please log in to continue.', isAssessment: false }]);
+          } else {
+            setMessages(prev => [...prev, { sender: 'bot', text: 'Failed to confirm report. Please try again.', isAssessment: false }]);
+          }
+        });
+    }
+  }, [location.search, location.state]);
 
   useEffect(() => {
     focusInput();
@@ -233,53 +268,6 @@ const Chat = () => {
       return () => clearInterval(refreshInterval);
     }
   }, [isAuthenticated, refreshToken]);
-
-  useEffect(() => {
-    const searchParams = new URLSearchParams(location.search);
-    const sessionId = searchParams.get('session_id');
-    console.log('Session Check - location:', location);
-    console.log('Session Check - searchParams:', searchParams.toString());
-    console.log('Detected session_id:', sessionId);
-
-    if (sessionId) {
-      console.log('Calling /api/subscription/confirm with session_id:', sessionId);
-      const token = localStorage.getItem('access_token') || '';
-      axios.get(
-        `${CONFIG.CONFIRM_URL}?session_id=${sessionId}`,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          withCredentials: true,
-        }
-      )
-        .then(res => {
-          console.log('Confirm response:', res.data);
-          if (res.data.success && res.data.report_url) {
-            console.log('Saving report URL to localStorage:', res.data.report_url);
-            localStorage.setItem(CONFIG.REPORT_URL_KEY, res.data.report_url);
-            setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${res.data.report_url})`, isAssessment: false }]);
-            window.history.replaceState({}, document.title, '/chat');
-          } else {
-            console.warn('Confirm succeeded but no report_url:', res.data);
-            setMessages(prev => [...prev, { sender: 'bot', text: 'Payment confirmed, but report generation failed. Please contact support.', isAssessment: false }]);
-          }
-        })
-        .catch(err => {
-          console.error('Error confirming report:', {
-            status: err.response?.status,
-            data: err.response?.data,
-            message: err.message,
-            config: err.config,
-          });
-          let errorMsg = 'Failed to confirm report. Please contact support.';
-          if (err.response?.status === 401) errorMsg = 'Authentication failed. Please log in again.';
-          else if (err.response?.status === 403) errorMsg = 'Unauthorized access. Please try again or log in.';
-          setMessages(prev => [...prev, { sender: 'bot', text: errorMsg, isAssessment: false }]);
-        });
-    }
-  }, [location.search]);
 
   const addBotMessage = useCallback((message, isAssessment = false, confidence = null, triageLevel = null, careRecommendation = null, isUpgradeOptions = false, isMildCase = false) => {
     setTyping(true);

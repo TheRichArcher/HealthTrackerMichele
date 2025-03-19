@@ -68,10 +68,6 @@ const AuthProvider = ({ children }) => {
                 if (refreshed) {
                     const newToken = getLocalStorageItem('access_token');
                     return await validateToken(newToken, true);
-                } else {
-                    console.log('Token refresh failed, logging out');
-                    await logout();
-                    return false;
                 }
             }
             return false;
@@ -103,7 +99,7 @@ const AuthProvider = ({ children }) => {
             throw new Error('Invalid refresh token response');
         } catch (error) {
             console.error('Token refresh failed:', error.response?.data || error.message);
-            throw error; // Propagate error to trigger logout
+            throw error;
         }
     }, []);
 
@@ -112,10 +108,10 @@ const AuthProvider = ({ children }) => {
         const accessToken = getLocalStorageItem('access_token');
         const userId = getLocalStorageItem('user_id');
         if (!accessToken || !userId) {
-            console.log('No access token or user ID found, setting isAuthenticated to false');
+            console.log('No tokens found. Staying unauthenticated, but not redirecting.');
             setIsAuthenticated(false);
             setIsLoading(false);
-            return false;
+            return false; // Just return false without forcing a redirect or logout
         }
 
         try {
@@ -149,9 +145,9 @@ const AuthProvider = ({ children }) => {
                 setLocalStorageItem('access_token', response.data.access_token);
                 setLocalStorageItem('refresh_token', response.data.refresh_token);
                 setLocalStorageItem('user_id', response.data.user_id);
-                setIsAuthenticated(true); // Set state directly
-                setSubscriptionTier(response.data.subscription_tier); // Set subscription tier from response
-                navigate(navigateTo); // Navigate immediately
+                setIsAuthenticated(true);
+                setSubscriptionTier(response.data.subscription_tier);
+                navigate(navigateTo);
                 return true;
             }
             throw new Error('Invalid login response: Missing tokens');
@@ -205,7 +201,7 @@ const AuthProvider = ({ children }) => {
                 await checkAuth();
             } catch (error) {
                 console.error('Proactive refresh failed:', error);
-                await logout();
+                if (isAuthenticated) await logout();
             }
         }, 3300000); // 55 minutes
 
@@ -234,7 +230,7 @@ const AuthProvider = ({ children }) => {
             window.removeEventListener('focus', checkAuth);
             console.log('AuthProvider unmounted, cleaned up listeners');
         };
-    }, [checkAuth]);
+    }, [checkAuth, isAuthenticated, refreshToken]);
 
     const value = {
         isAuthenticated,
