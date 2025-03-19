@@ -1,52 +1,59 @@
-# backend/utils/openai_utils.py
 import openai
-import os
 import logging
-import time
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+import os
+import json
+from backend.utils.openai_config import get_openai_client
 
 logger = logging.getLogger(__name__)
 
-# Constants
-MODEL_NAME = "gpt-4o"
-MAX_TOKENS = 1000
-TEMPERATURE = 0.7
-MAX_RETRIES = 3
-BASE_RETRY_DELAY = 2
-
-# Set up OpenAI API
 openai.api_key = os.getenv("OPENAI_API_KEY")
 if not openai.api_key:
     raise ValueError("OPENAI_API_KEY environment variable not set.")
 
-@retry(
-    stop=stop_after_attempt(MAX_RETRIES),
-    wait=wait_exponential(multiplier=1, min=BASE_RETRY_DELAY, max=10),
-    retry=retry_if_exception_type((openai.RateLimitError, openai.APIConnectionError, openai.APIError))
-)
-def call_openai_api(messages, response_format=None, max_tokens=MAX_TOKENS, temperature=TEMPERATURE):
-    """Call the OpenAI API with retry logic and error handling."""
+def call_openai_api(messages, response_format={"type": "json_object"}, retries=3):
+    """Call OpenAI's API with robust error handling."""
+    attempt = 0
+    while attempt < retries:
+        try:
+            client = get_openai_client()
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=messages,
+                response_format=response_format,
+                max_tokens=1200,
+                temperature=0.7
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.warning(f"OpenAI API call failed on attempt {attempt + 1}: {str(e)}")
+            attempt += 1
+            if attempt >= retries:
+                logger.error("Exceeded maximum retry attempts for OpenAI API call")
+                raise
+            import time
+            time.sleep(2 ** attempt)  # Exponential backoff
+
+def clean_ai_response(raw_response):
+    """Clean and validate AI's raw JSON response, ensuring expected fields."""
     try:
-        logger.debug(f"Sending OpenAI request with prompt: {messages[-1]['content'][:100]}...")
-        response = openai.chat.completions.create(
-            model=MODEL_NAME,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            response_format=response_format
-        )
-        content = response.choices[0].message.content.strip()
-        if not content:
-            logger.warning("Empty response from OpenAI, retrying...")
-            raise openai.OpenAIError("Empty response")
-        logger.debug(f"OpenAI response: {content[:100]}...")
-        return content
-    except openai.AuthenticationError as e:
-        logger.error(f"OpenAI authentication error: {str(e)}")
-        raise
-    except openai.InvalidRequestError as e:
-        logger.error(f"OpenAI invalid request error: {str(e)}")
-        raise
+        if isinstance(raw_response, str):
+            response_data = json.loads(raw_response)
+        elif isinstance(raw_response, dict):
+            response_data = raw_response
+        else:
+            logger.error("Unexpected response format from OpenAI")
+            raise ValueError("Unexpected OpenAI response format")
+
+        # Set defaults if missing
+        response_data.setdefault("is_assessment", False)
+        response_data.setdefault("is_question", False)
+        response_data.setdefault("possible_conditions", "")
+        response_data.setdefault("confidence", None)
+        response_data.setdefault("triage_level", None)
+        response_data.setdefault("care_recommendation", None)
+        response_data.setdefault("requires_upgrade", False)
+
+        return response_data
     except Exception as e:
-        logger.error(f"Unexpected OpenAI API error: {str(e)}", exc_info=True)
+        logger.error(f"Error cleaning OpenAI response: {str(e)}", exc_info=True)
         raise
