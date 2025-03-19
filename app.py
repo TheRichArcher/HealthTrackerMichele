@@ -1,7 +1,7 @@
 import os
 import logging
 from datetime import timedelta
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, Blueprint  # Added Blueprint import
 from flask_jwt_extended import JWTManager
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
@@ -10,6 +10,7 @@ from flask_migrate import Migrate
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
 from jwt import decode as jwt_decode, exceptions as jwt_exceptions
+from dotenv import load_dotenv  # Already added in the previous fix
 
 # Load environment variables from a .env file (if present)
 os.environ.setdefault('LOG_LEVEL', 'INFO')
