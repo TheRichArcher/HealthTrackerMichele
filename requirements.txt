@@ -1,19 +1,33 @@
+# backend/requirements.txt
+
+# Flask and related dependencies
 Flask==2.3.3
 flask-cors==4.0.0
 flask-sqlalchemy==3.0.5
 flask-bcrypt==1.0.1
 flask-jwt-extended==4.5.3
-python-dotenv==1.0.0
-openai==1.42.0
-sqlalchemy==2.0.20
-bcrypt==4.0.1
-pydantic==2.5.0
-requests==2.31.0
+flask-migrate==4.0.5
 werkzeug==2.3.7
 gunicorn==21.2.0
-flask-migrate==4.0.5
+
+# Database and security
+sqlalchemy==2.0.20
+bcrypt==4.0.1
 psycopg[binary]==3.2.6
-stripe==10.2.0
+
+# OpenAI and API utilities
+openai==1.42.0
+python-dotenv==1.0.0
+pydantic==2.5.0
+requests==2.31.0
 httpx==0.27.0
 tenacity==8.2.3
-reportlab==4.2.2  # Added for PDF generation in backend/utils/pdf_generator.py
+
+# PDF generation
+reportlab==4.2.2
+
+# Payment processing
+stripe==10.2.0
+
+# Notes:
+# - reportlab added for PDF generation in backend/utils/pdf_generator.py.
