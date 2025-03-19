@@ -16,10 +16,10 @@ const UpgradePrompt = ({
   requiresUpgrade,
   assessmentId,
   assessmentData,
-  condition, // Added from SymptomLogger
-  commonName, // Added from SymptomLogger
-  isMildCase, // Added from SymptomLogger
-  onDismiss, // Added from SymptomLogger
+  condition,
+  commonName,
+  isMildCase,
+  onDismiss,
 }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -51,6 +51,25 @@ const UpgradePrompt = ({
     { name: 'Priority Support', description: 'Get faster responses...', tooltip: 'Email and chat support...' },
   ];
 
+  const validateAssessmentData = () => {
+    if (assessmentData && typeof assessmentData === 'object') {
+      return {
+        condition_common: assessmentData.condition || 'Unknown',
+        condition_medical: assessmentData.condition_medical || 'N/A',
+        confidence: parseFloat(assessmentData.confidence) || 0,
+        triage_level: assessmentData.triageLevel || 'MODERATE',
+        care_recommendation: assessmentData.recommendation || 'Consult a healthcare provider',
+      };
+    }
+    return {
+      condition_common: 'Unknown',
+      condition_medical: 'N/A',
+      confidence: 0,
+      triage_level: 'MODERATE',
+      care_recommendation: 'Consult a healthcare provider',
+    };
+  };
+
   const initiateUpgrade = (plan) => {
     setLoading(true);
     setError(null);
@@ -58,16 +77,7 @@ const UpgradePrompt = ({
 
     const payload = isAuthenticated
       ? { plan, assessment_id: assessmentId }
-      : {
-          plan,
-          assessment_data: {
-            condition_common: assessmentData?.condition || 'Unknown',
-            condition_medical: 'N/A',
-            confidence: assessmentData?.confidence || 0,
-            triage_level: assessmentData?.triageLevel || 'MODERATE',
-            care_recommendation: assessmentData?.recommendation || 'Consult a healthcare provider',
-          },
-        };
+      : { plan, assessment_data: validateAssessmentData() };
 
     axios.post(`${API_BASE_URL}/subscription/upgrade`, payload, { withCredentials: true })
       .then(response => {
@@ -95,7 +105,7 @@ const UpgradePrompt = ({
 
   const handleNotNowClick = () => {
     if (onNotNow) onNotNow();
-    if (onDismiss) onDismiss(); // Support SymptomLogger's dismiss
+    if (onDismiss) onDismiss();
     setSuccess(true);
   };
 
@@ -172,10 +182,10 @@ UpgradePrompt.propTypes = {
     recommendation: PropTypes.string,
     assessmentId: PropTypes.number,
   }),
-  condition: PropTypes.string, // From SymptomLogger
-  commonName: PropTypes.string, // From SymptomLogger
-  isMildCase: PropTypes.bool, // From SymptomLogger
-  onDismiss: PropTypes.func, // From SymptomLogger
+  condition: PropTypes.string,
+  commonName: PropTypes.string,
+  isMildCase: PropTypes.bool,
+  onDismiss: PropTypes.func,
 };
 
 UpgradePrompt.defaultProps = {
