@@ -11,27 +11,46 @@ import json
 
 subscription_routes = Blueprint('subscription_routes', __name__)
 
+# Load environment variables
 stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'https://healthtrackermichele.onrender.com')
+PRICE_PREMIUM_MONTHLY = os.getenv('PRICE_PREMIUM_MONTHLY', 'price_premium_monthly')
+PRICE_ONE_TIME_REPORT = os.getenv('PRICE_ONE_TIME_REPORT', 'price_one_time_report')
 
 logger = logging.getLogger(__name__)
 
+# Log environment variables for debugging
+logger.info(f"STRIPE_SECRET_KEY loaded: {os.getenv('STRIPE_SECRET_KEY')[:8] if os.getenv('STRIPE_SECRET_KEY') else 'Not set'}...")
+logger.info(f"FRONTEND_URL: {FRONTEND_URL}")
+logger.info(f"PRICE_PREMIUM_MONTHLY: {PRICE_PREMIUM_MONTHLY}")
+logger.info(f"PRICE_ONE_TIME_REPORT: {PRICE_ONE_TIME_REPORT}")
+
 @subscription_routes.route('/upgrade', methods=['POST'])
 def upgrade_subscription():
+    logger.info(f"Received request to /api/subscription/upgrade: {request.get_json()}")
     data = request.get_json()
     plan = data.get('plan')
     assessment_data = data.get('assessment_data', {})
     assessment_id = data.get('assessment_id')
 
     # Optional JWT verification to support both authenticated and guest users
-    verify_jwt_in_request(optional=True)
-    user_id = get_jwt_identity()
-    temp_user_id = None if user_id else f"temp_{os.urandom(8).hex()}"
+    user_id = None
+    try:
+        verify_jwt_in_request(optional=True)
+        user_id = get_jwt_identity()
+        logger.info(f"Authenticated user_id: {user_id}")
+    except Exception as e:
+        logger.debug(f"No valid token provided, proceeding as guest: {str(e)}")
 
-    if plan not in ['paid', 'one_time']:  # Updated to match UserTierEnum values
+    temp_user_id = None if user_id else f"temp_{os.urandom(8).hex()}"
+    logger.info(f"Using user_id: {user_id or temp_user_id}")
+
+    if plan not in ['paid', 'one_time']:
+        logger.warning(f"Invalid plan received: {plan}")
         return jsonify({"error": "Invalid plan"}), 400
 
-    price_id = 'price_premium_monthly' if plan == 'paid' else 'price_one_time_report'  # Replace with actual Stripe Price IDs
+    price_id = PRICE_PREMIUM_MONTHLY if plan == 'paid' else PRICE_ONE_TIME_REPORT
+    logger.info(f"Creating Stripe session for plan: {plan}, price_id: {price_id}")
 
     try:
         session = stripe.checkout.Session.create(
@@ -49,13 +68,14 @@ def upgrade_subscription():
                 'assessment_data': json.dumps(assessment_data) if assessment_data else None
             }
         )
+        logger.info(f"Stripe session created: {session.id}")
         return jsonify({"checkout_url": session.url}), 200
     except stripe.error.StripeError as e:
         logger.error(f"Stripe checkout error: {str(e)}")
-        return jsonify({"error": "Failed to create checkout session"}), 500
+        return jsonify({"error": "Failed to create checkout session", "details": str(e)}), 500
     except Exception as e:
         logger.error(f"Unexpected error in upgrade_subscription: {str(e)}")
-        return jsonify({"error": "Internal server error"}), 500
+        return jsonify({"error": "Internal server error", "details": str(e)}), 500
 
 @subscription_routes.route('/confirm', methods=['POST', 'GET'])
 def confirm_subscription():
