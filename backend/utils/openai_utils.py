@@ -2,7 +2,7 @@ import openai
 import logging
 import os
 import json
-from backend.utils.openai_config import get_openai_client
+from backend.openai_config import get_openai_client
 
 logger = logging.getLogger(__name__)
 
