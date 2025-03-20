@@ -40,10 +40,8 @@ def generate_pdf_report(report_data):
         "Respond in plain text, with each section clearly labeled (e.g., '### User-Friendly Summary...', '### Detailed Clinical Report...', etc.)."
     )
     
-    # Call OpenAI without max_tokens, expect text response
     response = call_openai_api([{"role": "user", "content": prompt}], response_format={"type": "text"})
     
-    # Robustly parse OpenAI response using regex
     sections = re.split(r"###\s+", response)
     section_dict = {}
     for section in sections:
@@ -59,7 +57,6 @@ def generate_pdf_report(report_data):
     visual_desc = section_dict.get("Visual Aids Description", "")
     doctor_email = section_dict.get("Doctor Contact Template", "")
     
-    # Parse differential diagnosis JSON
     diff_table_raw = ""
     for line in clinical_report.split("\n"):
         if "Differential Diagnosis Table" in line:
@@ -72,7 +69,6 @@ def generate_pdf_report(report_data):
     diff_conditions = [item["condition"] for item in diff_data]
     diff_confidences = [float(item["confidence"].replace("%", "")) for item in diff_data]
     
-    # Generate PDF content
     c = canvas.Canvas(filepath, pagesize=letter)
     c.setFont("Helvetica", 10)
     
@@ -214,7 +210,7 @@ def generate_pdf_report(report_data):
     
     # Disclaimer
     y -= 10
-    c.setFont("Helvetica-Italic", 10)
+    c.setFont("Helvetica-Oblique", 10)  # Changed from Helvetica-Italic
     c.drawString(100, y, "Disclaimer: This AI-generated report is for informational purposes only and not a substitute for professional medical advice. Consult a licensed physician.")
     y -= 20
     
