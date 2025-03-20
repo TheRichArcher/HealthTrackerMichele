@@ -9,24 +9,17 @@ from backend.utils.openai_utils import call_openai_api
 def generate_pdf_report(report_data):
     """Generate a PDF report with OpenAI-enhanced content and return its accessible URL."""
     
-    # Generate unique filename
     filename = f"report_{uuid.uuid4()}.pdf"
-    
-    # Define directory to save PDF (persistent)
     reports_dir = "/opt/render/project/src/backend/static/reports"
     os.makedirs(reports_dir, exist_ok=True)
-    
-    # Full path to save the PDF
     filepath = os.path.join(reports_dir, filename)
     
-    # Prepare data for OpenAI prompts, safely handling types
     symptoms = str(report_data.get('symptoms', 'Not specified'))
     condition_common = str(report_data.get('condition_common', 'Unknown'))
     condition_medical = str(report_data.get('condition_medical', 'N/A'))
     confidence = str(report_data.get('confidence', 'N/A'))
     triage_level = str(report_data.get('triage_level', 'N/A'))
     
-    # Generate dynamic content using OpenAI with safe string formatting
     prompt = (
         "You are a medical AI assistant. Based on the following report data, generate content for a premium health report:\n"
         f"- Symptoms: {symptoms}\n"
@@ -47,7 +40,8 @@ def generate_pdf_report(report_data):
         "Respond in plain text, with each section clearly labeled (e.g., '### User-Friendly Summary...', '### Detailed Clinical Report...', etc.)."
     )
     
-    response = call_openai_api([{"role": "user", "content": prompt}], max_tokens=800)
+    # Call OpenAI without max_tokens, expect text response
+    response = call_openai_api([{"role": "user", "content": prompt}], response_format={"type": "text"})
     
     # Robustly parse OpenAI response using regex
     sections = re.split(r"###\s+", response)
@@ -57,7 +51,6 @@ def generate_pdf_report(report_data):
             header, *body = section.strip().split("\n", 1)
             section_dict[header.strip()] = body[0].strip() if body else ""
     
-    # Extract sections
     summary = section_dict.get("User-Friendly Summary", "")
     clinical_report = section_dict.get("Detailed Clinical Report", "")
     doctor_comm = section_dict.get("Doctor Communication Guide", "")
@@ -92,7 +85,6 @@ def generate_pdf_report(report_data):
     c.line(50, 700, 550, 700)
     y = 680
     
-    # Function to handle page overflow
     def check_page_overflow():
         nonlocal y
         if y < 50:
@@ -232,6 +224,5 @@ def generate_pdf_report(report_data):
     c.drawString(100, y - 10, "Report generated with data current as of March 18, 2025.")
     
     c.save()
-
     file_url = f"https://healthtrackermichele.onrender.com/static/reports/{filename}"
     return file_url
