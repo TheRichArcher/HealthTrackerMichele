@@ -45,7 +45,7 @@ def generate_pdf_report(report_data):
         "5. Immediate Action Plan (150 words max): Provide a short list of safe self-care steps for someone experiencing the condition. Also, list emergency warning signs.\n"
         "6. Visual Aids Description (50 words max): Describe a confidence bar chart for the differential diagnosis percentages.\n"
         "7. Doctor Contact Template (100 words max): Write a short email template where a patient summarizes their symptoms and attaches this report for a doctor visit.\n\n"
-        "Respond in plain text, with each section clearly labeled (e.g., '### User-Friendly Summary...', '### Detailed Clinical Report...', etc.)."
+        "Respond in plain text, with each section clearly labeled (e.g., '### User-Friendly Summary...', '### Detailed Clinical Report...', etc.). Replace 'GPT-40' with 'GPT-4o' in any output."
     )
     
     response = call_openai_api([{"role": "user", "content": prompt}], response_format={"type": "text"})
@@ -66,7 +66,6 @@ def generate_pdf_report(report_data):
     visual_desc = section_dict.get("Visual Aids Description", "")
     doctor_email = section_dict.get("Doctor Contact Template", "")
     
-    # Extract JSON more robustly
     diff_table_raw = ""
     clinical_lines = clinical_report.split("\n")
     json_start = -1
@@ -77,7 +76,6 @@ def generate_pdf_report(report_data):
     if json_start != -1:
         json_lines = clinical_lines[json_start:]
         diff_table_raw = "\n".join(json_lines).strip()
-        # Strip backticks if present
         diff_table_raw = re.sub(r"```json|```", "", diff_table_raw).strip()
     logger.info(f"Raw differential diagnosis JSON: {diff_table_raw}")
     
@@ -85,7 +83,6 @@ def generate_pdf_report(report_data):
         diff_data = json.loads(diff_table_raw) if diff_table_raw else []
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse differential diagnosis JSON: {diff_table_raw}, error: {str(e)}")
-        # Fallback to assessment_data if available
         diff_data = [{"condition": condition_common, "confidence": str(confidence) + "%"}] if confidence != "N/A" else []
     diff_conditions = [item["condition"] for item in diff_data]
     diff_confidences = [float(item["confidence"].replace("%", "")) for item in diff_data]
@@ -127,7 +124,7 @@ def generate_pdf_report(report_data):
     
     def check_page_overflow(extra_space=0):
         nonlocal y
-        if y - extra_space < 50:
+        if y - extra_space < 60:  # Increased buffer
             c.showPage()
             y = 750
             c.setFont("Helvetica", 10)
@@ -205,7 +202,7 @@ def generate_pdf_report(report_data):
     for line in action_plan.split('\n'):
         text_obj.textLine(line)
         y -= 15
-        if y < 50:
+        if y < 60:  # Match buffer
             c.drawText(text_obj)
             c.showPage()
             y = 750
