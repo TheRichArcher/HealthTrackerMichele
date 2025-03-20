@@ -4,7 +4,10 @@ import os
 import uuid
 import re
 import json
+import logging
 from backend.utils.openai_utils import call_openai_api
+
+logger = logging.getLogger(__name__)
 
 def generate_pdf_report(report_data):
     """Generate a PDF report with OpenAI-enhanced content and return its accessible URL."""
@@ -14,12 +17,13 @@ def generate_pdf_report(report_data):
     os.makedirs(reports_dir, exist_ok=True)
     filepath = os.path.join(reports_dir, filename)
     
-    # Use 'symptom' key as passed from subscription_routes
     symptoms = str(report_data.get('symptom', 'Not specified'))
     condition_common = str(report_data.get('condition_common', 'Unknown'))
     condition_medical = str(report_data.get('condition_medical', 'N/A'))
     confidence = str(report_data.get('confidence', 'N/A'))
     triage_level = str(report_data.get('triage_level', 'N/A'))
+    
+    logger.info(f"Generating PDF with report_data: symptoms={symptoms}, condition_common={condition_common}")
     
     prompt = (
         "You are a medical AI assistant. Based on the following report data, generate content for a premium health report:\n"
@@ -42,14 +46,14 @@ def generate_pdf_report(report_data):
     )
     
     response = call_openai_api([{"role": "user", "content": prompt}], response_format={"type": "text"})
+    logger.info(f"OpenAI response: {response}")
     
-    # Parse full sections
     sections = re.split(r"###\s+", response.strip())
     section_dict = {}
     for section in sections:
         if section.strip():
             header, *body = section.split("\n", 1)
-            section_dict[header.strip()] = "\n".join(body) if body else ""  # Join all lines
+            section_dict[header.strip()] = "\n".join(body) if body else ""
     
     summary = section_dict.get("User-Friendly Summary", "")
     clinical_report = section_dict.get("Detailed Clinical Report", "")
@@ -59,7 +63,6 @@ def generate_pdf_report(report_data):
     visual_desc = section_dict.get("Visual Aids Description", "")
     doctor_email = section_dict.get("Doctor Contact Template", "")
     
-    # Extract differential diagnosis JSON robustly
     diff_table_raw = ""
     clinical_lines = clinical_report.split("\n")
     json_start = -1
@@ -70,14 +73,15 @@ def generate_pdf_report(report_data):
     if json_start != -1:
         json_lines = clinical_lines[json_start:]
         diff_table_raw = " ".join(json_lines).strip()
-        # Handle multi-line JSON by removing line breaks within the JSON
         diff_table_raw = "".join(diff_table_raw.splitlines())
     try:
         diff_data = json.loads(diff_table_raw) if diff_table_raw else []
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse differential diagnosis JSON: {diff_table_raw}, error: {str(e)}")
         diff_data = []
     diff_conditions = [item["condition"] for item in diff_data]
     diff_confidences = [float(item["confidence"].replace("%", "")) for item in diff_data]
+    logger.info(f"Parsed differential diagnosis: conditions={diff_conditions}, confidences={diff_confidences}")
     
     c = canvas.Canvas(filepath, pagesize=letter)
     c.setFont("Helvetica", 10)
@@ -85,14 +89,14 @@ def generate_pdf_report(report_data):
     # Header with Logo
     logo_path = "/opt/render/project/src/backend/static/dist/doctor-avatar.png"
     if os.path.exists(logo_path):
-        c.drawImage(logo_path, 50, 710, width=40, height=40)  # Logo at top-left
+        c.drawImage(logo_path, 50, 710, width=40, height=40)
     c.setFont("Helvetica-Bold", 16)
-    c.drawString(100, 735, "HealthTracker Michele Report")  # Shifted right of logo
+    c.drawString(100, 735, "HealthTracker Michele Report")
     c.setFont("Helvetica", 10)
     c.drawString(100, 715, f"Generated: {report_data['timestamp']}")
     c.drawString(100, 700, f"User ID: {report_data['user_id'] if 'user_id' in report_data else 'Guest Report #ABC123'}")
-    c.line(50, 685, 550, 685)  # Adjusted line position
-    y = 665  # Start content lower to fit logo
+    c.line(50, 685, 550, 685)
+    y = 665
     
     def draw_wrapped_text(text, x, y_start, max_width, line_height):
         nonlocal y
@@ -151,7 +155,7 @@ def generate_pdf_report(report_data):
     c.drawString(100, y, "Differential Diagnosis:")
     y -= 15
     c.setFont("Helvetica", 10)
-    for condition, conf in zip(diff_conditions, diff_confidences):
+    for i, (condition, conf) in enumerate(zip(diff_conditions, diff_confidences)):
         c.drawString(100, y, f"{condition}: {conf}%")
         y -= 15
         check_page_overflow()
@@ -196,9 +200,11 @@ def generate_pdf_report(report_data):
     c.setFont("Helvetica", 10)
     y = draw_wrapped_text(visual_desc, 100, y, 450, 15)
     y -= 20
+    check_page_overflow()  # Ensure space for chart
     bar_width = 80
     max_height = 100
     x_start = 100
+    logger.info(f"Drawing bar chart at y={y}, conditions={diff_conditions}")
     for i, conf in enumerate(diff_confidences):
         bar_height = (conf / 100) * max_height
         c.setFillGray(0.8)

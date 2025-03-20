@@ -11,7 +11,6 @@ import json
 
 subscription_routes = Blueprint('subscription_routes', __name__)
 
-# Load environment variables
 stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'https://healthtrackermichele.onrender.com')
 PRICE_PREMIUM_MONTHLY = os.getenv('PRICE_PREMIUM_MONTHLY', 'price_premium_monthly')
@@ -19,7 +18,6 @@ PRICE_ONE_TIME_REPORT = os.getenv('PRICE_ONE_TIME_REPORT', 'price_one_time_repor
 
 logger = logging.getLogger(__name__)
 
-# Log environment variables for debugging
 logger.info(f"STRIPE_SECRET_KEY loaded: {os.getenv('STRIPE_SECRET_KEY')[:8] if os.getenv('STRIPE_SECRET_KEY') else 'Not set'}...")
 logger.info(f"FRONTEND_URL: {FRONTEND_URL}")
 logger.info(f"PRICE_PREMIUM_MONTHLY: {PRICE_PREMIUM_MONTHLY}")
@@ -33,7 +31,6 @@ def upgrade_subscription():
     assessment_data = data.get('assessment_data', {})
     assessment_id = data.get('assessment_id')
 
-    # Optional JWT verification to support both authenticated and guest users
     user_id = None
     try:
         verify_jwt_in_request(optional=True)
@@ -82,7 +79,6 @@ def upgrade_subscription():
 def confirm_subscription():
     logger.info("Received request to /api/subscription/confirm")
     try:
-        # Safely handle Authorization header
         auth_header = request.headers.get("Authorization", "")
         user_id = None
         if auth_header.startswith("Bearer "):
@@ -95,7 +91,6 @@ def confirm_subscription():
             except Exception as e:
                 logger.warning(f"JWT parsing failed, proceeding without auth: {str(e)}")
 
-        # Get session_id from POST body or GET query
         if request.method == 'GET':
             session_id = request.args.get('session_id')
         else:
@@ -106,19 +101,16 @@ def confirm_subscription():
             logger.warning("Missing session_id in request")
             return jsonify({"error": "Session ID required"}), 400
 
-        # Retrieve Stripe session
         session = stripe.checkout.Session.retrieve(session_id)
         if session.payment_status != 'paid':
             logger.warning(f"Payment not completed for session: {session_id}")
             return jsonify({"error": "Payment not completed"}), 400
 
-        # Extract metadata
         metadata_user_id = session.metadata.get('user_id')
         assessment_id = session.metadata.get('assessment_id')
         assessment_data = session.metadata.get('assessment_data')
         plan = session.metadata.get('plan')
 
-        # Determine user context
         temp_user_id = None
         if user_id and isinstance(user_id, int):
             user = User.query.get(user_id)
@@ -130,7 +122,6 @@ def confirm_subscription():
         else:
             temp_user_id = metadata_user_id or f"temp_{os.urandom(8).hex()}"
 
-        # Process based on plan
         report_url = None
         subscription_tier = UserTierEnum.PAID.value if plan == 'paid' else UserTierEnum.ONE_TIME.value
 
@@ -143,8 +134,9 @@ def confirm_subscription():
             report_data.update({
                 'user_id': user_id or temp_user_id,
                 'timestamp': datetime.utcnow().isoformat(),
-                'symptom': report_data.get('symptom', 'Not specified')  # Ensure symptom is present
+                'symptom': report_data.get('symptom', 'Not specified')
             })
+            logger.info(f"Report data before PDF generation: {report_data}")  # Log full report_data
             report_url = generate_pdf_report(report_data)
             logger.info(f"Report generated: {report_url}")
 
@@ -170,14 +162,12 @@ def confirm_subscription():
             user.subscription_tier = UserTierEnum.PAID.value
             db.session.commit()
 
-        # Prepare response
         response = {
             "message": "Subscription confirmed",
             "subscription_tier": subscription_tier,
             "report_url": report_url
         }
 
-        # Issue JWT for authenticated users or temp users
         if user_id and isinstance(user_id, int):
             access_token = create_access_token(identity=f"user_{user_id}")
             response['access_token'] = access_token
@@ -200,12 +190,10 @@ def confirm_subscription():
 @subscription_routes.route('/logout', methods=['POST'])
 @jwt_required()
 def logout():
-    """Log out the current user, revoke their JWT, and clear cookies."""
     user_id = get_jwt_identity()
     if not user_id:
         return jsonify({"error": "Authentication required"}), 401
 
-    # Revoke the token by storing its JTI in RevokedToken table
     jwt = get_jwt()
     jti = jwt['jti']
     revoked_token = RevokedToken(jti=jti, revoked_at=datetime.utcnow())
