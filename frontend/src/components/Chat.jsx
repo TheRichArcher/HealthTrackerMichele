@@ -303,11 +303,13 @@ const Chat = () => {
       if (!isAuthenticated) navigate('/auth');
       else navigate('/subscribe');
     } else if (action === 'report') {
+      const latestUserMessage = messages.filter(msg => msg.sender === 'user').slice(-1)[0]?.text || '';
       const payload = isAuthenticated
         ? { plan: 'one_time', assessment_id: latestAssessment?.assessmentId }
         : {
             plan: 'one_time',
             assessment_data: {
+              symptom: latestUserMessage || 'Not specified',  // Add symptom from user input
               condition_common: latestAssessment?.condition || 'Unknown',
               condition_medical: 'N/A',
               confidence: latestAssessment?.confidence || 0,
@@ -338,7 +340,7 @@ const Chat = () => {
     } else if (action === 'later') {
       addBotMessage("No problem! Let me know if you have any other questions or symptoms to discuss.");
     }
-  }, [isAuthenticated, navigate, addBotMessage, latestAssessment]);
+  }, [isAuthenticated, navigate, addBotMessage, latestAssessment, messages]);
 
   const handleSendMessage = async () => {
     if (!userInput.trim() || loading) return;

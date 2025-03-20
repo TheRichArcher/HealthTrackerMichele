@@ -49,7 +49,7 @@ def generate_pdf_report(report_data):
     for section in sections:
         if section.strip():
             header, *body = section.split("\n", 1)
-            section_dict[header.strip()] = body[0] if body else ""
+            section_dict[header.strip()] = "\n".join(body) if body else ""  # Join all lines
     
     summary = section_dict.get("User-Friendly Summary", "")
     clinical_report = section_dict.get("Detailed Clinical Report", "")
@@ -70,6 +70,8 @@ def generate_pdf_report(report_data):
     if json_start != -1:
         json_lines = clinical_lines[json_start:]
         diff_table_raw = " ".join(json_lines).strip()
+        # Handle multi-line JSON by removing line breaks within the JSON
+        diff_table_raw = "".join(diff_table_raw.splitlines())
     try:
         diff_data = json.loads(diff_table_raw) if diff_table_raw else []
     except json.JSONDecodeError:
@@ -80,14 +82,17 @@ def generate_pdf_report(report_data):
     c = canvas.Canvas(filepath, pagesize=letter)
     c.setFont("Helvetica", 10)
     
-    # Header
+    # Header with Logo
+    logo_path = "/opt/render/project/src/backend/static/dist/doctor-avatar.png"
+    if os.path.exists(logo_path):
+        c.drawImage(logo_path, 50, 710, width=40, height=40)  # Logo at top-left
     c.setFont("Helvetica-Bold", 16)
-    c.drawString(100, 750, "HealthTracker Michele Report")
+    c.drawString(100, 735, "HealthTracker Michele Report")  # Shifted right of logo
     c.setFont("Helvetica", 10)
-    c.drawString(100, 730, f"Generated: {report_data['timestamp']}")
-    c.drawString(100, 715, f"User ID: {report_data['user_id'] if 'user_id' in report_data else 'Guest Report #ABC123'}")
-    c.line(50, 700, 550, 700)
-    y = 680
+    c.drawString(100, 715, f"Generated: {report_data['timestamp']}")
+    c.drawString(100, 700, f"User ID: {report_data['user_id'] if 'user_id' in report_data else 'Guest Report #ABC123'}")
+    c.line(50, 685, 550, 685)  # Adjusted line position
+    y = 665  # Start content lower to fit logo
     
     def draw_wrapped_text(text, x, y_start, max_width, line_height):
         nonlocal y
