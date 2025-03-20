@@ -49,7 +49,7 @@ def generate_pdf_report(report_data):
     )
     
     response = call_openai_api([{"role": "user", "content": prompt}], response_format={"type": "text"})
-    logger.info(f"OpenAI response: {response[:200]}...")  # Truncated for brevity
+    logger.info(f"OpenAI response: {response[:200]}...")
     
     sections = re.split(r"###\s+", response.strip())
     section_dict = {}
@@ -66,6 +66,7 @@ def generate_pdf_report(report_data):
     visual_desc = section_dict.get("Visual Aids Description", "")
     doctor_email = section_dict.get("Doctor Contact Template", "")
     
+    # Extract JSON more robustly
     diff_table_raw = ""
     clinical_lines = clinical_report.split("\n")
     json_start = -1
@@ -75,13 +76,17 @@ def generate_pdf_report(report_data):
             break
     if json_start != -1:
         json_lines = clinical_lines[json_start:]
-        diff_table_raw = " ".join(json_lines).strip()
-        diff_table_raw = "".join(diff_table_raw.splitlines())
+        diff_table_raw = "\n".join(json_lines).strip()
+        # Strip backticks if present
+        diff_table_raw = re.sub(r"```json|```", "", diff_table_raw).strip()
+    logger.info(f"Raw differential diagnosis JSON: {diff_table_raw}")
+    
     try:
         diff_data = json.loads(diff_table_raw) if diff_table_raw else []
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse differential diagnosis JSON: {diff_table_raw}, error: {str(e)}")
-        diff_data = []
+        # Fallback to assessment_data if available
+        diff_data = [{"condition": condition_common, "confidence": str(confidence) + "%"}] if confidence != "N/A" else []
     diff_conditions = [item["condition"] for item in diff_data]
     diff_confidences = [float(item["confidence"].replace("%", "")) for item in diff_data]
     logger.info(f"Parsed differential diagnosis: conditions={diff_conditions}, confidences={diff_confidences}")
@@ -160,6 +165,8 @@ def generate_pdf_report(report_data):
     c.setFont("Helvetica", 10)
     logger.info(f"Drawing differential diagnosis at y={y}, items={len(diff_conditions)}")
     for condition, conf in zip(diff_conditions, diff_confidences):
+        logger.info(f"Drawing: {condition}: {conf}% at y={y}")
+        c.setFont("Helvetica", 10)
         c.drawString(100, y, f"{condition}: {conf}%")
         y -= 15
         check_page_overflow()
@@ -219,14 +226,14 @@ def generate_pdf_report(report_data):
     c.setFont("Helvetica", 10)
     y = draw_wrapped_text(visual_desc, 100, y, 450, 15)
     y -= 20
-    check_page_overflow(120)  # Reserve space for chart
+    check_page_overflow(120)
     bar_width = 80
     max_height = 100
     x_start = 100
     logger.info(f"Drawing bar chart at y={y}, conditions={diff_conditions}")
-    c.setFillGray(0.8)
     for i, conf in enumerate(diff_confidences):
         bar_height = (conf / 100) * max_height
+        c.setFillGray(0.8)
         c.rect(x_start + i * (bar_width + 20), y, bar_width, bar_height, fill=1)
         c.setFillColor("black")
         c.drawString(x_start + i * (bar_width + 20), y - 15, diff_conditions[i][:12])
