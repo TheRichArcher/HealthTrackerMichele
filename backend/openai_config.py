@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 # Constants
 MIN_CONFIDENCE_THRESHOLD = 95  # Updated to match symptom_routes.py (95% instead of 90%)
 
-# System prompt for OpenAI
+# System prompt for OpenAI (unchanged, included for context)
 SYSTEM_PROMPT = """You are Michele, an AI medical assistant designed to mimic a doctor's visit. Your goal is to understand the user's symptoms through conversation and provide insights only when highly confident.
 
 CRITICAL INSTRUCTIONS:
@@ -111,36 +111,10 @@ def clean_ai_response(
             if parsed_json[field] is None and field not in ["confidence", "triage_level", "care_recommendation"]:
                 logger.warning(f"Field '{field}' is None, setting to default")
                 parsed_json[field] = default
-        
-        # Check for prior high-confidence assessment
-        has_prior_assessment = False
-        if conversation_history:
-            for entry in reversed(conversation_history):
-                if entry.get("isBot", False):
-                    try:
-                        message_content = entry["message"]
-                        if isinstance(message_content, str) and message_content.startswith("{"):
-                            message_data = json.loads(message_content)
-                            if (message_data.get("is_assessment", False) and
-                                message_data.get("confidence", 0) >= MIN_CONFIDENCE_THRESHOLD):
-                                has_prior_assessment = True
-                                break
-                    except (json.JSONDecodeError, KeyError):
-                        continue
 
-        # If there's a prior assessment, avoid generating new questions
-        if has_prior_assessment and not parsed_json.get("is_assessment", False):
-            logger.info("Prior high-confidence assessment found, avoiding new questions")
-            parsed_json["is_question"] = False
-            parsed_json["possible_conditions"] = "Assessment already provided. Please reset the conversation or consult a doctor if symptoms persist."
-            parsed_json["confidence"] = None
-            parsed_json["triage_level"] = None
-            parsed_json["care_recommendation"] = None
-
-        # CRITICAL FIX: Handle inconsistent state where possible_conditions is null
+        # CRITICAL FIX: Handle inconsistent state where possible_conditions is null or empty
         if not parsed_json["possible_conditions"] or parsed_json["possible_conditions"] == "":
             logger.warning("possible_conditions is null or empty - fixing inconsistent state")
-            
             if not parsed_json["is_assessment"]:
                 parsed_json["is_question"] = True
                 

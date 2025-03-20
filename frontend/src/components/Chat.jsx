@@ -472,6 +472,7 @@ const Chat = () => {
               placeholder={hasFinalAssessment ? "Reset to discuss new symptoms" : "Describe your symptoms..."}
               disabled={loading || resetting || hasFinalAssessment}
               maxLength={CONFIG.MAX_MESSAGE_LENGTH}
+              autoFocus={true} // ✅ Added to restore auto-focus behavior
             />
             <button className="send-button" onClick={handleSendMessage} disabled={loading || !userInput.trim()}>
               Send
