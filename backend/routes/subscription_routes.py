@@ -65,7 +65,8 @@ def upgrade_subscription():
             metadata={
                 'user_id': user_id or temp_user_id,
                 'assessment_id': assessment_id,
-                'assessment_data': json.dumps(assessment_data) if assessment_data else None
+                'assessment_data': json.dumps(assessment_data) if assessment_data else None,
+                'plan': plan
             }
         )
         logger.info(f"Stripe session created: {session.id}")
@@ -79,47 +80,62 @@ def upgrade_subscription():
 
 @subscription_routes.route('/confirm', methods=['POST', 'GET'])
 def confirm_subscription():
-    if request.method == 'GET':
-        session_id = request.args.get('session_id')
-    else:
-        data = request.get_json()
-        session_id = data.get('session_id')
-
-    if not session_id:
-        return jsonify({"error": "Session ID required"}), 400
-
+    logger.info("Received request to /api/subscription/confirm")
     try:
+        # Safely handle Authorization header
+        auth_header = request.headers.get("Authorization", "")
+        user_id = None
+        if auth_header.startswith("Bearer "):
+            try:
+                verify_jwt_in_request(optional=True)
+                user_id = get_jwt_identity()
+                if user_id and user_id.startswith('user_'):
+                    user_id = int(user_id.replace('user_', ''))
+                logger.info(f"Authenticated user_id from JWT: {user_id}")
+            except Exception as e:
+                logger.warning(f"JWT parsing failed, proceeding without auth: {str(e)}")
+
+        # Get session_id from POST body or GET query
+        if request.method == 'GET':
+            session_id = request.args.get('session_id')
+        else:
+            data = request.get_json() or {}
+            session_id = data.get('session_id')
+
+        if not session_id:
+            logger.warning("Missing session_id in request")
+            return jsonify({"error": "Session ID required"}), 400
+
+        # Retrieve Stripe session
         session = stripe.checkout.Session.retrieve(session_id)
         if session.payment_status != 'paid':
+            logger.warning(f"Payment not completed for session: {session_id}")
             return jsonify({"error": "Payment not completed"}), 400
 
-        user_id = session.metadata.get('user_id')
+        # Extract metadata
+        metadata_user_id = session.metadata.get('user_id')
         assessment_id = session.metadata.get('assessment_id')
         assessment_data = session.metadata.get('assessment_data')
+        plan = session.metadata.get('plan')
 
-        # Optional JWT verification
-        verify_jwt_in_request(optional=True)
-        authenticated_user_id = get_jwt_identity()
+        # Determine user context
         temp_user_id = None
-
-        if authenticated_user_id:
-            user = User.query.get(authenticated_user_id)
-            if not user:
-                return jsonify({"error": "User not found"}), 404
-            user_id = authenticated_user_id
-        elif user_id and user_id.startswith('temp_'):
-            temp_user_id = user_id
-        else:
+        if user_id and isinstance(user_id, int):
             user = User.query.get(user_id)
             if not user:
-                temp_user_id = user_id
+                logger.warning(f"Authenticated user not found: {user_id}")
+                return jsonify({"error": "User not found"}), 404
+        elif metadata_user_id and metadata_user_id.startswith('temp_'):
+            temp_user_id = metadata_user_id
+        else:
+            temp_user_id = metadata_user_id or f"temp_{os.urandom(8).hex()}"
 
-        # Use enums for subscription tier
-        subscription_tier = UserTierEnum.PAID.value if session.mode == 'subscription' else UserTierEnum.ONE_TIME.value
+        # Process based on plan
         report_url = None
+        subscription_tier = UserTierEnum.PAID.value if plan == 'paid' else UserTierEnum.ONE_TIME.value
 
-        if subscription_tier == UserTierEnum.ONE_TIME.value:
-            # Safely parse assessment_data
+        if plan == 'one_time':
+            # Handle one-time report (no auth required)
             try:
                 report_data = json.loads(assessment_data) if assessment_data else {}
             except json.JSONDecodeError as e:
@@ -130,6 +146,7 @@ def confirm_subscription():
                 'timestamp': datetime.utcnow().isoformat()
             })
             report_url = generate_pdf_report(report_data)
+            logger.info(f"Report generated: {report_url}")
 
             report = Report(
                 user_id=user_id if not temp_user_id else None,
@@ -142,21 +159,34 @@ def confirm_subscription():
             db.session.add(report)
             db.session.commit()
 
-        if user:
-            user.subscription_tier = subscription_tier
+        elif plan == 'paid':
+            # Handle subscription (auth required)
+            if not user_id or not isinstance(user_id, int):
+                logger.warning("Authentication required for paid plan but no valid user_id")
+                return jsonify({"error": "Authentication required for subscription"}), 401
+            user = User.query.get(user_id)
+            if not user:
+                logger.warning(f"User not found for subscription: {user_id}")
+                return jsonify({"error": "User not found"}), 404
+            user.subscription_tier = UserTierEnum.PAID.value
             db.session.commit()
 
+        # Prepare response
         response = {
             "message": "Subscription confirmed",
             "subscription_tier": subscription_tier,
             "report_url": report_url
         }
 
-        # Issue temporary JWT for unauthenticated users
-        if temp_user_id and not authenticated_user_id:
+        # Issue JWT for authenticated users or temp users
+        if user_id and isinstance(user_id, int):
+            access_token = create_access_token(identity=f"user_{user_id}")
+            response['access_token'] = access_token
+        elif temp_user_id and not user_id:
             access_token = create_access_token(identity=temp_user_id, expires_delta=timedelta(hours=1))
             response['access_token'] = access_token
 
+        logger.info(f"Subscription confirmed for plan: {plan}, user_id: {user_id or temp_user_id}")
         return jsonify(response), 200
 
     except stripe.error.StripeError as e:
@@ -164,7 +194,7 @@ def confirm_subscription():
         db.session.rollback()
         return jsonify({"error": "Stripe processing error"}), 500
     except Exception as e:
-        logger.error(f"Unexpected error in confirm_subscription: {str(e)}")
+        logger.error(f"Unexpected error in confirm_subscription: {str(e)}", exc_info=True)
         db.session.rollback()
         return jsonify({"error": "Internal server error"}), 500
 
