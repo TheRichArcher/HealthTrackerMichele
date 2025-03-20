@@ -1,10 +1,13 @@
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
+from reportlab.platypus import SimpleDocTemplate, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet
 import os
 import uuid
 import re
 import json
 import logging
+
 from backend.utils.openai_utils import call_openai_api
 
 logger = logging.getLogger(__name__)
@@ -46,7 +49,7 @@ def generate_pdf_report(report_data):
     )
     
     response = call_openai_api([{"role": "user", "content": prompt}], response_format={"type": "text"})
-    logger.info(f"OpenAI response: {response}")
+    logger.info(f"OpenAI response: {response[:200]}...")  # Truncated for brevity
     
     sections = re.split(r"###\s+", response.strip())
     section_dict = {}
@@ -117,9 +120,9 @@ def generate_pdf_report(report_data):
             check_page_overflow()
         return y
     
-    def check_page_overflow():
+    def check_page_overflow(extra_space=0):
         nonlocal y
-        if y < 50:
+        if y - extra_space < 50:
             c.showPage()
             y = 750
             c.setFont("Helvetica", 10)
@@ -155,7 +158,8 @@ def generate_pdf_report(report_data):
     c.drawString(100, y, "Differential Diagnosis:")
     y -= 15
     c.setFont("Helvetica", 10)
-    for i, (condition, conf) in enumerate(zip(diff_conditions, diff_confidences)):
+    logger.info(f"Drawing differential diagnosis at y={y}, items={len(diff_conditions)}")
+    for condition, conf in zip(diff_conditions, diff_confidences):
         c.drawString(100, y, f"{condition}: {conf}%")
         y -= 15
         check_page_overflow()
@@ -188,7 +192,22 @@ def generate_pdf_report(report_data):
     c.drawString(100, y, "Immediate Action Plan")
     y -= 20
     c.setFont("Helvetica", 10)
-    y = draw_wrapped_text(action_plan, 100, y, 450, 15)
+    text_obj = c.beginText(100, y)
+    text_obj.setFont("Helvetica", 10)
+    text_obj.setLeading(15)
+    for line in action_plan.split('\n'):
+        text_obj.textLine(line)
+        y -= 15
+        if y < 50:
+            c.drawText(text_obj)
+            c.showPage()
+            y = 750
+            c.setFont("Helvetica", 10)
+            c.line(50, 740, 550, 740)
+            text_obj = c.beginText(100, y)
+            text_obj.setFont("Helvetica", 10)
+            text_obj.setLeading(15)
+    c.drawText(text_obj)
     y -= 10
     c.line(50, y, 550, y)
     
@@ -200,14 +219,14 @@ def generate_pdf_report(report_data):
     c.setFont("Helvetica", 10)
     y = draw_wrapped_text(visual_desc, 100, y, 450, 15)
     y -= 20
-    check_page_overflow()  # Ensure space for chart
+    check_page_overflow(120)  # Reserve space for chart
     bar_width = 80
     max_height = 100
     x_start = 100
     logger.info(f"Drawing bar chart at y={y}, conditions={diff_conditions}")
+    c.setFillGray(0.8)
     for i, conf in enumerate(diff_confidences):
         bar_height = (conf / 100) * max_height
-        c.setFillGray(0.8)
         c.rect(x_start + i * (bar_width + 20), y, bar_width, bar_height, fill=1)
         c.setFillColor("black")
         c.drawString(x_start + i * (bar_width + 20), y - 15, diff_conditions[i][:12])
