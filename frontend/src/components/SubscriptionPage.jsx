@@ -52,21 +52,22 @@ const SubscriptionPage = () => {
         }
       );
       setSubscriptionStatus(response.data.subscription_tier);
-      // Store access_token if provided (for unauthenticated users)
       if (response.data.access_token) {
         localStorage.setItem('access_token', response.data.access_token);
       }
-      // Persist report_url in localStorage for later access
       if (response.data.report_url) {
         localStorage.setItem('healthtracker_report_url', response.data.report_url);
       }
-      // Redirect to chat with report_url in state
       navigate('/chat', { state: { reportUrl: response.data.report_url } });
     } catch (err) {
       setError(err.response?.data?.error || 'Confirmation failed');
-      navigate('/auth');
+      if (isAuthenticated || err.response?.status === 401) {
+        navigate('/auth');
+      } else {
+        navigate('/chat');
+      }
     }
-  }, [navigate]);
+  }, [navigate, isAuthenticated]);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);

@@ -135,7 +135,6 @@ def confirm_subscription():
         subscription_tier = UserTierEnum.PAID.value if plan == 'paid' else UserTierEnum.ONE_TIME.value
 
         if plan == 'one_time':
-            # Handle one-time report (no auth required)
             try:
                 report_data = json.loads(assessment_data) if assessment_data else {}
             except json.JSONDecodeError as e:
@@ -160,7 +159,6 @@ def confirm_subscription():
             db.session.commit()
 
         elif plan == 'paid':
-            # Handle subscription (auth required)
             if not user_id or not isinstance(user_id, int):
                 logger.warning("Authentication required for paid plan but no valid user_id")
                 return jsonify({"error": "Authentication required for subscription"}), 401

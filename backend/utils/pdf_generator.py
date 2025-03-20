@@ -1,4 +1,3 @@
-# backend/utils/pdf_generator.py
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 import os
@@ -20,35 +19,33 @@ def generate_pdf_report(report_data):
     # Full path to save the PDF
     filepath = os.path.join(reports_dir, filename)
     
-    # Prepare data for OpenAI prompts
-    symptoms = report_data.get('symptoms', 'Not specified')
-    condition_common = report_data['condition_common']
-    condition_medical = report_data['condition_medical']
-    confidence = report_data['confidence']
-    triage_level = report_data['triage_level']
+    # Prepare data for OpenAI prompts, safely handling types
+    symptoms = str(report_data.get('symptoms', 'Not specified'))
+    condition_common = str(report_data.get('condition_common', 'Unknown'))
+    condition_medical = str(report_data.get('condition_medical', 'N/A'))
+    confidence = str(report_data.get('confidence', 'N/A'))
+    triage_level = str(report_data.get('triage_level', 'N/A'))
     
-    # Generate dynamic content using OpenAI
-    prompt = f"""
-    You are a medical AI assistant. Based on the following report data, generate content for a premium health report:
-    - Symptoms: {symptoms}
-    - Condition (Common): {condition_common}
-    - Condition (Medical): {condition_medical}
-    - Confidence: {confidence}%
-    - Triage Level: {triage_level}
-
-    Provide the following sections:
-    1. User-Friendly Summary (100 words max): Summarize the symptoms and condition in simple, empathetic language suitable for a patient.
-    2. Detailed Clinical Report (300 words max):
-       - AI Reasoning: Explain how these symptoms lead to the condition, emphasizing differential diagnosis and confidence levels.
-       - Differential Diagnosis Table (JSON): Output as a JSON array, e.g., [{"condition": "Tension Headache", "confidence": "75%"}, {"condition": "Migraine", "confidence": "20%"}, {"condition": "Sinusitis", "confidence": "5%"}].
-    3. Doctor Communication Guide (150 words max): Suggest polite, effective ways a patient can explain these symptoms to a doctor, including 3-5 specific questions to ask about the condition.
-    4. PubMed Research Links (100 words max): List three recent PubMed articles relevant to the condition with brief descriptions and placeholder links (e.g., https://pubmed.ncbi.nlm.nih.gov/placeholder/).
-    5. Immediate Action Plan (150 words max): Provide a short list of safe self-care steps for someone experiencing the condition. Also, list emergency warning signs.
-    6. Visual Aids Description (50 words max): Describe a confidence bar chart for the differential diagnosis percentages.
-    7. Doctor Contact Template (100 words max): Write a short email template where a patient summarizes their symptoms and attaches this report for a doctor visit.
-
-    Respond in plain text, with each section clearly labeled (e.g., '### User-Friendly Summary...', '### Detailed Clinical Report...', etc.).
-    """
+    # Generate dynamic content using OpenAI with safe string formatting
+    prompt = (
+        "You are a medical AI assistant. Based on the following report data, generate content for a premium health report:\n"
+        f"- Symptoms: {symptoms}\n"
+        f"- Condition (Common): {condition_common}\n"
+        f"- Condition (Medical): {condition_medical}\n"
+        f"- Confidence: {confidence}%\n"
+        f"- Triage Level: {triage_level}\n\n"
+        "Provide the following sections:\n"
+        "1. User-Friendly Summary (100 words max): Summarize the symptoms and condition in simple, empathetic language suitable for a patient.\n"
+        "2. Detailed Clinical Report (300 words max):\n"
+        "   - AI Reasoning: Explain how these symptoms lead to the condition, emphasizing differential diagnosis and confidence levels.\n"
+        "   - Differential Diagnosis Table (JSON): Output as a JSON array, e.g., [{\"condition\": \"Tension Headache\", \"confidence\": \"75%\"}, {\"condition\": \"Migraine\", \"confidence\": \"20%\"}, {\"condition\": \"Sinusitis\", \"confidence\": \"5%\"}].\n"
+        "3. Doctor Communication Guide (150 words max): Suggest polite, effective ways a patient can explain these symptoms to a doctor, including 3-5 specific questions to ask about the condition.\n"
+        "4. PubMed Research Links (100 words max): List three recent PubMed articles relevant to the condition with brief descriptions and placeholder links (e.g., https://pubmed.ncbi.nlm.nih.gov/placeholder/).\n"
+        "5. Immediate Action Plan (150 words max): Provide a short list of safe self-care steps for someone experiencing the condition. Also, list emergency warning signs.\n"
+        "6. Visual Aids Description (50 words max): Describe a confidence bar chart for the differential diagnosis percentages.\n"
+        "7. Doctor Contact Template (100 words max): Write a short email template where a patient summarizes their symptoms and attaches this report for a doctor visit.\n\n"
+        "Respond in plain text, with each section clearly labeled (e.g., '### User-Friendly Summary...', '### Detailed Clinical Report...', etc.)."
+    )
     
     response = call_openai_api([{"role": "user", "content": prompt}], max_tokens=800)
     
