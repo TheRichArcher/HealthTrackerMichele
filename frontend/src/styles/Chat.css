@@ -39,7 +39,7 @@
 .messages-container {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
+  padding: 24px 16px 16px 16px; /* Increased padding-top to 24px to ensure space for the first message */
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -50,6 +50,10 @@
   display: flex;
   margin-bottom: 16px;
   animation: fadeIn 0.3s ease-in-out;
+}
+
+.message-row:first-child {
+  margin-top: 8px; /* Add margin-top to the first message to ensure it’s not flush against the top */
 }
 
 .message-row.user {
