@@ -14,7 +14,8 @@ def generate_pdf_report(report_data):
     os.makedirs(reports_dir, exist_ok=True)
     filepath = os.path.join(reports_dir, filename)
     
-    symptoms = str(report_data.get('symptoms', 'Not specified'))
+    # Use 'symptom' key as passed from subscription_routes
+    symptoms = str(report_data.get('symptom', 'Not specified'))
     condition_common = str(report_data.get('condition_common', 'Unknown'))
     condition_medical = str(report_data.get('condition_medical', 'N/A'))
     confidence = str(report_data.get('confidence', 'N/A'))
@@ -42,12 +43,13 @@ def generate_pdf_report(report_data):
     
     response = call_openai_api([{"role": "user", "content": prompt}], response_format={"type": "text"})
     
-    sections = re.split(r"###\s+", response)
+    # Parse full sections
+    sections = re.split(r"###\s+", response.strip())
     section_dict = {}
     for section in sections:
         if section.strip():
-            header, *body = section.strip().split("\n", 1)
-            section_dict[header.strip()] = body[0].strip() if body else ""
+            header, *body = section.split("\n", 1)
+            section_dict[header.strip()] = body[0] if body else ""
     
     summary = section_dict.get("User-Friendly Summary", "")
     clinical_report = section_dict.get("Detailed Clinical Report", "")
@@ -57,11 +59,17 @@ def generate_pdf_report(report_data):
     visual_desc = section_dict.get("Visual Aids Description", "")
     doctor_email = section_dict.get("Doctor Contact Template", "")
     
+    # Extract differential diagnosis JSON robustly
     diff_table_raw = ""
-    for line in clinical_report.split("\n"):
-        if "Differential Diagnosis Table" in line:
-            diff_table_raw = line.replace("Differential Diagnosis Table (JSON):", "").strip()
+    clinical_lines = clinical_report.split("\n")
+    json_start = -1
+    for i, line in enumerate(clinical_lines):
+        if "Differential Diagnosis Table (JSON):" in line:
+            json_start = i + 1
             break
+    if json_start != -1:
+        json_lines = clinical_lines[json_start:]
+        diff_table_raw = " ".join(json_lines).strip()
     try:
         diff_data = json.loads(diff_table_raw) if diff_table_raw else []
     except json.JSONDecodeError:
@@ -81,6 +89,25 @@ def generate_pdf_report(report_data):
     c.line(50, 700, 550, 700)
     y = 680
     
+    def draw_wrapped_text(text, x, y_start, max_width, line_height):
+        nonlocal y
+        words = text.split()
+        line = ""
+        y = y_start
+        for word in words:
+            if c.stringWidth(line + " " + word, "Helvetica", 10) < max_width:
+                line += " " + word if line else word
+            else:
+                c.drawString(x, y, line)
+                y -= line_height
+                check_page_overflow()
+                line = word
+        if line:
+            c.drawString(x, y, line)
+            y -= line_height
+            check_page_overflow()
+        return y
+    
     def check_page_overflow():
         nonlocal y
         if y < 50:
@@ -94,11 +121,7 @@ def generate_pdf_report(report_data):
     c.drawString(100, y, "User-Friendly Summary")
     y -= 20
     c.setFont("Helvetica", 10)
-    for line in summary.split("\n"):
-        if line.strip():
-            c.drawString(100, y, line.strip()[:80])
-            y -= 15
-            check_page_overflow()
+    y = draw_wrapped_text(summary, 100, y, 450, 15)
     y -= 10
     c.line(50, y, 550, y)
     
@@ -110,17 +133,14 @@ def generate_pdf_report(report_data):
     c.setFont("Helvetica", 10)
     c.drawString(100, y, "Symptoms Reported:")
     y -= 15
-    c.drawString(100, y, symptoms)
+    y = draw_wrapped_text(symptoms, 100, y, 450, 15)
     y -= 20
     c.setFont("Helvetica-Bold", 10)
     c.drawString(100, y, "AI Reasoning:")
     y -= 15
     c.setFont("Helvetica", 10)
-    for line in clinical_report.split("\n"):
-        if "AI Reasoning" not in line and line.strip():
-            c.drawString(100, y, line.strip()[:80])
-            y -= 15
-            check_page_overflow()
+    reasoning_text = "\n".join([line for line in clinical_lines if "Differential Diagnosis Table" not in line])
+    y = draw_wrapped_text(reasoning_text, 100, y, 450, 15)
     y -= 20
     c.setFont("Helvetica-Bold", 10)
     c.drawString(100, y, "Differential Diagnosis:")
@@ -139,11 +159,7 @@ def generate_pdf_report(report_data):
     c.drawString(100, y, "Doctor Communication Guide")
     y -= 20
     c.setFont("Helvetica", 10)
-    for line in doctor_comm.split("\n"):
-        if line.strip():
-            c.drawString(100, y, line.strip()[:80])
-            y -= 15
-            check_page_overflow()
+    y = draw_wrapped_text(doctor_comm, 100, y, 450, 15)
     y -= 10
     c.line(50, y, 550, y)
     
@@ -153,11 +169,7 @@ def generate_pdf_report(report_data):
     c.drawString(100, y, "Trusted Medical Sources")
     y -= 20
     c.setFont("Helvetica", 10)
-    for line in pubmed_links.split("\n"):
-        if line.strip():
-            c.drawString(100, y, line.strip()[:80])
-            y -= 15
-            check_page_overflow()
+    y = draw_wrapped_text(pubmed_links, 100, y, 450, 15)
     y -= 10
     c.line(50, y, 550, y)
     
@@ -167,11 +179,7 @@ def generate_pdf_report(report_data):
     c.drawString(100, y, "Immediate Action Plan")
     y -= 20
     c.setFont("Helvetica", 10)
-    for line in action_plan.split("\n"):
-        if line.strip():
-            c.drawString(100, y, line.strip()[:80])
-            y -= 15
-            check_page_overflow()
+    y = draw_wrapped_text(action_plan, 100, y, 450, 15)
     y -= 10
     c.line(50, y, 550, y)
     
@@ -181,17 +189,19 @@ def generate_pdf_report(report_data):
     c.drawString(100, y, "Visual Aids")
     y -= 20
     c.setFont("Helvetica", 10)
-    c.drawString(100, y, visual_desc[:80])
+    y = draw_wrapped_text(visual_desc, 100, y, 450, 15)
     y -= 20
-    bar_width = 100
-    max_height = 50
+    bar_width = 80
+    max_height = 100
     x_start = 100
     for i, conf in enumerate(diff_confidences):
         bar_height = (conf / 100) * max_height
-        c.rect(x_start + i * (bar_width + 10), y, bar_width, bar_height, fill=1)
-        c.drawString(x_start + i * (bar_width + 10), y - 15, diff_conditions[i][:10])
-        c.drawString(x_start + i * (bar_width + 10) + 30, y + bar_height + 10, f"{conf}%")
-    y -= 80
+        c.setFillGray(0.8)
+        c.rect(x_start + i * (bar_width + 20), y, bar_width, bar_height, fill=1)
+        c.setFillColor("black")
+        c.drawString(x_start + i * (bar_width + 20), y - 15, diff_conditions[i][:12])
+        c.drawString(x_start + i * (bar_width + 20) + 30, y + bar_height + 5, f"{conf}%")
+    y -= 120
     c.line(50, y, 550, y)
     
     # Doctor Contact Template
@@ -200,23 +210,19 @@ def generate_pdf_report(report_data):
     c.drawString(100, y, "Doctor Contact Template")
     y -= 20
     c.setFont("Helvetica", 10)
-    for line in doctor_email.split("\n"):
-        if line.strip():
-            c.drawString(100, y, line.strip()[:80])
-            y -= 15
-            check_page_overflow()
+    y = draw_wrapped_text(doctor_email, 100, y, 450, 15)
     y -= 10
     c.line(50, y, 550, y)
     
     # Disclaimer
     y -= 10
-    c.setFont("Helvetica-Oblique", 10)  # Changed from Helvetica-Italic
-    c.drawString(100, y, "Disclaimer: This AI-generated report is for informational purposes only and not a substitute for professional medical advice. Consult a licensed physician.")
+    c.setFont("Helvetica-Oblique", 10)
+    y = draw_wrapped_text("Disclaimer: This AI-generated report is for informational purposes only and not a substitute for professional medical advice. Consult a licensed physician.", 100, y, 450, 15)
     y -= 20
     
     # Footer
     c.setFont("Helvetica", 8)
-    c.drawString(100, y, "Powered by HealthTracker AI (GPT-4o powered). Questions? Visit healthtrackermichele.com/support.")
+    y = draw_wrapped_text("Powered by HealthTracker AI (GPT-4o powered). Questions? Visit healthtrackermichele.com/support.", 100, y, 450, 12)
     c.drawString(100, y - 10, "Report generated with data current as of March 18, 2025.")
     
     c.save()

@@ -77,6 +77,24 @@ const Message = memo(({ message, onRetry, index, onUpgradeAction, assessmentData
     else confidenceClass = 'confidence-low';
   }
 
+  if (message.text.includes("[Download PDF]")) {
+    const [textPart, url] = message.text.split("[Download PDF](");
+    const cleanUrl = url.slice(0, -1);
+    return (
+      <div className="message-row">
+        <div className="avatar-container">{avatarContent}</div>
+        <div className="message bot">
+          <div className="message-content">
+            <p>{textPart.trim()}</p>
+            <a href={cleanUrl} target="_blank" rel="noopener noreferrer" className="report-download-button">
+              Download Report
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (isUpgradeOptions) {
     return (
       <div className="message-row">

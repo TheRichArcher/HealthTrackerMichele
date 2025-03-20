@@ -142,7 +142,8 @@ def confirm_subscription():
                 report_data = {}
             report_data.update({
                 'user_id': user_id or temp_user_id,
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': datetime.utcnow().isoformat(),
+                'symptom': report_data.get('symptom', 'Not specified')  # Ensure symptom is present
             })
             report_url = generate_pdf_report(report_data)
             logger.info(f"Report generated: {report_url}")

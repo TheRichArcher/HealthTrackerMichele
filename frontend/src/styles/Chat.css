@@ -427,6 +427,23 @@
   color: #0288d1;
 }
 
+/* Report download button */
+.report-download-button {
+  display: inline-block;
+  padding: 10px 15px;
+  background-color: #34a853;
+  color: white;
+  text-decoration: none;
+  border-radius: 6px;
+  margin-top: 12px;
+  font-weight: 600;
+  transition: background-color 0.2s;
+}
+
+.report-download-button:hover {
+  background-color: #2d8e47;
+}
+
 @keyframes fadeIn {
   from {
       opacity: 0;
