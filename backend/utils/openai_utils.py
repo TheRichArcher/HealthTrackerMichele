@@ -11,17 +11,19 @@ if not openai.api_key:
     raise ValueError("OPENAI_API_KEY environment variable not set.")
 
 def call_openai_api(messages, response_format={"type": "json_object"}, retries=3):
-    """Call OpenAI's API with robust error handling."""
+    """
+    Call OpenAI's API with robust error handling.
+    """
     attempt = 0
     while attempt < retries:
         try:
             client = get_openai_client()
             response = client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4o-2024-05-13",  # Pinned to a specific version to prevent model updates
                 messages=messages,
                 response_format=response_format,
                 max_tokens=1200,
-                temperature=0.7
+                temperature=0.3  # Lowered from 0.7 to 0.3 for more deterministic behavior
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -34,7 +36,12 @@ def call_openai_api(messages, response_format={"type": "json_object"}, retries=3
             time.sleep(2 ** attempt)  # Exponential backoff
 
 def clean_ai_response(raw_response):
-    """Clean and validate AI's raw JSON response, ensuring expected fields."""
+    """
+    Minimal utility to parse and set defaults for OpenAI responses.
+    WARNING: This is a lightweight function and should NOT be used for the main symptom
+    analysis flow in /symptoms/analyze. Use the clean_ai_response function in openai_config.py
+    instead, as it includes critical validation logic for accurate assessments.
+    """
     try:
         if isinstance(raw_response, str):
             response_data = json.loads(raw_response)

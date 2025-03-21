@@ -12,8 +12,10 @@ logger = logging.getLogger(__name__)
 
 # Constants
 MIN_CONFIDENCE_THRESHOLD = 95  # Updated to match symptom_routes.py (95% instead of 90%)
+MIN_USER_RESPONSES_FOR_ASSESSMENT = 3  # Require at least 3 user responses before allowing an assessment
+CRITICAL_SYMPTOMS = ["chest pain", "shortness of breath", "severe headache", "sudden numbness", "difficulty speaking"]  # Symptoms requiring extra caution
 
-# System prompt for OpenAI (unchanged, included for context)
+# System prompt for OpenAI
 SYSTEM_PROMPT = """You are Michele, an AI medical assistant designed to mimic a doctor's visit. Your goal is to understand the user's symptoms through conversation and provide insights only when highly confident.
 
 CRITICAL INSTRUCTIONS:
@@ -112,6 +114,37 @@ def clean_ai_response(
                 logger.warning(f"Field '{field}' is None, setting to default")
                 parsed_json[field] = default
 
+        # Additional validation: Check conversation history and critical symptoms
+        user_response_count = 0
+        has_critical_symptoms = False
+        if conversation_history:
+            user_response_count = sum(1 for msg in conversation_history if not msg.get("isBot", True))
+            combined_text = " ".join(msg["message"].lower() for msg in conversation_history if not msg.get("isBot", True))
+            has_critical_symptoms = any(symptom in combined_text for symptom in CRITICAL_SYMPTOMS)
+
+        # Force a question if not enough user responses or critical symptoms are present
+        if parsed_json["is_assessment"]:
+            if user_response_count < MIN_USER_RESPONSES_FOR_ASSESSMENT:
+                logger.info(f"User responses ({user_response_count}) below minimum ({MIN_USER_RESPONSES_FOR_ASSESSMENT}), forcing question")
+                parsed_json["is_assessment"] = False
+                parsed_json["is_question"] = True
+                parsed_json["possible_conditions"] = "I need more information to make a confident assessment. Can you tell me if your symptoms change with position, like when you stand up?"
+                parsed_json["confidence"] = None
+                parsed_json["triage_level"] = None
+                parsed_json["care_recommendation"] = None
+                if "assessment" in parsed_json:
+                    del parsed_json["assessment"]
+            elif has_critical_symptoms:
+                logger.info(f"Critical symptoms detected, forcing additional question")
+                parsed_json["is_assessment"] = False
+                parsed_json["is_question"] = True
+                parsed_json["possible_conditions"] = "Given your symptoms, I need to rule out serious conditions. Have you experienced any sudden changes, like difficulty speaking or numbness?"
+                parsed_json["confidence"] = None
+                parsed_json["triage_level"] = None
+                parsed_json["care_recommendation"] = None
+                if "assessment" in parsed_json:
+                    del parsed_json["assessment"]
+
         # CRITICAL FIX: Handle inconsistent state where possible_conditions is null or empty
         if not parsed_json["possible_conditions"] or parsed_json["possible_conditions"] == "":
             logger.warning("possible_conditions is null or empty - fixing inconsistent state")
@@ -127,6 +160,10 @@ def clean_ai_response(
                         parsed_json["possible_conditions"] = "How severe is the burning sensation when you urinate, on a scale from 1-10?"
                     elif "frequent" in combined_text or "urgency" in combined_text:
                         parsed_json["possible_conditions"] = "How often do you feel the need to urinate compared to your normal pattern?"
+                    elif "lightheaded" in combined_text or "dizzy" in combined_text:
+                        parsed_json["possible_conditions"] = "Does the lightheadedness happen mostly when you stand up or change positions?"
+                    elif "nausea" in combined_text or "vomiting" in combined_text:
+                        parsed_json["possible_conditions"] = "Have you been able to keep fluids down, or have you been dehydrated recently?"
                     else:
                         bot_messages = [msg["message"].lower() for msg in conversation_history[-5:] if msg.get("isBot", True)]
                         if any("tell me more about your symptoms" in msg for msg in bot_messages):
@@ -219,7 +256,6 @@ def clean_ai_response(
             "requires_upgrade": False
         }
 
-# ✅ ADDED FUNCTION:
 def get_openai_client():
     """
     Returns an OpenAI client instance using the API key from environment variables.
