@@ -5,7 +5,7 @@ from backend.extensions import db
 from backend.utils.auth import generate_temp_user_id, token_required
 from backend.utils.pdf_generator import generate_pdf_report
 from backend.utils.openai_utils import call_openai_api
-from backend import openai_config  # Updated import
+from backend import openai_config
 import openai
 import os
 import json
@@ -130,14 +130,9 @@ def analyze_symptoms():
     messages = prepare_conversation_messages(symptom, conversation_history)
     try:
         raw_response = call_openai_api(messages, response_format={"type": "json_object"})
-        # Extract the content from the raw response
-        if hasattr(raw_response, 'choices') and isinstance(raw_response.choices, list):
-            response_text = raw_response.choices[0].message.content
-        else:
-            response_text = raw_response.get('choices', [{}])[0].get('message', {}).get('content', '')
-
+        # raw_response is already a string (JSON content), so pass it directly
         result = openai_config.clean_ai_response(
-            response_text=response_text,
+            response_text=raw_response,
             user=current_user,
             conversation_history=conversation_history,
             symptom=symptom
@@ -289,14 +284,9 @@ def generate_doctor_report():
     
     try:
         raw_response = call_openai_api(messages, response_format={"type": "json_object"})
-        # Extract the content from the raw response
-        if hasattr(raw_response, 'choices') and isinstance(raw_response.choices, list):
-            response_text = raw_response.choices[0].message.content
-        else:
-            response_text = raw_response.get('choices', [{}])[0].get('message', {}).get('content', '')
-
+        # raw_response is already a string (JSON content), so pass it directly
         result = openai_config.clean_ai_response(
-            response_text=response_text,
+            response_text=raw_response,
             user=current_user,
             conversation_history=conversation_history,
             symptom=symptom
