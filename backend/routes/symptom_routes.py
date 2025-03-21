@@ -5,7 +5,7 @@ from backend.extensions import db
 from backend.utils.auth import generate_temp_user_id, token_required
 from backend.utils.pdf_generator import generate_pdf_report
 from backend.utils.openai_utils import call_openai_api
-import openai_config
+from backend import openai_config  # Updated import
 import openai
 import os
 import json
@@ -130,7 +130,18 @@ def analyze_symptoms():
     messages = prepare_conversation_messages(symptom, conversation_history)
     try:
         raw_response = call_openai_api(messages, response_format={"type": "json_object"})
-        result = openai_config.clean_ai_response(raw_response)
+        # Extract the content from the raw response
+        if hasattr(raw_response, 'choices') and isinstance(raw_response.choices, list):
+            response_text = raw_response.choices[0].message.content
+        else:
+            response_text = raw_response.get('choices', [{}])[0].get('message', {}).get('content', '')
+
+        result = openai_config.clean_ai_response(
+            response_text=response_text,
+            user=current_user,
+            conversation_history=conversation_history,
+            symptom=symptom
+        )
         
         if result.get("is_assessment", False) and result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD:
             result = {
@@ -278,7 +289,18 @@ def generate_doctor_report():
     
     try:
         raw_response = call_openai_api(messages, response_format={"type": "json_object"})
-        result = openai_config.clean_ai_response(raw_response)
+        # Extract the content from the raw response
+        if hasattr(raw_response, 'choices') and isinstance(raw_response.choices, list):
+            response_text = raw_response.choices[0].message.content
+        else:
+            response_text = raw_response.get('choices', [{}])[0].get('message', {}).get('content', '')
+
+        result = openai_config.clean_ai_response(
+            response_text=response_text,
+            user=current_user,
+            conversation_history=conversation_history,
+            symptom=symptom
+        )
         doctor_report = result.get("doctors_report") or f"""
         MEDICAL CONSULTATION REPORT
         Date: {datetime.utcnow().strftime("%Y-%m-%d")}
