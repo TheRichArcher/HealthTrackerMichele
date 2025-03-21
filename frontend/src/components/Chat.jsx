@@ -220,9 +220,23 @@ const Chat = () => {
     const reportFromState = location.state?.reportUrl;
     if (reportFromState) {
       setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${reportFromState})`, isAssessment: false }]);
+      // Reset chat state after receiving the report
+      setTimeout(() => {
+        setMessages([WELCOME_MESSAGE]);
+        setHasFinalAssessment(false);
+        setLatestAssessment(null);
+        localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
+      }, 1000);
       window.history.replaceState({}, document.title, '/chat');
     } else if (storedReport && !messages.some(msg => msg.text.includes(storedReport))) {
       setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${storedReport})`, isAssessment: false }]);
+      // Reset chat state after receiving the report
+      setTimeout(() => {
+        setMessages([WELCOME_MESSAGE]);
+        setHasFinalAssessment(false);
+        setLatestAssessment(null);
+        localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
+      }, 1000);
       localStorage.removeItem(CONFIG.REPORT_URL_KEY);
     }
 
@@ -246,6 +260,13 @@ const Chat = () => {
           if (res.data.success && res.data.report_url) {
             localStorage.setItem(CONFIG.REPORT_URL_KEY, res.data.report_url);
             setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${res.data.report_url})`, isAssessment: false }]);
+            // Reset chat state after receiving the report
+            setTimeout(() => {
+              setMessages([WELCOME_MESSAGE]);
+              setHasFinalAssessment(false);
+              setLatestAssessment(null);
+              localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
+            }, 1000);
             window.history.replaceState({}, document.title, '/chat');
           } else {
             setMessages(prev => [...prev, { sender: 'bot', text: 'Payment confirmed, but report generation failed. Please contact support.', isAssessment: false }]);
@@ -309,7 +330,7 @@ const Chat = () => {
         : {
             plan: 'one_time',
             assessment_data: {
-              symptom: latestUserMessage || 'Not specified',  // Add symptom from user input
+              symptom: latestUserMessage || 'Not specified',
               condition_common: latestAssessment?.condition || 'Unknown',
               condition_medical: 'N/A',
               confidence: latestAssessment?.confidence || 0,
@@ -363,7 +384,18 @@ const Chat = () => {
         body: JSON.stringify({ symptom: userInput, conversation_history: conversationHistory, context_notes: "Focus on user input and history." }),
       });
 
-      if (!response.ok) throw new Error(`API error: ${response.status}`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        if (response.status === 403 && errorData.requires_upgrade) {
+          addBotMessage("Please upgrade to continue discussing your symptoms, as a serious condition was detected.");
+          setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, false), CONFIG.SALES_PITCH_DELAY);
+          setLoading(false);
+          setTyping(false);
+          return;
+        }
+        throw new Error(`API error: ${response.status}`);
+      }
+
       const data = await response.json();
 
       setLoading(false);
@@ -472,7 +504,7 @@ const Chat = () => {
               placeholder={hasFinalAssessment ? "Reset to discuss new symptoms" : "Describe your symptoms..."}
               disabled={loading || resetting || hasFinalAssessment}
               maxLength={CONFIG.MAX_MESSAGE_LENGTH}
-              autoFocus={true} // ✅ Added to restore auto-focus behavior
+              autoFocus={true}
             />
             <button className="send-button" onClick={handleSendMessage} disabled={loading || !userInput.trim()}>
               Send

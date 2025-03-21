@@ -1,10 +1,11 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, session
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 from backend.models import User, SymptomLog, Report, UserTierEnum, CareRecommendationEnum
 from backend.extensions import db
 from backend.utils.auth import generate_temp_user_id, token_required
 from backend.utils.pdf_generator import generate_pdf_report
-from backend.utils.openai_utils import call_openai_api, clean_ai_response
+from backend.utils.openai_utils import call_openai_api
+import openai_config
 import openai
 import os
 import json
@@ -16,11 +17,8 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 symptom_routes = Blueprint("symptom_routes", __name__, url_prefix="/api/symptoms")
 
-MAX_RETRIES = 3
-RETRY_DELAY = 2
-MIN_CONFIDENCE_THRESHOLD = 95
-MAX_TOKENS = 1500
-TEMPERATURE = 0.7
+# Note: OpenAI API settings (e.g., temperature, max tokens) are managed by call_openai_api in openai_utils.py
+MIN_CONFIDENCE_THRESHOLD = 95  # Used to enforce confidence threshold for assessments
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 if not openai.api_key:
@@ -32,11 +30,21 @@ class MockUser:
     subscription_tier = UserTierEnum.FREE.value
 
 def is_premium_user(user):
-    """Check if the user has a premium subscription tier."""
-    return getattr(user, "subscription_tier", UserTierEnum.FREE.value) in {
-        UserTierEnum.PAID.value,
-        UserTierEnum.ONE_TIME.value
-    }
+    """Check if the user has a premium subscription tier or a valid temporary token."""
+    # Check subscription tier for authenticated users
+    if hasattr(user, "subscription_tier"):
+        return user.subscription_tier in [UserTierEnum.PAID.value, UserTierEnum.ONE_TIME.value]
+    
+    # Check for temporary token for unauthenticated users
+    try:
+        verify_jwt_in_request(optional=True)
+        user_id = get_jwt_identity()
+        if user_id and isinstance(user_id, str) and user_id.startswith('temp_'):
+            return True
+    except Exception as e:
+        logger.debug(f"Token verification failed in is_premium_user: {str(e)}")
+    
+    return False
 
 def prepare_conversation_messages(symptom, conversation_history):
     """Prepare the conversation messages for OpenAI API."""
@@ -99,8 +107,16 @@ def analyze_symptoms():
         except Exception as e:
             logger.warning(f"Invalid token: {str(e)}")
 
-    # Use temp ID if no authenticated user, but don't cast to int yet
+    # Use temp ID if no authenticated user
     user_id = user_id if user_id is not None else generate_temp_user_id(request)
+
+    # Check if the user must upgrade due to a previous serious assessment
+    session_key = f"requires_upgrade_{user_id}"
+    if session.get(session_key, False) and not is_premium_user(current_user):
+        return jsonify({
+            "error": "Upgrade required to continue due to a previous serious assessment",
+            "requires_upgrade": True
+        }), 403
 
     data = request.get_json() or {}
     symptom = data.get("symptom", "").strip()
@@ -114,7 +130,7 @@ def analyze_symptoms():
     messages = prepare_conversation_messages(symptom, conversation_history)
     try:
         raw_response = call_openai_api(messages, response_format={"type": "json_object"})
-        result = clean_ai_response(raw_response)
+        result = openai_config.clean_ai_response(raw_response)
         
         if result.get("is_assessment", False) and result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD:
             result = {
@@ -151,6 +167,7 @@ def analyze_symptoms():
             triage_level = result.get("triage_level", "").upper()
             if triage_level in ["MODERATE", "SEVERE"]:
                 result["requires_upgrade"] = True
+                session[session_key] = True  # Store the upgrade requirement in the session
 
         response_data = {
             "is_assessment": result.get("is_assessment", False),
@@ -163,7 +180,12 @@ def analyze_symptoms():
             "assessment_id": assessment_id
         }
 
-        conversation_history.append({"message": response_data["next_question"] or json.dumps(response_data), "isBot": True})
+        # Format a user-friendly message for the conversation history
+        history_message = response_data["next_question"]
+        if not history_message:  # If no next_question, format the assessment as a string
+            history_message = f"I've identified {response_data['possible_conditions']} as a possible condition.\nConfidence: {response_data['confidence']}%\nSeverity: {response_data['triage_level']}\nRecommendation: {response_data['care_recommendation']}"
+
+        conversation_history.append({"message": history_message, "isBot": True})
         return jsonify({"response": response_data, "isBot": True, "conversation_history": conversation_history}), 200
     except Exception as e:
         logger.error(f"Error in analyze_symptoms: {str(e)}", exc_info=True)
@@ -256,7 +278,7 @@ def generate_doctor_report():
     
     try:
         raw_response = call_openai_api(messages, response_format={"type": "json_object"})
-        result = clean_ai_response(raw_response)
+        result = openai_config.clean_ai_response(raw_response)
         doctor_report = result.get("doctors_report") or f"""
         MEDICAL CONSULTATION REPORT
         Date: {datetime.utcnow().strftime("%Y-%m-%d")}

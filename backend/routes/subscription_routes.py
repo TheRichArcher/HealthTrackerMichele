@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, session  # Add session import
 from flask_jwt_extended import create_access_token, get_jwt_identity, jwt_required, verify_jwt_in_request, get_jwt
 from datetime import timedelta, datetime
 from backend.extensions import db
@@ -122,6 +122,12 @@ def confirm_subscription():
         else:
             temp_user_id = metadata_user_id or f"temp_{os.urandom(8).hex()}"
 
+        # Clear the requires_upgrade state in the session
+        session_key = f"requires_upgrade_{user_id or temp_user_id}"
+        if session_key in session:
+            session.pop(session_key)
+            logger.info(f"Cleared requires_upgrade state for user: {user_id or temp_user_id}")
+
         report_url = None
         subscription_tier = UserTierEnum.PAID.value if plan == 'paid' else UserTierEnum.ONE_TIME.value
 
@@ -136,7 +142,7 @@ def confirm_subscription():
                 'timestamp': datetime.utcnow().isoformat(),
                 'symptom': report_data.get('symptom', 'Not specified')
             })
-            logger.info(f"Report data before PDF generation: {report_data}")  # Log full report_data
+            logger.info(f"Report data before PDF generation: {report_data}")
             report_url = generate_pdf_report(report_data)
             logger.info(f"Report generated: {report_url}")
 
