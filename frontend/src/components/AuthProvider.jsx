@@ -107,11 +107,17 @@ const AuthProvider = ({ children }) => {
         console.log('Checking authentication status');
         const accessToken = getLocalStorageItem('access_token');
         const userId = getLocalStorageItem('user_id');
+        const currentPath = window.location.pathname;
+
         if (!accessToken || !userId) {
-            console.log('No tokens found. Staying unauthenticated, but not redirecting.');
+            console.log('No tokens found. Redirecting to login if on a protected route.');
             setIsAuthenticated(false);
             setIsLoading(false);
-            return false; // Just return false without forcing a redirect or logout
+            // Redirect to login if on a protected route (e.g., /chat, /dashboard)
+            if (['/chat', '/dashboard', '/subscribe'].includes(currentPath)) {
+                navigate('/auth');
+            }
+            return false;
         }
 
         try {
@@ -119,15 +125,21 @@ const AuthProvider = ({ children }) => {
             console.log('checkAuth: Token validation result:', isValid);
             setIsAuthenticated(isValid);
             if (isValid) await fetchSubscriptionStatus();
+            else if (['/chat', '/dashboard', '/subscribe'].includes(currentPath)) {
+                navigate('/auth');
+            }
             return isValid;
         } catch (error) {
             console.error('Authentication check error:', error);
             setIsAuthenticated(false);
+            if (['/chat', '/dashboard', '/subscribe'].includes(currentPath)) {
+                navigate('/auth');
+            }
             return false;
         } finally {
             setIsLoading(false);
         }
-    }, 300), [fetchSubscriptionStatus]);
+    }, 300), [fetchSubscriptionStatus, navigate]);
 
     const login = useCallback(async (credentials, navigateTo = '/dashboard') => {
         setIsLoading(true);
