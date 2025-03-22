@@ -25,7 +25,7 @@ API_CONFIG = {
     "JWT_SECRET_KEY": os.getenv("JWT_SECRET_KEY"),
     "SQLALCHEMY_DATABASE_URI": os.getenv("DATABASE_URL").replace("postgresql://", "postgresql+psycopg://") + "?sslmode=require" if os.getenv("DATABASE_URL") else None,
     "SQLALCHEMY_TRACK_MODIFICATIONS": False,
-    "STATIC_FOLDER": os.path.join(os.path.dirname(__file__), "static"),  # Explicitly set to backend/static
+    "STATIC_FOLDER": os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend", "static"),  # Point to backend/static
     "REPORTS_DIR": os.getenv("RENDER_DISK_PATH", "static/reports"),
     "LOG_DIR": os.getenv("LOG_DIR", "logs"),
     "ENV": os.getenv("FLASK_ENV", "production")
