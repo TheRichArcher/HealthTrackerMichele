@@ -25,7 +25,7 @@ API_CONFIG = {
     "JWT_SECRET_KEY": os.getenv("JWT_SECRET_KEY"),
     "SQLALCHEMY_DATABASE_URI": os.getenv("DATABASE_URL").replace("postgresql://", "postgresql+psycopg://") + "?sslmode=require" if os.getenv("DATABASE_URL") else None,
     "SQLALCHEMY_TRACK_MODIFICATIONS": False,
-    "STATIC_FOLDER": os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend", "static"),  # Point to backend/static
+    "STATIC_FOLDER": os.path.abspath("backend/static/dist"),  # Set to match old working setup
     "REPORTS_DIR": os.getenv("RENDER_DISK_PATH", "static/reports"),
     "LOG_DIR": os.getenv("LOG_DIR", "logs"),
     "ENV": os.getenv("FLASK_ENV", "production")
@@ -170,18 +170,18 @@ def create_app():
     @app.route("/<path:path>")
     def serve_frontend(path):
         static_folder = app.static_folder
-        index_path = os.path.join(static_folder, "dist", "index.html")
+        index_path = os.path.join(static_folder, "index.html")  # Adjusted for new static_folder
         logger.info(f"Requested path: {path}")
         logger.info(f"Static folder: {static_folder}")
         logger.info(f"Index path: {index_path}")
         if not os.path.exists(index_path):
             logger.error(f"index.html not found at {index_path}")
             return jsonify({"error": "Frontend not found"}), 404
-        if path and os.path.exists(os.path.join(static_folder, "dist", path)):
+        if path and os.path.exists(os.path.join(static_folder, path)):
             logger.info(f"Serving asset: {path}")
-            return send_from_directory(os.path.join(static_folder, "dist"), path)
+            return send_from_directory(static_folder, path)
         logger.info("Serving index.html")
-        return send_from_directory(os.path.join(static_folder, "dist"), "index.html")
+        return send_from_directory(static_folder, "index.html")
 
     # Custom error handlers
     @app.errorhandler(404)
