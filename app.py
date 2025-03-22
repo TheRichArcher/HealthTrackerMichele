@@ -61,6 +61,13 @@ def setup_logging(app):
 def create_app():
     """Initialize Flask application with full production-grade features."""
     validate_env_vars()
+
+    # Ensure DATABASE_URL uses psycopg dialect
+    database_url = os.getenv("DATABASE_URL")
+    if database_url and "psycopg2" in database_url:
+        database_url = database_url.replace("psycopg2", "psycopg")
+    API_CONFIG["SQLALCHEMY_DATABASE_URI"] = database_url
+
     app = Flask(__name__, static_folder=API_CONFIG["STATIC_FOLDER"], static_url_path="/static")
     app.config.update(API_CONFIG)
 
