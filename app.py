@@ -25,7 +25,7 @@ API_CONFIG = {
     "JWT_SECRET_KEY": os.getenv("JWT_SECRET_KEY"),
     "SQLALCHEMY_DATABASE_URI": os.getenv("DATABASE_URL").replace("postgresql://", "postgresql+psycopg://") + "?sslmode=require" if os.getenv("DATABASE_URL") else None,
     "SQLALCHEMY_TRACK_MODIFICATIONS": False,
-    "STATIC_FOLDER": os.getenv("STATIC_FOLDER", "static"),
+    "STATIC_FOLDER": os.path.join(os.path.dirname(__file__), "static"),  # Explicitly set to backend/static
     "REPORTS_DIR": os.getenv("RENDER_DISK_PATH", "static/reports"),
     "LOG_DIR": os.getenv("LOG_DIR", "logs"),
     "ENV": os.getenv("FLASK_ENV", "production")
@@ -65,10 +65,11 @@ def create_app():
     app = Flask(__name__, static_folder=API_CONFIG["STATIC_FOLDER"], static_url_path="/static")
     app.config.update(API_CONFIG)
 
-    # Log the database URL for debugging
+    # Log the database URL and static folder for debugging
     logger = setup_logging(app)
     logger.info(f"Original DATABASE_URL: {os.getenv('DATABASE_URL')}")
     logger.info(f"Modified DATABASE_URL: {app.config['SQLALCHEMY_DATABASE_URI']}")
+    logger.info(f"Static folder set to: {app.static_folder}")
 
     # Initialize extensions
     db.init_app(app)
@@ -170,8 +171,16 @@ def create_app():
     def serve_frontend(path):
         static_folder = app.static_folder
         index_path = os.path.join(static_folder, "dist", "index.html")
+        logger.info(f"Requested path: {path}")
+        logger.info(f"Static folder: {static_folder}")
+        logger.info(f"Index path: {index_path}")
+        if not os.path.exists(index_path):
+            logger.error(f"index.html not found at {index_path}")
+            return jsonify({"error": "Frontend not found"}), 404
         if path and os.path.exists(os.path.join(static_folder, "dist", path)):
+            logger.info(f"Serving asset: {path}")
             return send_from_directory(os.path.join(static_folder, "dist"), path)
+        logger.info("Serving index.html")
         return send_from_directory(os.path.join(static_folder, "dist"), "index.html")
 
     # Custom error handlers
