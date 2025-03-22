@@ -1,19 +1,16 @@
-# Flask and related dependencies
 flask==2.3.3
 flask-cors==4.0.0
-flask-sqlalchemy==3.0.5
+flask-sqlalchemy==2.5.1  # Downgrade to work with SQLAlchemy 1.x
 flask-bcrypt==1.0.1
 flask-jwt-extended==4.5.3
 flask-migrate==4.0.5
 werkzeug==2.3.7
 gunicorn==21.2.0
 
-# Database and security
-sqlalchemy==2.0.20
+sqlalchemy==1.4.50  # Downgrade to 1.x
 bcrypt==4.0.1
-psycopg==3.2.2
+psycopg2-binary==2.9.9  # Use psycopg2 instead of psycopg
 
-# OpenAI and API utilities
 openai==1.42.0
 python-dotenv==1.0.0
 pydantic==2.5.0
@@ -21,19 +18,8 @@ requests==2.31.0
 httpx==0.27.0
 tenacity==8.2.3
 
-# PDF generation
 reportlab==4.2.2
 
-# Payment processing
 stripe==10.2.0
 
-# Logging and utilities
 python-dateutil==2.8.2
-
-# Notes:
-# - flask and related packages for the web framework and extensions (lowercase as per PyPI).
-# - sqlalchemy and psycopg for PostgreSQL database integration.
-# - openai, httpx, and tenacity for OpenAI API calls with retry logic.
-# - reportlab for PDF generation in backend/utils/pdf_generator.py.
-# - stripe for payment processing with Stripe.
-# - python-dateutil for handling dates in pdf_generator.py.

@@ -62,12 +62,6 @@ def create_app():
     """Initialize Flask application with full production-grade features."""
     validate_env_vars()
 
-    # Ensure DATABASE_URL uses psycopg dialect
-    database_url = os.getenv("DATABASE_URL")
-    if database_url and "psycopg2" in database_url:
-        database_url = database_url.replace("psycopg2", "psycopg")
-    API_CONFIG["SQLALCHEMY_DATABASE_URI"] = database_url
-
     app = Flask(__name__, static_folder=API_CONFIG["STATIC_FOLDER"], static_url_path="/static")
     app.config.update(API_CONFIG)
 
@@ -171,10 +165,10 @@ def create_app():
     @app.route("/<path:path>")
     def serve_frontend(path):
         static_folder = app.static_folder
-        index_path = os.path.join(static_folder, "index.html")
-        if path and os.path.exists(os.path.join(static_folder, path)):
-            return send_from_directory(static_folder, path)
-        return send_from_directory(static_folder, "index.html")
+        index_path = os.path.join(static_folder, "dist", "index.html")
+        if path and os.path.exists(os.path.join(static_folder, "dist", path)):
+            return send_from_directory(os.path.join(static_folder, "dist"), path)
+        return send_from_directory(os.path.join(static_folder, "dist"), "index.html")
 
     # Custom error handlers
     @app.errorhandler(404)
