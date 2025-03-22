@@ -1,7 +1,7 @@
-# backend/routes/onboarding_routes.py
 from flask import Blueprint, request, jsonify
+from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
 from backend.extensions import db
-from backend.models import SymptomLog
+from backend.models import SymptomLog, User, UserTierEnum
 from datetime import datetime
 import logging
 import re
@@ -64,13 +64,24 @@ def onboarding():
     try:
         data = request.get_json()
         if not data:
-            logger.error("No data provided in request")
             return jsonify({"error": "No data provided"}), 400
 
         user_id = data.get("user_id")
         if not user_id:
-            logger.error("User ID is missing from request data")
             return jsonify({"error": "User ID is required"}), 400
+
+        # Check authentication
+        authenticated = True
+        try:
+            verify_jwt_in_request()
+            if str(get_jwt_identity()) != str(user_id):
+                return jsonify({"error": "Unauthorized user ID."}), 403
+        except:
+            authenticated = False
+
+        user = User.query.get(user_id)
+        if not user and authenticated:
+            return jsonify({"error": "User not found"}), 404
 
         initial_symptom = data.get("initial_symptom", "").strip().lower()
         previous_answers = normalize_time_phrases(data.get("previous_answers", "").strip())
@@ -78,32 +89,38 @@ def onboarding():
         confidence_score = int(data.get("confidence_score", 0))
 
         if question_count >= MAX_QUESTIONS_PER_SESSION:
-            logger.info(f"User {user_id} reached max questions ({MAX_QUESTIONS_PER_SESSION})")
             return jsonify({"next_question": "Onboarding complete! Thank you."})
 
         if check_for_emergency(initial_symptom + " " + previous_answers, confidence_score):
-            logger.warning(f"Emergency detected for user {user_id}: {initial_symptom} - {previous_answers}")
             return jsonify({"next_question": "Your symptoms may indicate a serious issue. Seek immediate medical attention."})
 
         if confidence_score >= CONFIDENCE_THRESHOLD:
-            logger.info(f"Confidence threshold ({CONFIDENCE_THRESHOLD}) reached for user {user_id}")
             return jsonify({"next_question": "Onboarding complete! We've gathered enough information."})
 
-        try:
-            new_log = SymptomLog(
-                user_id=user_id,
-                symptom_name=initial_symptom,
-                notes=previous_answers,
-                timestamp=datetime.utcnow()
-            )
-            db.session.add(new_log)
-            db.session.commit()
-            logger.info(f"Symptom logged for user {user_id}: {initial_symptom}")
-
-        except Exception as db_error:
-            logger.error(f"Database error for user {user_id}: {str(db_error)}")
-            db.session.rollback()
-            return jsonify({"error": "Error saving symptom information"}), 500
+        # Only store for authenticated premium users
+        logged_symptom = None
+        if authenticated and user and user.subscription_tier == UserTierEnum.PAID:
+            try:
+                new_log = SymptomLog(
+                    user_id=user_id,
+                    symptom_name=initial_symptom,
+                    notes=previous_answers,
+                    timestamp=datetime.utcnow()
+                )
+                db.session.add(new_log)
+                db.session.commit()
+                logged_symptom = {
+                    "id": new_log.id,
+                    "symptom": new_log.symptom_name,
+                    "notes": new_log.notes,
+                    "timestamp": new_log.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                }
+            except Exception as db_error:
+                logger.error(f"Database error: {str(db_error)}")
+                db.session.rollback()
+                return jsonify({"error": "Error saving symptom information"}), 500
+        else:
+            logger.info(f"Onboarding data (unauthenticated/non-premium user {user_id}): {data}")
 
         system_instruction = (
             "You are a knowledgeable medical assistant guiding a patient through diagnostic questions. "
@@ -119,20 +136,14 @@ def onboarding():
         next_question = call_openai_api(prompt, max_tokens=MAX_TOKENS)
         next_question = ensure_single_question(next_question)
 
-        logger.info(f"Next question generated for user {user_id}: {next_question}")
         return jsonify({
             "next_question": next_question,
             "question_count": question_count + 1,
             "confidence_score": confidence_score,
-            "logged_symptom": {
-                "id": new_log.id,
-                "symptom": new_log.symptom_name,
-                "notes": new_log.notes,
-                "timestamp": new_log.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-            }
+            "logged_symptom": logged_symptom if logged_symptom else None
         })
 
     except Exception as e:
-        logger.error(f"Unexpected error during onboarding for user {user_id}: {str(e)}")
+        logger.error(f"Error during onboarding: {str(e)}")
         db.session.rollback()
         return jsonify({"error": "Unexpected error during onboarding."}), 500

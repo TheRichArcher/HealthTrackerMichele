@@ -30,7 +30,7 @@ class MockUser:
     subscription_tier = UserTierEnum.FREE.value
 
 def is_premium_user(user):
-    """Check if the user has a premium subscription tier or a valid temporary token."""
+    """Check if the user has a premium subscription tier (PAID or ONE_TIME)."""
     if hasattr(user, "subscription_tier"):
         return user.subscription_tier in [UserTierEnum.PAID.value, UserTierEnum.ONE_TIME.value]
     
@@ -38,7 +38,7 @@ def is_premium_user(user):
         verify_jwt_in_request(optional=True)
         user_id = get_jwt_identity()
         if user_id and isinstance(user_id, str) and user_id.startswith('temp_'):
-            return True
+            return True  # ONE_TIME users with temp tokens
     except Exception as e:
         logger.debug(f"Token verification failed in is_premium_user: {str(e)}")
     
@@ -257,7 +257,7 @@ def get_symptom_history(current_user=None):
 
 @symptom_routes.route("/doctor-report", methods=["POST"])
 def generate_doctor_report():
-    """Generate a doctor's report for premium users."""
+    """Generate a doctor's report for PAID or ONE_TIME users."""
     logger.info("Processing doctor's report request")
     auth_header = request.headers.get("Authorization")
     user_id = None
@@ -274,7 +274,7 @@ def generate_doctor_report():
             logger.warning(f"Invalid token: {str(e)}")
 
     if not is_premium_user(current_user):
-        return jsonify({"error": "Premium access required", "requires_upgrade": True}), 403
+        return jsonify({"error": "Premium access (Paid or One-Time) required", "requires_upgrade": True}), 403
 
     data = request.get_json() or {}
     symptom = data.get("symptom", "")
@@ -317,7 +317,8 @@ def generate_doctor_report():
         }
         report_url = generate_pdf_report(report_data)
 
-        if user_id and isinstance(user_id, int):
+        # Store in DB only for PAID users (consistent with subscription_routes.py)
+        if user_id and isinstance(user_id, int) and hasattr(current_user, "subscription_tier") and current_user.subscription_tier == UserTierEnum.PAID.value:
             notes = {
                 "response": result,
                 "condition_common": report_data["condition_common"],
@@ -342,9 +343,11 @@ def generate_doctor_report():
             )
             db.session.add(report)
             db.session.commit()
-            logger.info(f"Doctor's report saved for user {user_id}: {report.title}")
+            logger.info(f"Doctor's report saved for PAID user {user_id}: {report.title}")
+        else:
+            logger.info(f"Doctor's report generated for ONE_TIME or non-PAID user {user_id or report_data['user_id']}: {symptom}")
 
-        logger.info(f"Generated doctor's report for user {user_id}: {symptom}")
+        logger.info(f"Generated doctor's report for user {user_id or report_data['user_id']}: {symptom}")
         return jsonify({"doctors_report": doctor_report, "report_url": report_url, "success": True}), 200
     except Exception as e:
         db.session.rollback()
