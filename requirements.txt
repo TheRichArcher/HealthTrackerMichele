@@ -11,7 +11,7 @@ gunicorn==21.2.0
 # Database and security
 sqlalchemy==2.0.20
 bcrypt==4.0.1
-psycopg2-binary==2.9.6
+psycopg==3.2.2
 
 # OpenAI and API utilities
 openai==1.42.0
@@ -32,7 +32,7 @@ python-dateutil==2.8.2
 
 # Notes:
 # - flask and related packages for the web framework and extensions (lowercase as per PyPI).
-# - sqlalchemy and psycopg2-binary for PostgreSQL database integration.
+# - sqlalchemy and psycopg for PostgreSQL database integration.
 # - openai, httpx, and tenacity for OpenAI API calls with retry logic.
 # - reportlab for PDF generation in backend/utils/pdf_generator.py.
 # - stripe for payment processing with Stripe.
