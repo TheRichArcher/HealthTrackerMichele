@@ -9,7 +9,7 @@ from backend.routes.user_routes import user_routes
 from backend.routes.library_routes import library_routes
 from backend.routes.onboarding_routes import onboarding_routes
 from backend.models import RevokedToken
-from sqlalchemy import text  # Added import
+from sqlalchemy import text
 import os
 import logging
 from logging.handlers import RotatingFileHandler
@@ -71,7 +71,7 @@ def create_app():
     cors.init_app(
         app,
         resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}},
-        headers=app.config["CORS_HEADERS"],
+        allow_headers=app.config["CORS_HEADERS"],
         supports_credentials=app.config["CORS_SUPPORTS_CREDENTIALS"]
     )
     jwt = JWTManager(app)
@@ -82,7 +82,7 @@ def create_app():
     # Database connection check
     with app.app_context():
         try:
-            db.session.execute(text("SELECT 1"))  # Fixed: Added text()
+            db.session.execute(text("SELECT 1"))
             logger.info("Database connection established successfully.")
         except Exception as e:
             logger.critical(f"Database connection failed: {str(e)}", exc_info=True)
@@ -130,7 +130,7 @@ def create_app():
     @app.route("/health", methods=["GET"])
     def health_check():
         try:
-            db.session.execute(text("SELECT 1"))  # Fixed: Added text()
+            db.session.execute(text("SELECT 1"))
             return jsonify({"status": "healthy", "database": "connected"}), 200
         except Exception as e:
             logger.error(f"Health check failed: {str(e)}", exc_info=True)
@@ -186,9 +186,11 @@ def create_app():
 
     return app
 
+# Create the app at the module level for Gunicorn
+app = create_app()
+
 if __name__ == "__main__":
-    app = create_app()
     with app.app_context():
         db.create_all()  # Ensure tables are created
     port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=API_CONFIG["ENV"] != "production")
+    app.run(host="0.0.0.0", port=port, debug=True)
