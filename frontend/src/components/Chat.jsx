@@ -257,6 +257,10 @@ const Chat = () => {
       )
         .then(res => {
           console.log('Confirm response:', res.data);
+          if (res.data.access_token) {
+            localStorage.setItem('access_token', res.data.access_token);
+            checkAuth(); // Re-validate AuthProvider state
+          }
           if (res.data.success && res.data.report_url) {
             localStorage.setItem(CONFIG.REPORT_URL_KEY, res.data.report_url);
             setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${res.data.report_url})`, isAssessment: false }]);
@@ -281,7 +285,7 @@ const Chat = () => {
           }
         });
     }
-  }, [location.search, location.state]);
+  }, [location.search, location.state, checkAuth]);
 
   useEffect(() => {
     focusInput();
@@ -409,9 +413,18 @@ const Chat = () => {
         const { confidence, triage_level, care_recommendation, possible_conditions, assessment_id } = data.response;
         if (possible_conditions === "Login required for detailed assessment") {
           addBotMessage(possible_conditions, true);
+          const isMildCase = triage_level && triage_level.toLowerCase() === 'mild';
           if (!isAuthenticated) {
-            setTimeout(() => navigate('/auth'), CONFIG.SALES_PITCH_DELAY);
+            if (isMildCase) {
+              // For mild cases, show upgrade options with "Maybe Later" and do not redirect
+              setTimeout(() => addBotMessage("For deeper analysis, consider upgrading:", false), CONFIG.ASSESSMENT_DELAY);
+              setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, true), CONFIG.SALES_PITCH_DELAY);
+            } else {
+              // For moderate or severe cases, redirect to /auth
+              setTimeout(() => navigate('/auth'), CONFIG.SALES_PITCH_DELAY);
+            }
           } else {
+            // For authenticated users, show upgrade options
             setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, false), CONFIG.SALES_PITCH_DELAY);
           }
         } else {
