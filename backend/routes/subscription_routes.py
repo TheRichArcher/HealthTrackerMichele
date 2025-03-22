@@ -1,8 +1,8 @@
-from flask import Blueprint, jsonify, request, session  # Add session import
-from flask_jwt_extended import create_access_token, get_jwt_identity, jwt_required, verify_jwt_in_request, get_jwt
+from flask import Blueprint, jsonify, request, session
+from flask_jwt_extended import create_access_token, get_jwt_identity, jwt_required, verify_jwt_in_request
 from datetime import timedelta, datetime
 from backend.extensions import db
-from backend.models import User, Report, UserTierEnum, CareRecommendationEnum, RevokedToken
+from backend.models import User, Report, UserTierEnum, CareRecommendationEnum
 from backend.utils.pdf_generator import generate_pdf_report
 import stripe
 import logging
@@ -25,6 +25,7 @@ logger.info(f"PRICE_ONE_TIME_REPORT: {PRICE_ONE_TIME_REPORT}")
 
 @subscription_routes.route('/upgrade', methods=['POST'])
 def upgrade_subscription():
+    """Initiate a Stripe checkout session for subscription upgrade."""
     logger.info(f"Received request to /api/subscription/upgrade: {request.get_json()}")
     data = request.get_json()
     plan = data.get('plan')
@@ -67,16 +68,17 @@ def upgrade_subscription():
             }
         )
         logger.info(f"Stripe session created: {session.id}")
-        return jsonify({"checkout_url": session.url}), 200
+        return jsonify({"checkout_url": session.url, "session_id": session.id}), 200
     except stripe.error.StripeError as e:
-        logger.error(f"Stripe checkout error: {str(e)}")
+        logger.error(f"Stripe checkout error: {str(e)}", exc_info=True)
         return jsonify({"error": "Failed to create checkout session", "details": str(e)}), 500
     except Exception as e:
-        logger.error(f"Unexpected error in upgrade_subscription: {str(e)}")
+        logger.error(f"Unexpected error in upgrade_subscription: {str(e)}", exc_info=True)
         return jsonify({"error": "Internal server error", "details": str(e)}), 500
 
 @subscription_routes.route('/confirm', methods=['POST', 'GET'])
 def confirm_subscription():
+    """Confirm a Stripe subscription and handle one-time report generation."""
     logger.info("Received request to /api/subscription/confirm")
     try:
         auth_header = request.headers.get("Authorization", "")
@@ -122,7 +124,6 @@ def confirm_subscription():
         else:
             temp_user_id = metadata_user_id or f"temp_{os.urandom(8).hex()}"
 
-        # Clear the requires_upgrade state in the session
         session_key = f"requires_upgrade_{user_id or temp_user_id}"
         if session_key in session:
             session.pop(session_key)
@@ -135,27 +136,20 @@ def confirm_subscription():
             try:
                 report_data = json.loads(assessment_data) if assessment_data else {}
             except json.JSONDecodeError as e:
-                logger.error(f"Invalid assessment_data JSON: {str(e)}")
+                logger.error(f"Invalid assessment_data JSON: {str(e)}", exc_info=True)
                 report_data = {}
             report_data.update({
                 'user_id': user_id or temp_user_id,
-                'timestamp': datetime.utcnow().isoformat(),
-                'symptom': report_data.get('symptom', 'Not specified')
+                'timestamp': datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                'symptom': report_data.get('symptom', 'Not specified'),
+                'condition_common': report_data.get('possible_conditions', 'Unknown'),
+                'condition_medical': report_data.get('condition_medical', 'N/A'),
+                'confidence': report_data.get('confidence', 'N/A'),
+                'triage_level': report_data.get('triage_level', 'MODERATE')
             })
             logger.info(f"Report data before PDF generation: {report_data}")
             report_url = generate_pdf_report(report_data)
-            logger.info(f"Report generated: {report_url}")
-
-            report = Report(
-                user_id=user_id if not temp_user_id else None,
-                temp_user_id=temp_user_id,
-                assessment_id=assessment_id,
-                title=f"One-Time Report {datetime.utcnow().isoformat()}",
-                report_url=report_url,
-                status='COMPLETED'
-            )
-            db.session.add(report)
-            db.session.commit()
+            report_content = "One-Time Report\n" + "\n".join([f"{k}: {v}" for k, v in report_data.items()])
 
         elif plan == 'paid':
             if not user_id or not isinstance(user_id, int):
@@ -167,11 +161,18 @@ def confirm_subscription():
                 return jsonify({"error": "User not found"}), 404
             user.subscription_tier = UserTierEnum.PAID.value
             db.session.commit()
+            logger.info(f"Upgraded user {user_id} to paid subscription")
 
         response = {
             "message": "Subscription confirmed",
             "subscription_tier": subscription_tier,
-            "report_url": report_url
+            "report_url": report_url if plan == 'one_time' else None,
+            "report": {
+                "title": f"One-Time Report {datetime.utcnow().strftime('%Y-%m-%d')}",
+                "content": report_content,
+                "user_id": temp_user_id,
+                "payment_date": int(datetime.utcnow().timestamp())
+            } if plan == 'one_time' else None
         }
 
         if user_id and isinstance(user_id, int):
@@ -185,7 +186,7 @@ def confirm_subscription():
         return jsonify(response), 200
 
     except stripe.error.StripeError as e:
-        logger.error(f"Stripe error in confirm_subscription: {str(e)}")
+        logger.error(f"Stripe error in confirm_subscription: {str(e)}", exc_info=True)
         db.session.rollback()
         return jsonify({"error": "Stripe processing error"}), 500
     except Exception as e:
@@ -193,29 +194,63 @@ def confirm_subscription():
         db.session.rollback()
         return jsonify({"error": "Internal server error"}), 500
 
-@subscription_routes.route('/logout', methods=['POST'])
-@jwt_required()
-def logout():
-    user_id = get_jwt_identity()
-    if not user_id:
-        return jsonify({"error": "Authentication required"}), 401
+@subscription_routes.route('/one-time-report', methods=['GET'])
+def one_time_report():
+    """Retrieve a one-time report after payment."""
+    session_id = request.args.get('session_id')
+    if not session_id:
+        logger.warning("Missing session_id in /one-time-report")
+        return jsonify({"error": "Session ID required"}), 400
 
-    jwt = get_jwt()
-    jti = jwt['jti']
-    revoked_token = RevokedToken(jti=jti, revoked_at=datetime.utcnow())
-    db.session.add(revoked_token)
-    db.session.commit()
+    try:
+        session = stripe.checkout.Session.retrieve(session_id)
+        if session.payment_status != 'paid' or session.metadata.get('plan') != 'one_time':
+            logger.warning(f"Invalid session for one-time report: {session_id}")
+            return jsonify({"error": "Invalid or unpaid session"}), 400
 
-    response = jsonify({"message": "Logged out successfully"})
-    response.set_cookie("access_token", "", expires=0)
-    response.set_cookie("refresh_token", "", expires=0)
-    return response, 200
+        temp_user_id = session.metadata.get('user_id')
+        assessment_data = session.metadata.get('assessment_data', '{}')
+        report_data = json.loads(assessment_data)
+        report_data.update({
+            'user_id': temp_user_id,
+            'timestamp': datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+            'symptom': report_data.get('symptom', 'Not specified'),
+            'condition_common': report_data.get('possible_conditions', 'Unknown'),
+            'condition_medical': report_data.get('condition_medical', 'N/A'),
+            'confidence': report_data.get('confidence', 'N/A'),
+            'triage_level': report_data.get('triage_level', 'MODERATE')
+        })
+        report_content = "One-Time Report\n" + "\n".join([f"{k}: {v}" for k, v in report_data.items()])
+        report_url = generate_pdf_report(report_data)
+
+        logger.info(f"Retrieved one-time report for user {temp_user_id}")
+        return jsonify({
+            "title": f"One-Time Report {datetime.utcnow().strftime('%Y-%m-%d')}",
+            "content": report_content,
+            "user_id": temp_user_id,
+            "payment_date": int(datetime.utcnow().timestamp()),
+            "report_url": report_url
+        }), 200
+    except stripe.error.StripeError as e:
+        logger.error(f"Stripe error in one_time_report: {str(e)}", exc_info=True)
+        return jsonify({"error": "Stripe processing error"}), 500
+    except Exception as e:
+        logger.error(f"Error in one_time_report: {str(e)}", exc_info=True)
+        return jsonify({"error": "Failed to retrieve report"}), 500
 
 @subscription_routes.route('/status', methods=['GET'])
 @jwt_required()
 def get_subscription_status():
-    user_id = get_jwt_identity()
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({"error": "User not found"}), 404
-    return jsonify({"subscription_tier": user.subscription_tier.value}), 200
+    """Get the subscription status of the authenticated user."""
+    try:
+        user_id = get_jwt_identity()
+        if user_id and user_id.startswith('user_'):
+            user_id = int(user_id.replace('user_', ''))
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        logger.info(f"Retrieved subscription status for user {user_id}: {user.subscription_tier.value}")
+        return jsonify({"subscription_tier": user.subscription_tier.value}), 200
+    except Exception as e:
+        logger.error(f"Error retrieving subscription status for user {user_id}: {str(e)}", exc_info=True)
+        return jsonify({"error": "Error retrieving subscription status."}), 500

@@ -31,11 +31,9 @@ class MockUser:
 
 def is_premium_user(user):
     """Check if the user has a premium subscription tier or a valid temporary token."""
-    # Check subscription tier for authenticated users
     if hasattr(user, "subscription_tier"):
         return user.subscription_tier in [UserTierEnum.PAID.value, UserTierEnum.ONE_TIME.value]
     
-    # Check for temporary token for unauthenticated users
     try:
         verify_jwt_in_request(optional=True)
         user_id = get_jwt_identity()
@@ -80,14 +78,19 @@ def prepare_conversation_messages(symptom, conversation_history):
 @token_required
 def get_symptom_count(current_user=None):
     """Get the number of symptom logs for the current user."""
-    if not current_user:
-        return jsonify({"error": "Authentication required"}), 401
+    try:
+        if not current_user:
+            return jsonify({"error": "Authentication required"}), 401
 
-    user_id = current_user.get("user_id")
-    if user_id and user_id.startswith('user_'):
-        user_id = int(user_id.replace('user_', ''))  # Cast to integer
-    symptom_count = SymptomLog.query.filter_by(user_id=user_id).count()
-    return jsonify({"count": symptom_count}), 200
+        user_id = current_user.get("user_id")
+        if user_id and user_id.startswith('user_'):
+            user_id = int(user_id.replace('user_', ''))
+        symptom_count = SymptomLog.query.filter_by(user_id=user_id).count()
+        logger.info(f"Retrieved symptom count for user {user_id}: {symptom_count}")
+        return jsonify({"count": symptom_count}), 200
+    except Exception as e:
+        logger.error(f"Error retrieving symptom count for user {user_id}: {str(e)}", exc_info=True)
+        return jsonify({"error": "Error retrieving symptom count."}), 500
 
 @symptom_routes.route("/analyze", methods=["POST"])
 def analyze_symptoms():
@@ -102,15 +105,12 @@ def analyze_symptoms():
             verify_jwt_in_request(optional=True)
             user_id = get_jwt_identity()
             if user_id and user_id.startswith('user_'):
-                user_id = int(user_id.replace('user_', ''))  # Cast to integer if authenticated
+                user_id = int(user_id.replace('user_', ''))
             current_user = User.query.get(user_id) or MockUser()
         except Exception as e:
             logger.warning(f"Invalid token: {str(e)}")
 
-    # Use temp ID if no authenticated user
     user_id = user_id if user_id is not None else generate_temp_user_id(request)
-
-    # Check if the user must upgrade due to a previous serious assessment
     session_key = f"requires_upgrade_{user_id}"
     if session.get(session_key, False) and not is_premium_user(current_user):
         return jsonify({
@@ -130,14 +130,13 @@ def analyze_symptoms():
     messages = prepare_conversation_messages(symptom, conversation_history)
     try:
         raw_response = call_openai_api(messages, response_format={"type": "json_object"})
-        # raw_response is already a string (JSON content), so pass it directly
         result = openai_config.clean_ai_response(
             response_text=raw_response,
             user=current_user,
             conversation_history=conversation_history,
             symptom=symptom
         )
-        
+
         if result.get("is_assessment", False) and result.get("confidence", 0) < MIN_CONFIDENCE_THRESHOLD:
             result = {
                 "is_assessment": False,
@@ -150,7 +149,8 @@ def analyze_symptoms():
             }
 
         assessment_id = None
-        if result.get("is_assessment", False) and isinstance(user_id, int):  # Only save for authenticated users
+        is_subscriber = user_id and isinstance(user_id, int) and hasattr(current_user, "subscription_tier") and current_user.subscription_tier == UserTierEnum.PAID.value
+        if result.get("is_assessment", False) and is_subscriber:
             notes = {
                 "response": result,
                 "condition_common": result.get("possible_conditions", "").split("(")[0].strip() if "(" in result.get("possible_conditions", "") else result.get("possible_conditions", "Unknown"),
@@ -168,30 +168,28 @@ def analyze_symptoms():
             db.session.commit()
             assessment_id = symptom_log.id
             result["assessment_id"] = assessment_id
-
-        if not is_premium_user(current_user) and result.get("is_assessment", False):
-            triage_level = result.get("triage_level", "").upper()
-            if triage_level in ["MODERATE", "SEVERE"]:
-                result["requires_upgrade"] = True
-                session[session_key] = True  # Store the upgrade requirement in the session
+            logger.info(f"Saved symptom assessment for user {user_id}: {symptom}")
 
         response_data = {
             "is_assessment": result.get("is_assessment", False),
             "next_question": result.get("possible_conditions") if result.get("is_question", False) else None,
-            "possible_conditions": result.get("possible_conditions", ""),
-            "confidence": result.get("confidence", None),
-            "triage_level": result.get("triage_level", None),
-            "care_recommendation": result.get("care_recommendation", None),
-            "requires_upgrade": result.get("requires_upgrade", False),
+            "possible_conditions": result.get("possible_conditions", "") if is_subscriber else "Login required for detailed assessment",
+            "confidence": result.get("confidence", None) if is_subscriber else None,
+            "triage_level": result.get("triage_level", None) if is_subscriber else None,
+            "care_recommendation": result.get("care_recommendation", None) if is_subscriber else "Login for recommendations",
+            "requires_upgrade": result.get("requires_upgrade", False) or (result.get("is_assessment", False) and not is_subscriber),
             "assessment_id": assessment_id
         }
 
-        # Format a user-friendly message for the conversation history
-        history_message = response_data["next_question"]
-        if not history_message:  # If no next_question, format the assessment as a string
-            history_message = f"I've identified {response_data['possible_conditions']} as a possible condition.\nConfidence: {response_data['confidence']}%\nSeverity: {response_data['triage_level']}\nRecommendation: {response_data['care_recommendation']}"
+        history_message = response_data["next_question"] or (
+            f"I've identified {response_data['possible_conditions']} as a possible condition.\n"
+            f"Confidence: {response_data['confidence']}%\nSeverity: {response_data['triage_level']}\n"
+            f"Recommendation: {response_data['care_recommendation']}"
+            if is_subscriber else "Please log in for a detailed assessment."
+        )
 
         conversation_history.append({"message": history_message, "isBot": True})
+        logger.info(f"Symptom analysis completed for user {user_id}: {symptom}")
         return jsonify({"response": response_data, "isBot": True, "conversation_history": conversation_history}), 200
     except Exception as e:
         logger.error(f"Error in analyze_symptoms: {str(e)}", exc_info=True)
@@ -208,7 +206,7 @@ def reset_conversation():
             verify_jwt_in_request(optional=True)
             user_id = get_jwt_identity()
             if user_id and user_id.startswith('user_'):
-                user_id = int(user_id.replace('user_', ''))  # Cast to integer if authenticated
+                user_id = int(user_id.replace('user_', ''))
         except Exception as e:
             logger.warning(f"Invalid token: {str(e)}")
 
@@ -221,6 +219,7 @@ def reset_conversation():
         "isUpgradeOptions": False
     }
 
+    logger.info(f"Conversation reset for user {user_id}")
     return jsonify({
         "message": "Conversation reset successfully",
         "response": welcome_message["text"],
@@ -231,25 +230,30 @@ def reset_conversation():
 @symptom_routes.route("/history", methods=["GET"])
 @token_required
 def get_symptom_history(current_user=None):
-    """Retrieve symptom history for the authenticated user."""
-    if not current_user:
-        return jsonify({"error": "Authentication required"}), 401
+    """Retrieve symptom history for the authenticated user (subscribers only)."""
+    try:
+        if not current_user:
+            return jsonify({"error": "Authentication required"}), 401
 
-    user_id = current_user.get("user_id")
-    if user_id and user_id.startswith('user_'):
-        user_id = int(user_id.replace('user_', ''))  # Cast to integer
-    user = User.query.get(user_id)
-    if not user or user.subscription_tier != UserTierEnum.PAID.value:
-        return jsonify({"error": "Premium subscription required", "requires_upgrade": True}), 403
+        user_id = current_user.get("user_id")
+        if user_id and user_id.startswith('user_'):
+            user_id = int(user_id.replace('user_', ''))
+        user = User.query.get(user_id)
+        if not user or user.subscription_tier != UserTierEnum.PAID.value:
+            return jsonify({"error": "Premium subscription required", "requires_upgrade": True}), 403
 
-    symptoms = SymptomLog.query.filter_by(user_id=user_id).order_by(SymptomLog.timestamp.desc()).all()
-    history = [{
-        "id": s.id,
-        "symptom": s.symptom_name,
-        "notes": json.loads(s.notes) if s.notes and s.notes.startswith('{') else s.notes,
-        "timestamp": s.timestamp.isoformat()
-    } for s in symptoms]
-    return jsonify({"history": history}), 200
+        symptoms = SymptomLog.query.filter_by(user_id=user_id).order_by(SymptomLog.timestamp.desc()).all()
+        history = [{
+            "id": s.id,
+            "symptom": s.symptom_name,
+            "notes": json.loads(s.notes) if s.notes and s.notes.startswith('{') else s.notes,
+            "timestamp": s.timestamp.isoformat()
+        } for s in symptoms]
+        logger.info(f"Retrieved symptom history for user {user_id}: {len(history)} entries")
+        return jsonify({"history": history}), 200
+    except Exception as e:
+        logger.error(f"Error retrieving symptom history for user {user_id}: {str(e)}", exc_info=True)
+        return jsonify({"error": "Error retrieving symptom history."}), 500
 
 @symptom_routes.route("/doctor-report", methods=["POST"])
 def generate_doctor_report():
@@ -264,7 +268,7 @@ def generate_doctor_report():
             verify_jwt_in_request(optional=True)
             user_id = get_jwt_identity()
             if user_id and user_id.startswith('user_'):
-                user_id = int(user_id.replace('user_', ''))  # Cast to integer if authenticated
+                user_id = int(user_id.replace('user_', ''))
             current_user = User.query.get(user_id) or MockUser()
         except Exception as e:
             logger.warning(f"Invalid token: {str(e)}")
@@ -284,7 +288,6 @@ def generate_doctor_report():
     
     try:
         raw_response = call_openai_api(messages, response_format={"type": "json_object"})
-        # raw_response is already a string (JSON content), so pass it directly
         result = openai_config.clean_ai_response(
             response_text=raw_response,
             user=current_user,
@@ -300,30 +303,28 @@ def generate_doctor_report():
         CARE RECOMMENDATION: {result.get("care_recommendation", "Consult a healthcare provider")}
         NOTES: For a definitive diagnosis, consult a healthcare provider.
         """
-        # Validate report_data to prevent malformed inputs
         confidence = result.get("confidence", 0)
         if isinstance(confidence, str):
             confidence = float(confidence.rstrip('%')) if '%' in confidence else float(confidence)
         report_data = {
             "user_id": user_id if user_id is not None else generate_temp_user_id(request),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
             "symptom": symptom,
             "condition_common": result.get("possible_conditions", "Unknown").split("(")[0].strip() if "(" in result.get("possible_conditions", "") else result.get("possible_conditions", "Unknown"),
             "condition_medical": result.get("possible_conditions", "").split("(")[1].split(")")[0].strip() if "(" in result.get("possible_conditions", "") and ")" in result.get("possible_conditions", "") else "N/A",
             "confidence": confidence,
-            "triage_level": result.get("triage_level", "MODERATE"),
-            "care_recommendation": result.get("care_recommendation", "Consult a healthcare provider")
+            "triage_level": result.get("triage_level", "MODERATE")
         }
         report_url = generate_pdf_report(report_data)
 
-        if user_id and isinstance(user_id, int):  # Only save for authenticated users
+        if user_id and isinstance(user_id, int):
             notes = {
                 "response": result,
                 "condition_common": report_data["condition_common"],
                 "condition_medical": report_data["condition_medical"],
                 "confidence": report_data["confidence"],
                 "triage_level": report_data["triage_level"],
-                "care_recommendation": report_data["care_recommendation"]
+                "care_recommendation": result.get("care_recommendation", "Consult a healthcare provider")
             }
             symptom_log = SymptomLog(
                 user_id=user_id,
@@ -341,60 +342,68 @@ def generate_doctor_report():
             )
             db.session.add(report)
             db.session.commit()
+            logger.info(f"Doctor's report saved for user {user_id}: {report.title}")
 
+        logger.info(f"Generated doctor's report for user {user_id}: {symptom}")
         return jsonify({"doctors_report": doctor_report, "report_url": report_url, "success": True}), 200
     except Exception as e:
-        logger.error(f"Error generating report: {str(e)}", exc_info=True)
+        db.session.rollback()
+        logger.error(f"Error generating doctor's report: {str(e)}", exc_info=True)
         return jsonify({"error": "Failed to generate report", "success": False}), 500
 
 @symptom_routes.route("/<int:symptom_id>", methods=["GET"])
 @token_required
 def get_symptom_log(symptom_id, current_user=None):
     """Retrieve a specific symptom log by ID."""
-    if not current_user:
-        return jsonify({"error": "Authentication required"}), 401
+    try:
+        if not current_user:
+            return jsonify({"error": "Authentication required"}), 401
 
-    user_id = current_user.get("user_id")
-    if user_id and user_id.startswith('user_'):
-        user_id = int(user_id.replace('user_', ''))  # Cast to integer
-    symptom_log = SymptomLog.query.filter_by(id=symptom_id, user_id=user_id).first()
-    if not symptom_log:
-        return jsonify({"error": "Symptom log not found or unauthorized"}), 404
+        user_id = current_user.get("user_id")
+        if user_id and user_id.startswith('user_'):
+            user_id = int(user_id.replace('user_', ''))
+        symptom_log = SymptomLog.query.filter_by(id=symptom_id, user_id=user_id).first()
+        if not symptom_log:
+            return jsonify({"error": "Symptom log not found or unauthorized"}), 404
 
-    return jsonify({
-        "id": symptom_log.id,
-        "symptom": symptom_log.symptom_name,
-        "notes": json.loads(symptom_log.notes) if symptom_log.notes and symptom_log.notes.startswith('{') else symptom_log.notes,
-        "timestamp": symptom_log.timestamp.isoformat()
-    }), 200
+        logger.info(f"Retrieved symptom log {symptom_id} for user {user_id}")
+        return jsonify({
+            "id": symptom_log.id,
+            "symptom": symptom_log.symptom_name,
+            "notes": json.loads(symptom_log.notes) if symptom_log.notes and symptom_log.notes.startswith('{') else symptom_log.notes,
+            "timestamp": symptom_log.timestamp.isoformat()
+        }), 200
+    except Exception as e:
+        logger.error(f"Error retrieving symptom log {symptom_id}: {str(e)}", exc_info=True)
+        return jsonify({"error": "Error retrieving symptom log."}), 500
 
 @symptom_routes.route("/", methods=["POST"])
 @token_required
 def log_symptom(current_user=None):
     """Log a new symptom for the authenticated user."""
-    if not current_user:
-        return jsonify({"error": "Authentication required"}), 401
-
-    user_id = current_user.get("user_id")
-    if user_id and user_id.startswith('user_'):
-        user_id = int(user_id.replace('user_', ''))  # Cast to integer
-
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({"error": "User not found"}), 404
-
-    data = request.get_json() or {}
-    symptom = data.get("symptom", "").strip()
-    notes = data.get("notes", "").strip()
-    intensity = data.get("intensity")
-    respiratory_rate = data.get("respiratory_rate")
-    oxygen_saturation = data.get("oxygen_saturation")
-    waist_circumference = data.get("waist_circumference")
-
-    if not symptom:
-        return jsonify({"error": "Symptom is required"}), 400
-
     try:
+        if not current_user:
+            return jsonify({"error": "Authentication required"}), 401
+
+        user_id = current_user.get("user_id")
+        if user_id and user_id.startswith('user_'):
+            user_id = int(user_id.replace('user_', ''))
+
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        data = request.get_json() or {}
+        symptom = data.get("symptom", "").strip()
+        notes = data.get("notes", "").strip()
+        intensity = data.get("intensity")
+        respiratory_rate = data.get("respiratory_rate")
+        oxygen_saturation = data.get("oxygen_saturation")
+        waist_circumference = data.get("waist_circumference")
+
+        if not symptom:
+            return jsonify({"error": "Symptom is required"}), 400
+
         symptom_log = SymptomLog(
             user_id=user_id,
             symptom_name=symptom,
@@ -407,6 +416,7 @@ def log_symptom(current_user=None):
         db.session.add(symptom_log)
         db.session.commit()
 
+        logger.info(f"Symptom logged for user {user_id}: {symptom}")
         return jsonify({
             "message": "Symptom logged successfully",
             "symptom_log": {
@@ -421,29 +431,30 @@ def log_symptom(current_user=None):
             }
         }), 201
     except Exception as e:
-        logger.error(f"Error logging symptom: {str(e)}", exc_info=True)
         db.session.rollback()
+        logger.error(f"Error logging symptom: {str(e)}", exc_info=True)
         return jsonify({"error": "Failed to log symptom"}), 500
 
 @symptom_routes.route("/delete/<int:symptom_id>", methods=["DELETE"])
 @token_required
 def delete_symptom_log(symptom_id, current_user=None):
     """Delete a specific symptom log by ID."""
-    if not current_user:
-        return jsonify({"error": "Authentication required"}), 401
-
-    user_id = current_user.get("user_id")
-    if user_id and user_id.startswith('user_'):
-        user_id = int(user_id.replace('user_', ''))  # Cast to integer
-    symptom_log = SymptomLog.query.filter_by(id=symptom_id, user_id=user_id).first()
-    if not symptom_log:
-        return jsonify({"error": "Symptom log not found or unauthorized"}), 404
-
     try:
+        if not current_user:
+            return jsonify({"error": "Authentication required"}), 401
+
+        user_id = current_user.get("user_id")
+        if user_id and user_id.startswith('user_'):
+            user_id = int(user_id.replace('user_', ''))
+        symptom_log = SymptomLog.query.filter_by(id=symptom_id, user_id=user_id).first()
+        if not symptom_log:
+            return jsonify({"error": "Symptom log not found or unauthorized"}), 404
+
         db.session.delete(symptom_log)
         db.session.commit()
+        logger.info(f"Symptom log {symptom_id} deleted by user {user_id}")
         return jsonify({"message": "Symptom log deleted successfully", "deleted_id": symptom_id}), 200
     except Exception as e:
-        logger.error(f"Error deleting symptom log: {str(e)}", exc_info=True)
         db.session.rollback()
+        logger.error(f"Error deleting symptom log {symptom_id}: {str(e)}", exc_info=True)
         return jsonify({"error": "Failed to delete symptom log"}), 500

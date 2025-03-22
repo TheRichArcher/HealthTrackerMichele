@@ -1,7 +1,5 @@
-# backend/requirements.txt
-
 # Flask and related dependencies
-Flask==2.3.3
+flask==2.3.3
 flask-cors==4.0.0
 flask-sqlalchemy==3.0.5
 flask-bcrypt==1.0.1
@@ -13,7 +11,7 @@ gunicorn==21.2.0
 # Database and security
 sqlalchemy==2.0.20
 bcrypt==4.0.1
-psycopg[binary]==3.2.6
+psycopg2-binary==2.9.6
 
 # OpenAI and API utilities
 openai==1.42.0
@@ -29,5 +27,13 @@ reportlab==4.2.2
 # Payment processing
 stripe==10.2.0
 
+# Logging and utilities
+python-dateutil==2.8.2
+
 # Notes:
-# - reportlab added for PDF generation in backend/utils/pdf_generator.py.
+# - flask and related packages for the web framework and extensions (lowercase as per PyPI).
+# - sqlalchemy and psycopg2-binary for PostgreSQL database integration.
+# - openai, httpx, and tenacity for OpenAI API calls with retry logic.
+# - reportlab for PDF generation in backend/utils/pdf_generator.py.
+# - stripe for payment processing with Stripe.
+# - python-dateutil for handling dates in pdf_generator.py.

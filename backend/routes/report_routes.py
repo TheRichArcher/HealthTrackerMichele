@@ -1,112 +1,147 @@
 from flask import Blueprint, request, jsonify
-from backend.models import Report, User
+from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
+from backend.models import Report, User, CareRecommendationEnum, UserTierEnum
 from backend.extensions import db
+from backend.utils.openai_utils import call_openai_api
+from backend.utils.pdf_generator import generate_pdf_report
 from datetime import datetime
 import logging
 
-# Logger setup
 logger = logging.getLogger("report_routes")
+report_routes = Blueprint("report_routes", __name__, url_prefix="/api/reports")
 
-# Create Flask Blueprint
-report_routes = Blueprint("report_routes", __name__)
-
-# Route to generate a report
 @report_routes.route("/", methods=["POST"])
 def generate_report():
-    """Generates a new medical report for a user and logs it in the database."""
+    """Generate a medical report based on symptoms and timeline."""
     try:
         data = request.get_json()
         user_id = data.get("user_id")
+        temp_user_id = data.get("temp_user_id")
         symptoms = data.get("symptoms", [])
         timeline = data.get("timeline", "")
+        generate_pdf = data.get("generate_pdf", False)
 
-        logger.info(f"Generating report for user {user_id}")
+        if not (user_id or temp_user_id):
+            return jsonify({"error": "user_id or temp_user_id is required."}), 400
 
-        user = User.query.get(user_id)
-        if not user:
-            logger.warning(f"User {user_id} not found.")
-            return jsonify({"error": "User not found."}), 404
+        user = None
+        if user_id:
+            user = User.query.get(user_id)
+            if not user:
+                return jsonify({"error": "User not found."}), 404
 
-        new_report = Report(
-            user_id=user_id,
-            symptoms=", ".join(symptoms),
-            timeline=timeline,
-            created_at=datetime.utcnow()
-        )
+        symptom_text = ", ".join(symptoms) if symptoms else "Not specified"
+        prompt = [
+            {"role": "system", "content": "You are a medical assistant. Generate a concise medical report based on the user's symptoms and timeline. Respond as plain text with sections: Summary, Possible Conditions, Recommendations."},
+            {"role": "user", "content": f"Symptoms: {symptom_text}\nTimeline: {timeline}"}
+        ]
+        content = call_openai_api(prompt, max_tokens=500)
 
-        db.session.add(new_report)
-        db.session.commit()
+        # Parse the content to extract possible conditions for the PDF
+        possible_conditions = "Unknown"
+        for line in content.split("\n"):
+            if "Possible Conditions:" in line:
+                possible_conditions = line.split(":", 1)[1].strip()
+                break
 
-        logger.info(f"Report generated successfully for user {user_id} (Report ID: {new_report.id})")
+        report_data = {
+            "id": None,
+            "user_id": user_id,
+            "temp_user_id": temp_user_id,
+            "title": f"Report - {datetime.utcnow().strftime('%Y-%m-%d')}",
+            "content": content,
+            "status": "COMPLETED",
+            "care_recommendation": CareRecommendationEnum.SEE_DOCTOR.value,
+            "created_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        report_url = None
+        if generate_pdf:
+            pdf_data = {
+                "user_id": user_id or temp_user_id,
+                "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                "symptom": symptom_text,
+                "condition_common": possible_conditions,
+                "condition_medical": "N/A",  # Could be enhanced with OpenAI if needed
+                "confidence": "N/A",  # Could be added if OpenAI provides confidence
+                "triage_level": "MODERATE"
+            }
+            report_url = generate_pdf_report(pdf_data)
+
+        if user_id and user and user.subscription_tier == UserTierEnum.PAID.value:
+            new_report = Report(
+                user_id=user_id,
+                temp_user_id=temp_user_id,
+                title=report_data["title"],
+                content=content,
+                status="COMPLETED",
+                care_recommendation=CareRecommendationEnum.SEE_DOCTOR,
+                report_url=report_url,
+                created_at=datetime.utcnow()
+            )
+            db.session.add(new_report)
+            db.session.commit()
+            report_data["id"] = new_report.id
+            report_data["report_url"] = new_report.report_url
+            logger.info(f"Report saved for user {user_id}: {report_data['title']}")
+        else:
+            logger.info(f"Report generated but not saved (non-subscriber): user_id={user_id}, temp_user_id={temp_user_id}")
 
         return jsonify({
             "message": "Report generated successfully.",
-            "report": {
-                "id": new_report.id,
-                "user_id": new_report.user_id,
-                "symptoms": new_report.symptoms,
-                "timeline": new_report.timeline,
-                "created_at": new_report.created_at.strftime("%Y-%m-%d %H:%M:%S")
-            }
+            "report": report_data,
+            "report_url": report_url if generate_pdf else None
         }), 201
-
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Failed to generate report for user {user_id}. Full error: {str(e)}", exc_info=True)
-        return jsonify({"error": f"Error generating report: {str(e)}"}), 500
+        logger.error(f"Failed to generate report: {str(e)}", exc_info=True)
+        return jsonify({"error": "Error generating report."}), 500
 
-# Route to retrieve reports for a user
 @report_routes.route("/<int:user_id>", methods=["GET"])
 def get_reports(user_id):
-    """Fetches all reports for a specific user."""
+    """Retrieve all reports for a specific user."""
     try:
-        logger.info(f"Fetching reports for user {user_id}")
+        verify_jwt_in_request()
+        authenticated_user_id = get_jwt_identity()
 
         user = User.query.get(user_id)
         if not user:
-            logger.warning(f"User {user_id} not found.")
             return jsonify({"error": "User not found."}), 404
+
+        if str(user_id) != authenticated_user_id:
+            logger.warning(f"Unauthorized access attempt by user {authenticated_user_id} for user {user_id}")
+            return jsonify({"error": "Unauthorized access."}), 403
 
         reports = Report.query.filter_by(user_id=user_id).all()
         if not reports:
-            logger.info(f"No reports found for user {user_id}.")
-            return jsonify({"message": "No reports found for this user."}), 404
+            return jsonify({"message": "No reports found for this user."}), 200
 
-        logger.info(f"Reports retrieved successfully for user {user_id} (Total: {len(reports)})")
-
-        return jsonify({"reports": [
-            {
-                "id": report.id,
-                "user_id": report.user_id,
-                "symptoms": report.symptoms,
-                "timeline": report.timeline,
-                "created_at": report.created_at.strftime("%Y-%m-%d %H:%M:%S")
-            } for report in reports
-        ]})
-
+        logger.info(f"Retrieved {len(reports)} reports for user {user_id}")
+        return jsonify({"reports": [report.to_dict() for report in reports]}), 200
     except Exception as e:
-        logger.error(f"Error fetching reports for user {user_id}. Full error: {str(e)}", exc_info=True)
-        return jsonify({"error": f"Error fetching reports: {str(e)}"}), 500
+        logger.error(f"Error fetching reports for user {user_id}: {str(e)}", exc_info=True)
+        return jsonify({"error": "Error fetching reports."}), 500
 
-# Route to delete a report
 @report_routes.route("/<int:report_id>", methods=["DELETE"])
 def delete_report(report_id):
-    """Deletes a specific report entry by ID."""
+    """Delete a specific report."""
     try:
-        logger.info(f"Deleting report ID {report_id}")
+        verify_jwt_in_request()
+        authenticated_user_id = get_jwt_identity()
 
         report = Report.query.get(report_id)
         if not report:
-            logger.warning(f"Report {report_id} not found.")
             return jsonify({"error": "Report not found."}), 404
+
+        if report.user_id and str(report.user_id) != authenticated_user_id:
+            logger.warning(f"Unauthorized access attempt by user {authenticated_user_id} for report {report_id}")
+            return jsonify({"error": "Unauthorized access."}), 403
 
         db.session.delete(report)
         db.session.commit()
-
-        logger.info(f"Report {report_id} deleted successfully.")
-        return jsonify({"message": "Report deleted successfully.", "deleted_id": report_id})
-
+        logger.info(f"Report {report_id} deleted by user {authenticated_user_id}")
+        return jsonify({"message": "Report deleted successfully.", "deleted_id": report_id}), 200
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Failed to delete report {report_id}. Full error: {str(e)}", exc_info=True)
-        return jsonify({"error": f"Error deleting report: {str(e)}"}), 500
+        logger.error(f"Failed to delete report {report_id}: {str(e)}", exc_info=True)
+        return jsonify({"error": "Error deleting report."}), 500

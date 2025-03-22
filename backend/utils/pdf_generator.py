@@ -7,7 +7,8 @@ import uuid
 import re
 import json
 import logging
-
+import time
+from datetime import datetime
 from backend.utils.openai_utils import call_openai_api
 
 logger = logging.getLogger(__name__)
@@ -15,9 +16,23 @@ logger = logging.getLogger(__name__)
 def generate_pdf_report(report_data):
     """Generate a PDF report with OpenAI-enhanced content and return its accessible URL."""
     
-    filename = f"report_{uuid.uuid4()}.pdf"
-    reports_dir = "/opt/render/project/src/backend/static/reports"
+    # Use the Render mount path if available, otherwise use a local 'static/reports' directory
+    reports_dir = os.getenv('RENDER_DISK_PATH', 'static/reports')
     os.makedirs(reports_dir, exist_ok=True)
+
+    # Clean up old reports (older than 7 days)
+    for filename in os.listdir(reports_dir):
+        file_path = os.path.join(reports_dir, filename)
+        if os.path.isfile(file_path):
+            file_age = time.time() - os.path.getmtime(file_path)
+            if file_age > 7 * 24 * 60 * 60:  # 7 days in seconds
+                try:
+                    os.remove(file_path)
+                    logger.info(f"Deleted old report: {file_path}")
+                except Exception as e:
+                    logger.error(f"Failed to delete old report {file_path}: {str(e)}", exc_info=True)
+
+    filename = f"report_{uuid.uuid4()}.pdf"
     filepath = os.path.join(reports_dir, filename)
     
     symptoms = str(report_data.get('symptom', 'Not specified'))
@@ -48,8 +63,12 @@ def generate_pdf_report(report_data):
         "Respond in plain text, with each section clearly labeled (e.g., '### User-Friendly Summary...', '### Detailed Clinical Report...', etc.). Replace 'GPT-40' with 'GPT-4o' in any output."
     )
     
-    response = call_openai_api([{"role": "user", "content": prompt}], response_format={"type": "text"})
-    logger.info(f"OpenAI response: {response[:200]}...")
+    try:
+        response = call_openai_api([{"role": "user", "content": prompt}], response_format={"type": "text"})
+        logger.info(f"OpenAI response: {response[:200]}...")
+    except Exception as e:
+        logger.error(f"Failed to call OpenAI API: {str(e)}", exc_info=True)
+        raise
     
     sections = re.split(r"###\s+", response.strip())
     section_dict = {}
@@ -58,13 +77,14 @@ def generate_pdf_report(report_data):
             header, *body = section.split("\n", 1)
             section_dict[header.strip()] = "\n".join(body) if body else ""
     
-    summary = section_dict.get("User-Friendly Summary", "")
-    clinical_report = section_dict.get("Detailed Clinical Report", "")
-    doctor_comm = section_dict.get("Doctor Communication Guide", "")
-    pubmed_links = section_dict.get("PubMed Research Links", "")
-    action_plan = section_dict.get("Immediate Action Plan", "")
-    visual_desc = section_dict.get("Visual Aids Description", "")
-    doctor_email = section_dict.get("Doctor Contact Template", "")
+    # Provide default values for missing sections
+    summary = section_dict.get("User-Friendly Summary", "No summary available. Please consult a healthcare provider for more information.")
+    clinical_report = section_dict.get("Detailed Clinical Report", "No clinical report available. Please consult a healthcare provider for a detailed assessment.")
+    doctor_comm = section_dict.get("Doctor Communication Guide", "No communication guide available. Consider discussing your symptoms directly with your doctor.")
+    pubmed_links = section_dict.get("PubMed Research Links", "No research links available. Please consult PubMed or a medical professional for more information.")
+    action_plan = section_dict.get("Immediate Action Plan", "No action plan available. Please consult a healthcare provider for guidance.")
+    visual_desc = section_dict.get("Visual Aids Description", "No visual aids description available.")
+    doctor_email = section_dict.get("Doctor Contact Template", "No email template available. Please draft an email summarizing your symptoms for your doctor.")
     
     diff_table_raw = ""
     clinical_lines = clinical_report.split("\n")
@@ -92,7 +112,7 @@ def generate_pdf_report(report_data):
     c.setFont("Helvetica", 10)
     
     # Header with Logo
-    logo_path = "/opt/render/project/src/backend/static/dist/doctor-avatar.png"
+    logo_path = os.path.join(os.getenv("STATIC_FOLDER", "static"), "dist", "doctor-avatar.png")
     if os.path.exists(logo_path):
         c.drawImage(logo_path, 50, 710, width=40, height=40)
     c.setFont("Helvetica-Bold", 16)
@@ -257,7 +277,7 @@ def generate_pdf_report(report_data):
     # Footer
     c.setFont("Helvetica", 8)
     y = draw_wrapped_text("Powered by HealthTracker AI (GPT-4o powered). Questions? Visit healthtrackermichele.com/support.", 100, y, 450, 12)
-    c.drawString(100, y - 10, "Report generated with data current as of March 18, 2025.")
+    c.drawString(100, y - 10, f"Report generated with data current as of {datetime.now().strftime('%B %d, %Y')}.")
     
     c.save()
     file_url = f"https://healthtrackermichele.onrender.com/static/reports/{filename}"
