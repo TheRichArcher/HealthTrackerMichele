@@ -1,15 +1,15 @@
 flask==2.3.3
 flask-cors==4.0.0
-flask-sqlalchemy==2.5.1  # Downgrade to work with SQLAlchemy 1.x
+flask-sqlalchemy==3.0.5
 flask-bcrypt==1.0.1
 flask-jwt-extended==4.5.3
 flask-migrate==4.0.5
 werkzeug==2.3.7
 gunicorn==21.2.0
 
-sqlalchemy==1.4.50  # Downgrade to 1.x
+sqlalchemy==2.0.20
 bcrypt==4.0.1
-psycopg2-binary==2.9.9  # Use psycopg2 instead of psycopg
+psycopg[binary]==3.2.6  # Specifies psycopg with binary support
 
 openai==1.42.0
 python-dotenv==1.0.0
@@ -21,5 +21,3 @@ tenacity==8.2.3
 reportlab==4.2.2
 
 stripe==10.2.0
-
-python-dateutil==2.8.2

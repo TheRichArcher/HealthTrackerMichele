@@ -23,7 +23,7 @@ API_CONFIG = {
     "CORS_HEADERS": ["Content-Type", "Authorization"],
     "CORS_SUPPORTS_CREDENTIALS": True,
     "JWT_SECRET_KEY": os.getenv("JWT_SECRET_KEY"),
-    "SQLALCHEMY_DATABASE_URI": os.getenv("DATABASE_URL"),
+    "SQLALCHEMY_DATABASE_URI": os.getenv("DATABASE_URL").replace("postgresql://", "postgresql+psycopg://") + "?sslmode=require" if os.getenv("DATABASE_URL") else None,
     "SQLALCHEMY_TRACK_MODIFICATIONS": False,
     "STATIC_FOLDER": os.getenv("STATIC_FOLDER", "static"),
     "REPORTS_DIR": os.getenv("RENDER_DISK_PATH", "static/reports"),
@@ -65,6 +65,11 @@ def create_app():
     app = Flask(__name__, static_folder=API_CONFIG["STATIC_FOLDER"], static_url_path="/static")
     app.config.update(API_CONFIG)
 
+    # Log the database URL for debugging
+    logger = setup_logging(app)
+    logger.info(f"Original DATABASE_URL: {os.getenv('DATABASE_URL')}")
+    logger.info(f"Modified DATABASE_URL: {app.config['SQLALCHEMY_DATABASE_URI']}")
+
     # Initialize extensions
     db.init_app(app)
     bcrypt.init_app(app)
@@ -77,14 +82,13 @@ def create_app():
     )
     jwt = JWTManager(app)
 
-    logger = setup_logging(app)
     logger.info("Starting HealthTracker Michele application...")
 
     # Database connection check
     with app.app_context():
         try:
             db.session.execute(text("SELECT 1"))
-            logger.info("Database connection established successfully.")
+            logger.info("✅ Database connection successful!")
         except Exception as e:
             logger.critical(f"Database connection failed: {str(e)}", exc_info=True)
             sys.exit(1)
