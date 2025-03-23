@@ -10,6 +10,23 @@ import logging
 logger = logging.getLogger("report_routes")
 report_routes = Blueprint("report_routes", __name__, url_prefix="/api/reports")
 
+def determine_triage_level(symptoms, timeline):
+    """Determine the triage level using OpenAI based on symptoms and timeline."""
+    symptom_text = ", ".join(symptoms) if symptoms else "Not specified"
+    prompt = [
+        {"role": "system", "content": "You are a medical assistant. Based on the symptoms and timeline, determine the triage level (AT_HOME, MODERATE, SEVERE). Respond with only the triage level in uppercase."},
+        {"role": "user", "content": f"Symptoms: {symptom_text}\nTimeline: {timeline}"}
+    ]
+    try:
+        triage_level = call_openai_api(prompt, max_tokens=10).strip()
+        if triage_level not in ["AT_HOME", "MODERATE", "SEVERE"]:
+            logger.warning(f"Invalid triage level received: {triage_level}, defaulting to MODERATE")
+            return "MODERATE"
+        return triage_level
+    except Exception as e:
+        logger.error(f"Failed to determine triage level: {str(e)}", exc_info=True)
+        return "MODERATE"  # Default to MODERATE if assessment fails
+
 @report_routes.route("/", methods=["POST"])
 def generate_report():
     """Generate a medical report based on symptoms and timeline."""
@@ -29,6 +46,10 @@ def generate_report():
             user = User.query.get(user_id)
             if not user:
                 return jsonify({"error": "User not found."}), 404
+
+        # Determine the triage level dynamically
+        triage_level = determine_triage_level(symptoms, timeline)
+        logger.info(f"Determined triage_level: {triage_level} for symptoms: {symptoms}")
 
         symptom_text = ", ".join(symptoms) if symptoms else "Not specified"
         prompt = [
@@ -64,8 +85,9 @@ def generate_report():
                 "condition_common": possible_conditions,
                 "condition_medical": "N/A",  # Could be enhanced with OpenAI if needed
                 "confidence": "N/A",  # Could be added if OpenAI provides confidence
-                "triage_level": "MODERATE"
+                "triage_level": triage_level  # Use the dynamically determined triage_level
             }
+            logger.info(f"Generating PDF report with triage_level: {triage_level}, symptoms: {symptom_text}")
             report_url = generate_pdf_report(pdf_data)
 
         if user_id and user and user.subscription_tier == UserTierEnum.PAID.value:
@@ -83,7 +105,7 @@ def generate_report():
             db.session.commit()
             report_data["id"] = new_report.id
             report_data["report_url"] = new_report.report_url
-            logger.info(f"Report saved for user {user_id}: {report_data['title']}")
+            logger.info(f"Report saved for user {user_id}: {report_data['title']}, report_url: {report_url}")
         else:
             logger.info(f"Report generated but not saved (non-subscriber): user_id={user_id}, temp_user_id={temp_user_id}")
 

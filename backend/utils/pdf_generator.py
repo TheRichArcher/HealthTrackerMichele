@@ -41,7 +41,7 @@ def generate_pdf_report(report_data):
     confidence = str(report_data.get('confidence', 'N/A'))
     triage_level = str(report_data.get('triage_level', 'N/A'))
     
-    logger.info(f"Generating PDF with report_data: symptoms={symptoms}, condition_common={condition_common}")
+    logger.info(f"Generating PDF with report_data: symptoms={symptoms}, condition_common={condition_common}, triage_level={triage_level}")
     
     prompt = (
         "You are a medical AI assistant. Based on the following report data, generate content for a premium health report:\n"
@@ -181,7 +181,7 @@ def generate_pdf_report(report_data):
     y -= 15
     c.setFont("Helvetica", 10)
     logger.info(f"Drawing differential diagnosis at y={y}, items={len(diff_conditions)}")
-    for condition, conf in zip(diff_conditions, diff_confidences):
+    for condition, conf in enumerate(zip(diff_conditions, diff_confidences)):
         logger.info(f"Drawing: {condition}: {conf}% at y={y}")
         c.setFont("Helvetica", 10)
         c.drawString(100, y, f"{condition}: {conf}%")

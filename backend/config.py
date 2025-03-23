@@ -27,7 +27,7 @@ class Config:
     if not JWT_SECRET_KEY:
         raise ValueError("\u274c JWT_SECRET_KEY is missing from the environment. Please set it explicitly in .env or Render.")
 
-    JWT_ACCESS_TOKEN_EXPIRES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRES", "3600"))  # 1 hour
+    JWT_ACCESS_TOKEN_EXPIRES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRES", "86400"))  # 1 day (was 3600 seconds = 1 hour)
     JWT_REFRESH_TOKEN_EXPIRES = int(os.getenv("JWT_REFRESH_TOKEN_EXPIRES", "2592000"))  # 30 days
 
     # Database Configuration

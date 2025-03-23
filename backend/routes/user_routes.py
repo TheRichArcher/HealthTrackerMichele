@@ -434,9 +434,10 @@ def validate_token():
         current_user_id = get_jwt_identity()
         user = User.query.filter(User.id == int(current_user_id), User.deleted_at.is_(None)).first()
         if not user:
+            logger.warning(f"Token validation failed: User {current_user_id} not found")
             return jsonify({"error": "User not found"}), 404
             
-        logger.debug(f"Token validated for user_id: {current_user_id}")
+        logger.info(f"Token validated successfully for user_id: {current_user_id}")
         return jsonify({
             "message": "Token is valid",
             "user_id": current_user_id,
@@ -448,31 +449,5 @@ def validate_token():
         logger.error(f"Database error during token validation: {str(e)}", exc_info=True)
         return jsonify({"error": "Database connection failed. Please try again later."}), 500
     except Exception as e:
-        logger.error(f"Token validation error: {str(e)}", exc_info=True)
+        logger.error(f"Token validation failed for user_id {current_user_id}: {str(e)}", exc_info=True)
         return jsonify({"error": f"Invalid or expired token: {str(e)}"}), 401
-
-@user_routes.route("/logout/", methods=["POST"])
-@jwt_required()
-@cross_origin()
-def logout():
-    """Handle user logout and revoke the token."""
-    try:
-        # Log the raw Authorization header for debugging
-        auth_header = request.headers.get('Authorization', '')
-        logger.debug(f"Logout request - Authorization header: {auth_header}")
-
-        jti = get_jwt()["jti"]
-        # Add token to blacklist
-        revoked_token = RevokedToken(jti=jti)
-        db.session.add(revoked_token)
-        db.session.commit()
-        logger.info(f"Token revoked: {jti}")
-        return jsonify({"message": "Successfully logged out"}), 200
-    except OperationalError as e:
-        db.session.rollback()
-        logger.error(f"Database error during logout: {str(e)}", exc_info=True)
-        return jsonify({"error": "Database connection failed. Please try again later."}), 500
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"Logout error: {str(e)}", exc_info=True)
-        return jsonify({"error": f"An error occurred during logout: {str(e)}"}), 500
