@@ -110,11 +110,15 @@ const AuthProvider = ({ children }) => {
         const currentPath = window.location.pathname;
 
         if (!accessToken || !userId) {
-            console.log('No tokens found. Redirecting to login if on a protected route.');
+            console.log('No tokens found. Allowing /chat to proceed without redirect.');
             setIsAuthenticated(false);
             setIsLoading(false);
-            // Redirect to login if on a protected route (e.g., /chat, /dashboard)
-            if (['/chat', '/dashboard', '/subscribe'].includes(currentPath)) {
+            if (currentPath === '/chat') {
+                console.log('/chat is public for unauthenticated users; no redirect needed.');
+                return false;
+            }
+            if (['/dashboard', '/subscribe'].includes(currentPath)) {
+                console.log('Redirecting to /auth for protected route:', currentPath);
                 navigate('/auth');
             }
             return false;
@@ -125,14 +129,16 @@ const AuthProvider = ({ children }) => {
             console.log('checkAuth: Token validation result:', isValid);
             setIsAuthenticated(isValid);
             if (isValid) await fetchSubscriptionStatus();
-            else if (['/chat', '/dashboard', '/subscribe'].includes(currentPath)) {
+            else if (['/dashboard', '/subscribe'].includes(currentPath)) {
+                console.log('Redirecting to /auth due to invalid token on protected route:', currentPath);
                 navigate('/auth');
             }
             return isValid;
         } catch (error) {
             console.error('Authentication check error:', error);
             setIsAuthenticated(false);
-            if (['/chat', '/dashboard', '/subscribe'].includes(currentPath)) {
+            if (['/dashboard', '/subscribe'].includes(currentPath)) {
+                console.log('Redirecting to /auth due to error on protected route:', currentPath);
                 navigate('/auth');
             }
             return false;
