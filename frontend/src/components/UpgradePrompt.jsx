@@ -8,6 +8,7 @@ import '../styles/UpgradePrompt.css';
 const API_BASE_URL = 'https://healthtrackermichele.onrender.com/api';
 
 const UpgradePrompt = ({
+  text, // Added to match Chat.jsx's displayText
   careRecommendation,
   triageLevel,
   onReport,
@@ -20,6 +21,7 @@ const UpgradePrompt = ({
   commonName,
   isMildCase,
   onDismiss,
+  onUpgradeAction, // Added to match Chat.jsx's onUpgradeAction
 }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -97,8 +99,15 @@ const UpgradePrompt = ({
   };
 
   const handleConfirm = () => {
-    if (pendingAction === 'report') initiateUpgrade('one_time');
-    else if (pendingAction === 'subscribe') initiateUpgrade('subscription');
+    if (pendingAction === 'report') {
+      if (onReport) onReport();
+      if (onUpgradeAction) onUpgradeAction('report');
+      else initiateUpgrade('one_time');
+    } else if (pendingAction === 'subscribe') {
+      if (onSubscribe) onSubscribe();
+      if (onUpgradeAction) onUpgradeAction('premium');
+      else initiateUpgrade('subscription');
+    }
     setShowConfirmModal(false);
     setPendingAction(null);
   };
@@ -106,6 +115,7 @@ const UpgradePrompt = ({
   const handleNotNowClick = () => {
     if (onNotNow) onNotNow();
     if (onDismiss) onDismiss();
+    if (onUpgradeAction) onUpgradeAction('later');
     setSuccess(true);
   };
 
@@ -122,52 +132,115 @@ const UpgradePrompt = ({
   );
 
   return (
-    <>
-      <div className="upgrade-options-inline">
-        <h3>{effectiveRequiresUpgrade ? 'Upgrade Required for Full Insights' : 'Unlock Detailed Health Insights'}</h3>
-        {error && <div className="error-message" role="alert">{error}<button className="retry-button" onClick={() => confirmAction(pendingAction)}>Retry</button></div>}
+    <div className="message bot upgrade-options">
+      <div className="message-content">
+        <p className="upgrade-intro">{text || (effectiveRequiresUpgrade ? 'Upgrade Required for Full Insights' : 'Unlock Detailed Health Insights')}</p>
+        {error && (
+          <div className="error-message" role="alert">
+            {error}
+            <button className="retry-button" onClick={() => confirmAction(pendingAction)}>Retry</button>
+          </div>
+        )}
         {success && <div className="success-message" role="alert">Noted. Reach out anytime for more insights!</div>}
         <p><strong>Recommendation:</strong> {effectiveRecommendation}</p>
         <p><strong>Triage Level:</strong> {effectiveTriageLevel}</p>
-        {effectiveTriageLevel === 'AT_HOME' && !effectiveRequiresUpgrade && <div className="mild-case-note">This appears to be a mild case... Continue monitoring your symptoms.</div>}
-        {effectiveRequiresUpgrade && <p>Your assessment indicates a {effectiveTriageLevel.toLowerCase()} condition. Upgrade to access detailed insights.</p>}
+        {effectiveTriageLevel === 'AT_HOME' && !effectiveRequiresUpgrade && (
+          <div className="mild-case-note">This appears to be a mild case... Continue monitoring your symptoms.</div>
+        )}
+        {effectiveRequiresUpgrade && (
+          <p>Your assessment indicates a {effectiveTriageLevel.toLowerCase()} condition. Upgrade to access detailed insights.</p>
+        )}
         <div className="upgrade-options-container">
-          <button className="upgrade-button toggle-features" onClick={toggleFeatures} aria-expanded={showFeatures} aria-controls="premium-features">
+          <button
+            className="upgrade-button toggle-features"
+            onClick={toggleFeatures}
+            aria-expanded={showFeatures}
+            aria-controls="premium-features"
+          >
             {showFeatures ? 'Hide Premium Features' : 'Show Premium Features'}
           </button>
-          {showFeatures && <ul id="premium-features" className="premium-features-list">{premiumFeatures.map((feature, index) => <li key={index}><span className="feature-name">{feature.name}</span><span className="tooltip-icon" title={feature.tooltip} aria-label={`Tooltip: ${feature.tooltip}`}>?</span><span className="feature-description">{feature.description}</span></li>)}</ul>}
-        </div>
-        <div className="upgrade-buttons">
-          <button className={`upgrade-button one-time ${loading ? 'loading' : ''}`} onClick={() => confirmAction('report')} disabled={loading} aria-label="Purchase a one-time report for $4.99">
-            {loading ? <LoadingSpinner /> : 'One-Time Report ($4.99)'}
-          </button>
-          <button className={`upgrade-button subscription ${loading ? 'loading' : ''}`} onClick={() => confirmAction('subscribe')} disabled={loading} aria-label="Subscribe for $9.99 per month (requires login)">
-            {loading ? <LoadingSpinner /> : 'Subscribe ($9.99/month)'}
-          </button>
-          {effectiveTriageLevel === 'AT_HOME' && !effectiveRequiresUpgrade && (
-            <button className="continue-free-button" onClick={handleNotNowClick} disabled={loading} aria-label="Continue without upgrading for now">
-              Continue Monitoring
-            </button>
+          {showFeatures && (
+            <ul id="premium-features" className="premium-features-list">
+              {premiumFeatures.map((feature, index) => (
+                <li key={index}>
+                  <span className="feature-name">{feature.name}</span>
+                  <span className="tooltip-icon" title={feature.tooltip} aria-label={`Tooltip: ${feature.tooltip}`}>
+                    ?
+                  </span>
+                  <span className="feature-description">{feature.description}</span>
+                </li>
+              ))}
+            </ul>
           )}
-        </div>
-      </div>
-      {showConfirmModal && (
-        <div className="confirm-modal">
-          <div className="modal-content">
-            <h4>Confirm Action</h4>
-            <p>Are you sure you want to {pendingAction === 'report' ? 'purchase a one-time report for $4.99' : 'subscribe for $9.99/month'}?</p>
-            <div className="modal-buttons">
-              <button className="confirm-button" onClick={handleConfirm} disabled={loading}>{loading ? <LoadingSpinner /> : 'Yes'}</button>
-              <button className="cancel-button" onClick={() => setShowConfirmModal(false)} disabled={loading}>Cancel</button>
+          <div className="upgrade-options-container">
+            <div className="upgrade-option">
+              <h4>💎 Premium Access ($9.99/month)</h4>
+              <p>Unlimited checks, detailed assessments, and health monitoring.</p>
+            </div>
+            <div className="upgrade-option">
+              <h4>📄 One-time Report ($4.99)</h4>
+              <p>A detailed analysis of your current condition.</p>
+            </div>
+            <div className="upgrade-buttons">
+              <button
+                className={`upgrade-button one-time ${loading ? 'loading' : ''}`}
+                onClick={() => confirmAction('report')}
+                disabled={loading}
+                aria-label="Purchase a one-time report for $4.99"
+              >
+                {loading ? <LoadingSpinner /> : 'Get Report ($4.99)'}
+              </button>
+              <button
+                className={`upgrade-button subscription ${loading ? 'loading' : ''}`}
+                onClick={() => confirmAction('subscribe')}
+                disabled={loading}
+                aria-label="Subscribe for $9.99 per month (requires login)"
+              >
+                {loading ? <LoadingSpinner /> : 'Get Premium ($9.99/month)'}
+              </button>
+              {isMildCase && (
+                <button
+                  className="upgrade-button maybe-later"
+                  onClick={handleNotNowClick}
+                  disabled={loading}
+                  aria-label="Maybe Later - Continue without upgrading"
+                >
+                  Maybe Later
+                </button>
+              )}
             </div>
           </div>
         </div>
-      )}
-    </>
+        {showConfirmModal && (
+          <div className="confirm-modal">
+            <div className="modal-content">
+              <h4>Confirm Action</h4>
+              <p>
+                Are you sure you want to{' '}
+                {pendingAction === 'report' ? 'purchase a one-time report for $4.99' : 'subscribe for $9.99/month'}?
+              </p>
+              <div className="modal-buttons">
+                <button className="confirm-button" onClick={handleConfirm} disabled={loading}>
+                  {loading ? <LoadingSpinner /> : 'Yes'}
+                </button>
+                <button
+                  className="cancel-button"
+                  onClick={() => setShowConfirmModal(false)}
+                  disabled={loading}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 };
 
 UpgradePrompt.propTypes = {
+  text: PropTypes.string, // Added to match Chat.jsx
   careRecommendation: PropTypes.string,
   triageLevel: PropTypes.oneOf(['AT_HOME', 'MODERATE', 'SEVERE']),
   onReport: PropTypes.func,
@@ -186,9 +259,11 @@ UpgradePrompt.propTypes = {
   commonName: PropTypes.string,
   isMildCase: PropTypes.bool,
   onDismiss: PropTypes.func,
+  onUpgradeAction: PropTypes.func, // Added to match Chat.jsx
 };
 
 UpgradePrompt.defaultProps = {
+  text: 'Ready to unlock more?', // Added to match Chat.jsx
   careRecommendation: null,
   triageLevel: null,
   onReport: () => {},
@@ -201,6 +276,7 @@ UpgradePrompt.defaultProps = {
   commonName: null,
   isMildCase: false,
   onDismiss: () => {},
+  onUpgradeAction: () => {}, // Added to match Chat.jsx
 };
 
 export default UpgradePrompt;
