@@ -170,14 +170,16 @@ def analyze_symptoms():
             result["assessment_id"] = assessment_id
             logger.info(f"Saved symptom assessment for user {user_id}: {symptom}")
 
+        # Modified logic: Preserve possible_conditions for SEVERE cases, even for non-subscribers
+        is_severe = result.get("triage_level") == "SEVERE"
         response_data = {
             "is_assessment": result.get("is_assessment", False),
             "next_question": result.get("possible_conditions") if result.get("is_question", False) else None,
-            "possible_conditions": result.get("possible_conditions", "") if is_subscriber else "Login required for detailed assessment",
-            "confidence": result.get("confidence", None) if is_subscriber else None,
-            "triage_level": result.get("triage_level", None) if is_subscriber else None,
-            "care_recommendation": result.get("care_recommendation", None) if is_subscriber else "Login for recommendations",
-            "requires_upgrade": result.get("requires_upgrade", False) or (result.get("is_assessment", False) and not is_subscriber),
+            "possible_conditions": result.get("possible_conditions", "") if (is_subscriber or is_severe) else "Login required for detailed assessment",
+            "confidence": result.get("confidence", None) if (is_subscriber or is_severe) else None,
+            "triage_level": result.get("triage_level", None) if (is_subscriber or is_severe) else None,
+            "care_recommendation": result.get("care_recommendation", None) if (is_subscriber or is_severe) else "Login for recommendations",
+            "requires_upgrade": result.get("requires_upgrade", False) or (result.get("is_assessment", False) and not is_subscriber and not is_severe),
             "assessment_id": assessment_id
         }
 
@@ -185,7 +187,7 @@ def analyze_symptoms():
             f"I've identified {response_data['possible_conditions']} as a possible condition.\n"
             f"Confidence: {response_data['confidence']}%\nSeverity: {response_data['triage_level']}\n"
             f"Recommendation: {response_data['care_recommendation']}"
-            if is_subscriber else "Please log in for a detailed assessment."
+            if (is_subscriber or is_severe) else "Please log in for a detailed assessment."
         )
 
         conversation_history.append({"message": history_message, "isBot": True})
