@@ -31,9 +31,11 @@ const SubscriptionPage = () => {
         window.location.href = response.data.checkout_url;
       } else {
         setError('Failed to initiate subscription upgrade');
+        console.error('Upgrade response missing checkout_url:', response.data);
       }
     } catch (err) {
       setError(err.response?.data?.error || 'Upgrade request failed');
+      console.error('Error in upgradeSubscription:', err.response?.data || err.message);
     }
   }, []);
 
@@ -57,10 +59,16 @@ const SubscriptionPage = () => {
       }
       if (response.data.report_url) {
         localStorage.setItem('healthtracker_report_url', response.data.report_url);
+        // Clear access_token for one-time report unless user is authenticated and upgrading to paid
+        if (response.data.subscription_tier === 'one_time' && !isAuthenticated) {
+          localStorage.removeItem('access_token');
+          console.log('Cleared access_token after one-time report for unauthenticated user');
+        }
       }
       navigate('/chat', { state: { reportUrl: response.data.report_url } });
     } catch (err) {
       setError(err.response?.data?.error || 'Confirmation failed');
+      console.error('Error in confirmSubscription:', err.response?.data || err.message);
       if (isAuthenticated || err.response?.status === 401) {
         navigate('/auth');
       } else {

@@ -220,7 +220,6 @@ const Chat = () => {
     const reportFromState = location.state?.reportUrl;
     if (reportFromState) {
       setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${reportFromState})`, isAssessment: false }]);
-      // Reset chat state after receiving the report
       setTimeout(() => {
         setMessages([WELCOME_MESSAGE]);
         setHasFinalAssessment(false);
@@ -230,7 +229,6 @@ const Chat = () => {
       window.history.replaceState({}, document.title, '/chat');
     } else if (storedReport && !messages.some(msg => msg.text.includes(storedReport))) {
       setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${storedReport})`, isAssessment: false }]);
-      // Reset chat state after receiving the report
       setTimeout(() => {
         setMessages([WELCOME_MESSAGE]);
         setHasFinalAssessment(false);
@@ -259,12 +257,11 @@ const Chat = () => {
           console.log('Confirm response:', res.data);
           if (res.data.access_token) {
             localStorage.setItem('access_token', res.data.access_token);
-            checkAuth(); // Re-validate AuthProvider state
+            if (isAuthenticated) checkAuth(); // Only re-validate if authenticated
           }
           if (res.data.success && res.data.report_url) {
             localStorage.setItem(CONFIG.REPORT_URL_KEY, res.data.report_url);
             setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${res.data.report_url})`, isAssessment: false }]);
-            // Reset chat state after receiving the report
             setTimeout(() => {
               setMessages([WELCOME_MESSAGE]);
               setHasFinalAssessment(false);
@@ -285,14 +282,20 @@ const Chat = () => {
           }
         });
     }
-  }, [location.search, location.state, checkAuth]);
+  }, [location.search, location.state, checkAuth, isAuthenticated]);
 
   useEffect(() => {
     focusInput();
-    checkAuth();
+    // Skip checkAuth for unauthenticated users in /chat
+    if (isAuthenticated) {
+      console.log('checkAuth called for authenticated user');
+      checkAuth();
+    } else {
+      console.log('checkAuth skipped for unauthenticated user in /chat');
+    }
     const savedMessages = localStorage.getItem(CONFIG.LOCAL_STORAGE_KEY);
     if (!savedMessages) setMessages([WELCOME_MESSAGE]);
-  }, [checkAuth, focusInput]);
+  }, [checkAuth, focusInput, isAuthenticated]);
 
   useEffect(() => {
     saveMessages(messages);
@@ -416,15 +419,12 @@ const Chat = () => {
           const isMildCase = triage_level && triage_level.toLowerCase() === 'mild';
           if (!isAuthenticated) {
             if (isMildCase) {
-              // For mild cases, show upgrade options with "Maybe Later" and do not redirect
               setTimeout(() => addBotMessage("For deeper analysis, consider upgrading:", false), CONFIG.ASSESSMENT_DELAY);
               setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, true), CONFIG.SALES_PITCH_DELAY);
             } else {
-              // For moderate or severe cases, redirect to /auth
               setTimeout(() => navigate('/auth'), CONFIG.SALES_PITCH_DELAY);
             }
           } else {
-            // For authenticated users, show upgrade options
             setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, false), CONFIG.SALES_PITCH_DELAY);
           }
         } else {
@@ -466,6 +466,7 @@ const Chat = () => {
       setTyping(false);
       addBotMessage("I'm having trouble processing that—please try again!");
       setError(err.message);
+      console.error('Error in handleSendMessage:', err);
     }
   };
 
@@ -488,6 +489,7 @@ const Chat = () => {
       setHasFinalAssessment(false);
     } catch (err) {
       addBotMessage("Failed to reset—try again!");
+      console.error('Error resetting conversation:', err);
     } finally {
       setResetting(false);
     }
