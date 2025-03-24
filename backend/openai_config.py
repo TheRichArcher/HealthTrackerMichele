@@ -1,19 +1,17 @@
 import json
 import logging
 import random
-import os
 from typing import Dict, Optional
 from flask import current_app
-from backend.models import User, UserTierEnum  # Explicitly import User
-from openai import OpenAI  # Import OpenAI client here
+from backend.models import User, UserTierEnum
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 # Constants
-MIN_CONFIDENCE_THRESHOLD = 95  # Updated to match symptom_routes.py (95% instead of 90%)
-MIN_USER_RESPONSES_FOR_ASSESSMENT = 3  # Require at least 3 user responses before allowing an assessment
-CRITICAL_SYMPTOMS = ["chest pain", "shortness of breath", "severe headache", "sudden numbness", "difficulty speaking"]  # Symptoms requiring extra caution
+MIN_CONFIDENCE_THRESHOLD = 95
+MIN_USER_RESPONSES_FOR_ASSESSMENT = 3
+CRITICAL_SYMPTOMS = ["chest pain", "shortness of breath", "severe headache", "sudden numbness", "difficulty speaking"]
 
 # System prompt for OpenAI
 SYSTEM_PROMPT = """You are Michele, an AI medical assistant designed to mimic a doctor's visit. Your goal is to understand the user's symptoms through conversation and provide insights only when highly confident.
@@ -65,9 +63,7 @@ def clean_ai_response(
     conversation_history: Optional[list] = None,
     symptom: str = ""
 ) -> Dict:
-    """
-    Process OpenAI API response, ensuring valid JSON output with dynamic, context-aware questions.
-    """
+    """Process OpenAI API response, ensuring valid JSON output with dynamic, context-aware questions."""
     # Log input details
     is_production = current_app.config.get("ENV") == "production"
     logger.setLevel(logging.INFO if is_production else logging.DEBUG)
@@ -279,10 +275,3 @@ def clean_ai_response(
             "care_recommendation": None,
             "requires_upgrade": False
         }
-
-def get_openai_client():
-    """
-    Returns an OpenAI client instance using the API key from environment variables.
-    """
-    api_key = os.getenv("OPENAI_API_KEY")
-    return OpenAI(api_key=api_key)
