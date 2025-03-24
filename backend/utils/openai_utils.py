@@ -2,18 +2,18 @@ import json
 import logging
 import random
 import os
-from typing import Dict, Optional, List
+from typing import Dict, Optional
 from flask import current_app
-from backend.models import User, UserTierEnum  # Explicitly import User
-from openai import OpenAI  # Import OpenAI client here
+from backend.models import User, UserTierEnum
+from openai import OpenAI
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 # Constants
-MIN_CONFIDENCE_THRESHOLD = 95  # Updated to match symptom_routes.py (95% instead of 90%)
-MIN_USER_RESPONSES_FOR_ASSESSMENT = 3  # Require at least 3 user responses before allowing an assessment
-CRITICAL_SYMPTOMS = ["chest pain", "shortness of breath", "severe headache", "sudden numbness", "difficulty speaking"]  # Symptoms requiring extra caution
+MIN_CONFIDENCE_THRESHOLD = 95
+MIN_USER_RESPONSES_FOR_ASSESSMENT = 3
+CRITICAL_SYMPTOMS = ["chest pain", "shortness of breath", "severe headache", "sudden numbness", "difficulty speaking"]
 
 # System prompt for OpenAI
 SYSTEM_PROMPT = """You are Michele, an AI medical assistant designed to mimic a doctor's visit. Your goal is to understand the user's symptoms through conversation and provide insights only when highly confident.
@@ -59,52 +59,44 @@ CRITICAL INSTRUCTIONS:
 8. Include "doctors_report" as a formatted string only when explicitly requested.
 """
 
-def build_openai_messages(
-    system_prompt: str,
-    conversation_history: Optional[List[Dict]] = None,
-    symptom_input: Optional[str] = None,
-    additional_instructions: Optional[str] = None
-) -> List[Dict]:
-    """
-    Build a list of messages for OpenAI API calls.
+def get_openai_client():
+    """Returns an OpenAI client instance using the API key from environment variables."""
+    api_key = os.getenv("OPENAI_API_KEY")
+    return OpenAI(api_key=api_key)
 
-    Args:
-        system_prompt (str): The system prompt to set the assistant's behavior.
-        conversation_history (List[Dict], optional): List of previous messages with 'message' and 'isBot' keys.
-        symptom_input (str, optional): The user's symptom description or input.
-        additional_instructions (str, optional): Extra instructions to append to the last message.
+def build_openai_messages(system_prompt: str, symptom_input: str) -> list:
+    """Build OpenAI message structure."""
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": symptom_input}
+    ]
 
-    Returns:
-        List[Dict]: A list of messages in OpenAI-compatible format (role, content).
-    """
-    messages = [{"role": "system", "content": system_prompt}]
-    
-    if conversation_history:
-        for entry in conversation_history:
-            role = "assistant" if entry.get("isBot", False) else "user"
-            messages.append({"role": role, "content": entry.get("message", "")})
-    
-    if symptom_input:
-        content = symptom_input
-        if additional_instructions:
-            content += " " + additional_instructions
-        # Only add symptom_input if it's the latest user input (not redundant with history)
-        if not conversation_history or conversation_history[-1].get("isBot", False):
-            messages.append({"role": "user", "content": content})
-        elif messages[-1]["role"] == "user":
-            messages[-1]["content"] += " " + content  # Append to last user message if applicable
-    
-    return messages
+def call_openai_api(messages: list, max_tokens: int = 300, response_format: Optional[dict] = None) -> str:
+    """Call OpenAI API with the provided messages."""
+    client = get_openai_client()
+    try:
+        params = {
+            "model": "gpt-4o-mini",
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": 0.3
+        }
+        if response_format:
+            params["response_format"] = response_format
+        
+        response = client.chat.completions.create(**params)
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.error(f"OpenAI API call failed: {str(e)}", exc_info=True)
+        raise
 
 def clean_ai_response(
     response_text: str,
     user: Optional[User] = None,
-    conversation_history: Optional[List] = None,
+    conversation_history: Optional[list] = None,
     symptom: str = ""
 ) -> Dict:
-    """
-    Process OpenAI API response, ensuring valid JSON output with dynamic, context-aware questions.
-    """
+    """Process OpenAI API response, ensuring valid JSON output with dynamic, context-aware questions."""
     # Log input details
     is_production = current_app.config.get("ENV") == "production"
     logger.setLevel(logging.INFO if is_production else logging.DEBUG)
@@ -316,10 +308,3 @@ def clean_ai_response(
             "care_recommendation": None,
             "requires_upgrade": False
         }
-
-def get_openai_client():
-    """
-    Returns an OpenAI client instance using the API key from environment variables.
-    """
-    api_key = os.getenv("OPENAI_API_KEY")
-    return OpenAI(api_key=api_key)
