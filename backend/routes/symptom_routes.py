@@ -5,6 +5,7 @@ from backend.extensions import db
 from backend.utils.auth import generate_temp_user_id, token_required
 from backend.utils.pdf_generator import generate_pdf_report
 from backend.utils.openai_utils import call_openai_api
+from backend.utils.access_control import can_access_assessment_details
 from backend import openai_config
 import openai
 import os
@@ -17,7 +18,6 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 symptom_routes = Blueprint("symptom_routes", __name__, url_prefix="/api/symptoms")
 
-# Note: OpenAI API settings (e.g., temperature, max tokens) are managed by call_openai_api in openai_utils.py
 MIN_CONFIDENCE_THRESHOLD = 95  # Used to enforce confidence threshold for assessments
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -31,8 +31,8 @@ class MockUser:
 
 def is_premium_user(user):
     """Check if the user has a premium subscription tier (PAID or ONE_TIME)."""
-    if hasattr(user, "subscription_tier"):
-        return user.subscription_tier in [UserTierEnum.PAID.value, UserTierEnum.ONE_TIME.value]
+    if can_access_assessment_details(user):
+        return True
     
     try:
         verify_jwt_in_request(optional=True)
@@ -149,7 +149,7 @@ def analyze_symptoms():
             }
 
         assessment_id = None
-        is_subscriber = user_id and isinstance(user_id, int) and hasattr(current_user, "subscription_tier") and current_user.subscription_tier == UserTierEnum.PAID.value
+        is_subscriber = user_id and isinstance(user_id, int) and can_access_assessment_details(current_user)
         if result.get("is_assessment", False) and is_subscriber:
             notes = {
                 "response": result,
@@ -170,7 +170,6 @@ def analyze_symptoms():
             result["assessment_id"] = assessment_id
             logger.info(f"Saved symptom assessment for user {user_id}: {symptom}")
 
-        # Modified logic: Preserve possible_conditions for SEVERE cases, even for non-subscribers
         is_severe = result.get("triage_level") == "SEVERE"
         response_data = {
             "is_assessment": result.get("is_assessment", False),
@@ -241,7 +240,7 @@ def get_symptom_history(current_user=None):
         if user_id and user_id.startswith('user_'):
             user_id = int(user_id.replace('user_', ''))
         user = User.query.get(user_id)
-        if not user or user.subscription_tier != UserTierEnum.PAID.value:
+        if not user or not can_access_assessment_details(user):
             return jsonify({"error": "Premium subscription required", "requires_upgrade": True}), 403
 
         symptoms = SymptomLog.query.filter_by(user_id=user_id).order_by(SymptomLog.timestamp.desc()).all()
@@ -319,8 +318,7 @@ def generate_doctor_report():
         }
         report_url = generate_pdf_report(report_data)
 
-        # Store in DB only for PAID users (consistent with subscription_routes.py)
-        if user_id and isinstance(user_id, int) and hasattr(current_user, "subscription_tier") and current_user.subscription_tier == UserTierEnum.PAID.value:
+        if user_id and isinstance(user_id, int) and can_access_assessment_details(current_user):
             notes = {
                 "response": result,
                 "condition_common": report_data["condition_common"],

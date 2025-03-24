@@ -4,6 +4,7 @@ from backend.models import Report, User, CareRecommendationEnum, UserTierEnum
 from backend.extensions import db
 from backend.utils.openai_utils import call_openai_api
 from backend.utils.pdf_generator import generate_pdf_report
+from backend.utils.access_control import can_access_assessment_details
 from datetime import datetime
 import logging
 
@@ -47,7 +48,6 @@ def generate_report():
             if not user:
                 return jsonify({"error": "User not found."}), 404
 
-        # Determine the triage level dynamically
         triage_level = determine_triage_level(symptoms, timeline)
         logger.info(f"Determined triage_level: {triage_level} for symptoms: {symptoms}")
 
@@ -58,7 +58,6 @@ def generate_report():
         ]
         content = call_openai_api(prompt, max_tokens=500)
 
-        # Parse the content to extract possible conditions for the PDF
         possible_conditions = "Unknown"
         for line in content.split("\n"):
             if "Possible Conditions:" in line:
@@ -83,14 +82,14 @@ def generate_report():
                 "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
                 "symptom": symptom_text,
                 "condition_common": possible_conditions,
-                "condition_medical": "N/A",  # Could be enhanced with OpenAI if needed
-                "confidence": "N/A",  # Could be added if OpenAI provides confidence
-                "triage_level": triage_level  # Use the dynamically determined triage_level
+                "condition_medical": "N/A",
+                "confidence": "N/A",
+                "triage_level": triage_level
             }
             logger.info(f"Generating PDF report with triage_level: {triage_level}, symptoms: {symptom_text}")
             report_url = generate_pdf_report(pdf_data)
 
-        if user_id and user and user.subscription_tier == UserTierEnum.PAID.value:
+        if user_id and user and can_access_assessment_details(user):
             new_report = Report(
                 user_id=user_id,
                 temp_user_id=temp_user_id,
