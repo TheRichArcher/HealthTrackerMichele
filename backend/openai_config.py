@@ -66,7 +66,7 @@ def clean_ai_response(
     symptom: str = ""
 ) -> Dict:
     """
-    Process OpenAI API response, ensuring valid JSON output.
+    Process OpenAI API response, ensuring valid JSON output with dynamic, context-aware questions.
     """
     # Log input details
     is_production = current_app.config.get("ENV") == "production"
@@ -117,28 +117,36 @@ def clean_ai_response(
         # Additional validation: Check conversation history and critical symptoms
         user_response_count = 0
         has_critical_symptoms = False
+        combined_text = symptom.lower()
         if conversation_history:
             user_response_count = sum(1 for msg in conversation_history if not msg.get("isBot", True))
-            combined_text = " ".join(msg["message"].lower() for msg in conversation_history if not msg.get("isBot", True))
-            has_critical_symptoms = any(symptom in combined_text for symptom in CRITICAL_SYMPTOMS)
+            combined_text += " " + " ".join(msg["message"].lower() for msg in conversation_history if not msg.get("isBot", True))
+            has_critical_symptoms = any(critical in combined_text for critical in CRITICAL_SYMPTOMS)
 
         # Force a question if not enough user responses or critical symptoms are present
         if parsed_json["is_assessment"]:
-            if user_response_count < MIN_USER_RESPONSES_FOR_ASSESSMENT:
-                logger.info(f"User responses ({user_response_count}) below minimum ({MIN_USER_RESPONSES_FOR_ASSESSMENT}), forcing question")
+            if user_response_count < MIN_USER_RESPONSES_FOR_ASSESSMENT or has_critical_symptoms:
+                logger.info(f"Forcing question: responses ({user_response_count}/{MIN_USER_RESPONSES_FOR_ASSESSMENT}), critical symptoms: {has_critical_symptoms}")
                 parsed_json["is_assessment"] = False
                 parsed_json["is_question"] = True
-                parsed_json["possible_conditions"] = "I need more information to make a confident assessment. Can you tell me if your symptoms change with position, like when you stand up?"
-                parsed_json["confidence"] = None
-                parsed_json["triage_level"] = None
-                parsed_json["care_recommendation"] = None
-                if "assessment" in parsed_json:
-                    del parsed_json["assessment"]
-            elif has_critical_symptoms:
-                logger.info(f"Critical symptoms detected, forcing additional question")
-                parsed_json["is_assessment"] = False
-                parsed_json["is_question"] = True
-                parsed_json["possible_conditions"] = "Given your symptoms, I need to rule out serious conditions. Have you experienced any sudden changes, like difficulty speaking or numbness?"
+                # Dynamic question based on context
+                if has_critical_symptoms:
+                    if "chest pain" in combined_text or "shortness of breath" in combined_text:
+                        parsed_json["possible_conditions"] = "Does the chest discomfort get worse with exertion, like walking or climbing stairs?"
+                    elif "severe headache" in combined_text:
+                        parsed_json["possible_conditions"] = "Is the headache sudden and unlike any you've had before?"
+                    elif "sudden numbness" in combined_text or "difficulty speaking" in combined_text:
+                        parsed_json["possible_conditions"] = "Did the numbness or speech difficulty come on suddenly?"
+                    else:
+                        parsed_json["possible_conditions"] = "Have you noticed any other unusual symptoms, like sudden weakness or confusion?"
+                else:
+                    varied_questions = [
+                        "When did these symptoms first start?",
+                        "Have you noticed anything that makes the symptoms better or worse?",
+                        "How has this affected your daily activities?",
+                        "Have you tried any remedies or treatments so far?"
+                    ]
+                    parsed_json["possible_conditions"] = random.choice(varied_questions)
                 parsed_json["confidence"] = None
                 parsed_json["triage_level"] = None
                 parsed_json["care_recommendation"] = None
@@ -152,9 +160,9 @@ def clean_ai_response(
                 parsed_json["is_question"] = True
                 
                 # Generate a better question based on conversation context
-                if conversation_history and len(conversation_history) > 2:
+                if conversation_history and len(conversation_history) > 0:
                     user_messages = [msg["message"].lower() for msg in conversation_history if not msg.get("isBot", True)]
-                    combined_text = " ".join(user_messages)
+                    combined_text = " ".join(user_messages + [symptom.lower()])
                     
                     if "burn" in combined_text and ("pee" in combined_text or "urin" in combined_text):
                         parsed_json["possible_conditions"] = "How severe is the burning sensation when you urinate, on a scale from 1-10?"
@@ -164,11 +172,15 @@ def clean_ai_response(
                         parsed_json["possible_conditions"] = "Does the lightheadedness happen mostly when you stand up or change positions?"
                     elif "nausea" in combined_text or "vomiting" in combined_text:
                         parsed_json["possible_conditions"] = "Have you been able to keep fluids down, or have you been dehydrated recently?"
+                    elif "headache" in combined_text:
+                        parsed_json["possible_conditions"] = "Does the headache feel worse with light or sound?"
+                    elif "fever" in combined_text or "temperature" in combined_text:
+                        parsed_json["possible_conditions"] = "How high has your temperature been, and how long has it lasted?"
                     else:
                         bot_messages = [msg["message"].lower() for msg in conversation_history[-5:] if msg.get("isBot", True)]
                         if any("tell me more about your symptoms" in msg for msg in bot_messages):
                             varied_questions = [
-                                "Let me try a different approach. When did these symptoms first begin?",
+                                "When did these symptoms first begin?",
                                 "Has anything made your symptoms better or worse?",
                                 "How has this affected your daily activities?",
                                 "Have you tried any treatments or remedies so far?"
@@ -177,7 +189,13 @@ def clean_ai_response(
                         else:
                             parsed_json["possible_conditions"] = "Could you describe your symptoms in more detail?"
                 else:
-                    parsed_json["possible_conditions"] = "Could you describe your symptoms in more detail?"
+                    # First message case
+                    if "pain" in symptom.lower():
+                        parsed_json["possible_conditions"] = "Where exactly do you feel the pain?"
+                    elif "cough" in symptom.lower():
+                        parsed_json["possible_conditions"] = "Is the cough dry or producing phlegm?"
+                    else:
+                        parsed_json["possible_conditions"] = "Could you describe your symptoms in more detail?"
 
         # Enforce mutual exclusivity of is_assessment and is_question
         if parsed_json["is_assessment"] and parsed_json["is_question"]:
@@ -192,7 +210,13 @@ def clean_ai_response(
                 logger.info(f"Confidence {confidence} below {MIN_CONFIDENCE_THRESHOLD}%, converting to question")
                 parsed_json["is_assessment"] = False
                 parsed_json["is_question"] = True
-                parsed_json["possible_conditions"] = "I need more details to be certain—can you describe any other symptoms?"
+                # Dynamic question based on symptom
+                if "pain" in symptom.lower():
+                    parsed_json["possible_conditions"] = "Can you describe the pain—sharp, dull, or throbbing?"
+                elif "fever" in symptom.lower():
+                    parsed_json["possible_conditions"] = "Have you had any chills or sweating with the fever?"
+                else:
+                    parsed_json["possible_conditions"] = "I need more details to be certain—can you describe any other symptoms?"
                 parsed_json["confidence"] = None
                 parsed_json["triage_level"] = None
                 parsed_json["care_recommendation"] = None
