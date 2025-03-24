@@ -1,66 +1,325 @@
-import openai
-import logging
-import os
 import json
-from backend.openai_config import get_openai_client
+import logging
+import random
+import os
+from typing import Dict, Optional, List
+from flask import current_app
+from backend.models import User, UserTierEnum  # Explicitly import User
+from openai import OpenAI  # Import OpenAI client here
 
+# Configure logging
 logger = logging.getLogger(__name__)
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
-if not openai.api_key:
-    raise ValueError("OPENAI_API_KEY environment variable not set.")
+# Constants
+MIN_CONFIDENCE_THRESHOLD = 95  # Updated to match symptom_routes.py (95% instead of 90%)
+MIN_USER_RESPONSES_FOR_ASSESSMENT = 3  # Require at least 3 user responses before allowing an assessment
+CRITICAL_SYMPTOMS = ["chest pain", "shortness of breath", "severe headache", "sudden numbness", "difficulty speaking"]  # Symptoms requiring extra caution
 
-def call_openai_api(messages, response_format={"type": "json_object"}, retries=3):
-    """
-    Call OpenAI's API with robust error handling.
-    """
-    attempt = 0
-    while attempt < retries:
-        try:
-            client = get_openai_client()
-            response = client.chat.completions.create(
-                model="gpt-4o-2024-05-13",  # Pinned to a specific version to prevent model updates
-                messages=messages,
-                response_format=response_format,
-                max_tokens=1200,
-                temperature=0.3  # Lowered from 0.7 to 0.3 for more deterministic behavior
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            logger.warning(f"OpenAI API call failed on attempt {attempt + 1}: {str(e)}")
-            attempt += 1
-            if attempt >= retries:
-                logger.error("Exceeded maximum retry attempts for OpenAI API call")
-                raise
-            import time
-            time.sleep(2 ** attempt)  # Exponential backoff
+# System prompt for OpenAI
+SYSTEM_PROMPT = """You are Michele, an AI medical assistant designed to mimic a doctor's visit. Your goal is to understand the user's symptoms through conversation and provide insights only when highly confident.
 
-def clean_ai_response(raw_response):
+CRITICAL INSTRUCTIONS:
+1. ALWAYS return a valid JSON response with these exact fields:
+   - "is_assessment": boolean (true only if confidence ≥ 95% for a diagnosis)
+   - "is_question": boolean (true if asking a follow-up question)
+   - "possible_conditions": string (question text if is_question, condition name/description if is_assessment) - NEVER RETURN NULL FOR THIS FIELD
+   - "confidence": number (0-100, null if no assessment)
+   - "triage_level": string ("MILD", "MODERATE", "SEVERE", null if no assessment)
+   - "care_recommendation": string (brief advice, null if no assessment)
+   - "requires_upgrade": boolean (set by backend, default false)
+   Optional:
+   - "assessment": object (if is_assessment=true, with "conditions", "triage_level", "care_recommendation")
+   - "doctors_report": string (if requested)
+
+2. For assessments (is_assessment=true):
+   - Include an "assessment" object: {"conditions": [{"name": "Medical Term (Common Name)", "confidence": number}], "triage_level": string, "care_recommendation": string}
+   - Only provide an assessment if confidence is ≥ 95%.
+   - Use 'Medical Term (Common Name)' format (e.g., "Rhinitis (Common Cold)").
+   - NEVER mask condition names with asterisks or other characters.
+
+3. Conversation flow:
+   - For the first user message, set "is_question": true and ask ONE clear follow-up question.
+   - Ask ONE clear, single question at a time until you reach ≥ 95% confidence or gather enough context. Do NOT ask multiple questions in one response—wait for the user's answer before asking another.
+   - NEVER append "(Medical Condition)" to your questions - just ask the question directly.
+   - Avoid diagnosing unless confidence meets the threshold.
+   - For potentially serious conditions (e.g., stroke, heart attack), ask differentiating questions until certain.
+   - For common conditions (e.g., common cold, sunburn), suggest home care if appropriate.
+
+4. CRITICAL SAFETY INSTRUCTION: Always follow a 'rule-out worst first' approach. For any symptom presentation, first consider and rule out life-threatening conditions before suggesting benign diagnoses.
+
+5. IMPORTANT: For chest discomfort, shortness of breath, or related symptoms, ALWAYS consider cardiovascular causes first (heart attack, angina, etc.) before respiratory conditions.
+
+6. CRITICAL ERROR PREVENTION:
+   - NEVER return null or empty values for "possible_conditions"
+   - If you're asking a question, "is_question" MUST be true
+   - If you're providing an assessment, "is_assessment" MUST be true
+   - Either "is_question" or "is_assessment" must be true, never both or neither
+
+7. Be concise, empathetic, and precise. Avoid guessing—ask questions if unsure.
+8. Include "doctors_report" as a formatted string only when explicitly requested.
+"""
+
+def build_openai_messages(
+    system_prompt: str,
+    conversation_history: Optional[List[Dict]] = None,
+    symptom_input: Optional[str] = None,
+    additional_instructions: Optional[str] = None
+) -> List[Dict]:
     """
-    Minimal utility to parse and set defaults for OpenAI responses.
-    WARNING: This is a lightweight function and should NOT be used for the main symptom
-    analysis flow in /symptoms/analyze. Use the clean_ai_response function in openai_config.py
-    instead, as it includes critical validation logic for accurate assessments.
+    Build a list of messages for OpenAI API calls.
+
+    Args:
+        system_prompt (str): The system prompt to set the assistant's behavior.
+        conversation_history (List[Dict], optional): List of previous messages with 'message' and 'isBot' keys.
+        symptom_input (str, optional): The user's symptom description or input.
+        additional_instructions (str, optional): Extra instructions to append to the last message.
+
+    Returns:
+        List[Dict]: A list of messages in OpenAI-compatible format (role, content).
     """
+    messages = [{"role": "system", "content": system_prompt}]
+    
+    if conversation_history:
+        for entry in conversation_history:
+            role = "assistant" if entry.get("isBot", False) else "user"
+            messages.append({"role": role, "content": entry.get("message", "")})
+    
+    if symptom_input:
+        content = symptom_input
+        if additional_instructions:
+            content += " " + additional_instructions
+        # Only add symptom_input if it's the latest user input (not redundant with history)
+        if not conversation_history or conversation_history[-1].get("isBot", False):
+            messages.append({"role": "user", "content": content})
+        elif messages[-1]["role"] == "user":
+            messages[-1]["content"] += " " + content  # Append to last user message if applicable
+    
+    return messages
+
+def clean_ai_response(
+    response_text: str,
+    user: Optional[User] = None,
+    conversation_history: Optional[List] = None,
+    symptom: str = ""
+) -> Dict:
+    """
+    Process OpenAI API response, ensuring valid JSON output with dynamic, context-aware questions.
+    """
+    # Log input details
+    is_production = current_app.config.get("ENV") == "production"
+    logger.setLevel(logging.INFO if is_production else logging.DEBUG)
+    logger.debug(f"Processing symptom: {symptom}")
+    if conversation_history:
+        logger.debug(f"Conversation history: {json.dumps(conversation_history)}")
+    logger.info(f"Raw AI response: {response_text[:100]}...")
+
+    # Handle empty or invalid response
+    if not isinstance(response_text, str) or not response_text.strip():
+        logger.warning("Empty or invalid AI response received")
+        return {
+            "is_assessment": False,
+            "is_question": True,
+            "possible_conditions": "I couldn't process that—can you describe your symptoms again?",
+            "confidence": None,
+            "triage_level": None,
+            "care_recommendation": None,
+            "requires_upgrade": False,
+            "disclaimer": "This is for informational purposes only, not a substitute for medical advice."
+        }
+
     try:
-        if isinstance(raw_response, str):
-            response_data = json.loads(raw_response)
-        elif isinstance(raw_response, dict):
-            response_data = raw_response
-        else:
-            logger.error("Unexpected response format from OpenAI")
-            raise ValueError("Unexpected OpenAI response format")
+        # Parse JSON response
+        parsed_json = json.loads(response_text)
+        if not isinstance(parsed_json, dict):
+            raise ValueError("Response is not a dictionary")
 
-        # Set defaults if missing
-        response_data.setdefault("is_assessment", False)
-        response_data.setdefault("is_question", False)
-        response_data.setdefault("possible_conditions", "")
-        response_data.setdefault("confidence", None)
-        response_data.setdefault("triage_level", None)
-        response_data.setdefault("care_recommendation", None)
-        response_data.setdefault("requires_upgrade", False)
+        # Define required fields with defaults
+        required_fields = {
+            "is_assessment": False,
+            "is_question": True,
+            "possible_conditions": "Can you tell me more about your symptoms?",
+            "confidence": None,
+            "triage_level": None,
+            "care_recommendation": None,
+            "requires_upgrade": False
+        }
 
-        return response_data
+        # Ensure all required fields are present
+        for field, default in required_fields.items():
+            parsed_json.setdefault(field, default)
+            if parsed_json[field] is None and field not in ["confidence", "triage_level", "care_recommendation"]:
+                logger.warning(f"Field '{field}' is None, setting to default")
+                parsed_json[field] = default
+
+        # Additional validation: Check conversation history and critical symptoms
+        user_response_count = 0
+        has_critical_symptoms = False
+        combined_text = symptom.lower()
+        if conversation_history:
+            user_response_count = sum(1 for msg in conversation_history if not msg.get("isBot", True))
+            combined_text += " " + " ".join(msg["message"].lower() for msg in conversation_history if not msg.get("isBot", True))
+            has_critical_symptoms = any(critical in combined_text for critical in CRITICAL_SYMPTOMS)
+
+        # Force a question if not enough user responses or critical symptoms are present
+        if parsed_json["is_assessment"]:
+            if user_response_count < MIN_USER_RESPONSES_FOR_ASSESSMENT or has_critical_symptoms:
+                logger.info(f"Forcing question: responses ({user_response_count}/{MIN_USER_RESPONSES_FOR_ASSESSMENT}), critical symptoms: {has_critical_symptoms}")
+                parsed_json["is_assessment"] = False
+                parsed_json["is_question"] = True
+                # Dynamic question based on context
+                if has_critical_symptoms:
+                    if "chest pain" in combined_text or "shortness of breath" in combined_text:
+                        parsed_json["possible_conditions"] = "Does the chest discomfort get worse with exertion, like walking or climbing stairs?"
+                    elif "severe headache" in combined_text:
+                        parsed_json["possible_conditions"] = "Is the headache sudden and unlike any you've had before?"
+                    elif "sudden numbness" in combined_text or "difficulty speaking" in combined_text:
+                        parsed_json["possible_conditions"] = "Did the numbness or speech difficulty come on suddenly?"
+                    else:
+                        parsed_json["possible_conditions"] = "Have you noticed any other unusual symptoms, like sudden weakness or confusion?"
+                else:
+                    varied_questions = [
+                        "When did these symptoms first start?",
+                        "Have you noticed anything that makes the symptoms better or worse?",
+                        "How has this affected your daily activities?",
+                        "Have you tried any remedies or treatments so far?"
+                    ]
+                    parsed_json["possible_conditions"] = random.choice(varied_questions)
+                parsed_json["confidence"] = None
+                parsed_json["triage_level"] = None
+                parsed_json["care_recommendation"] = None
+                if "assessment" in parsed_json:
+                    del parsed_json["assessment"]
+
+        # CRITICAL FIX: Handle inconsistent state where possible_conditions is null or empty
+        if not parsed_json["possible_conditions"] or parsed_json["possible_conditions"] == "":
+            logger.warning("possible_conditions is null or empty - fixing inconsistent state")
+            if not parsed_json["is_assessment"]:
+                parsed_json["is_question"] = True
+                
+                # Generate a better question based on conversation context
+                if conversation_history and len(conversation_history) > 0:
+                    user_messages = [msg["message"].lower() for msg in conversation_history if not msg.get("isBot", True)]
+                    combined_text = " ".join(user_messages + [symptom.lower()])
+                    
+                    if "burn" in combined_text and ("pee" in combined_text or "urin" in combined_text):
+                        parsed_json["possible_conditions"] = "How severe is the burning sensation when you urinate, on a scale from 1-10?"
+                    elif "frequent" in combined_text or "urgency" in combined_text:
+                        parsed_json["possible_conditions"] = "How often do you feel the need to urinate compared to your normal pattern?"
+                    elif "lightheaded" in combined_text or "dizzy" in combined_text:
+                        parsed_json["possible_conditions"] = "Does the lightheadedness happen mostly when you stand up or change positions?"
+                    elif "nausea" in combined_text or "vomiting" in combined_text:
+                        parsed_json["possible_conditions"] = "Have you been able to keep fluids down, or have you been dehydrated recently?"
+                    elif "headache" in combined_text:
+                        parsed_json["possible_conditions"] = "Does the headache feel worse with light or sound?"
+                    elif "fever" in combined_text or "temperature" in combined_text:
+                        parsed_json["possible_conditions"] = "How high has your temperature been, and how long has it lasted?"
+                    else:
+                        bot_messages = [msg["message"].lower() for msg in conversation_history[-5:] if msg.get("isBot", True)]
+                        if any("tell me more about your symptoms" in msg for msg in bot_messages):
+                            varied_questions = [
+                                "When did these symptoms first begin?",
+                                "Has anything made your symptoms better or worse?",
+                                "How has this affected your daily activities?",
+                                "Have you tried any treatments or remedies so far?"
+                            ]
+                            parsed_json["possible_conditions"] = random.choice(varied_questions)
+                        else:
+                            parsed_json["possible_conditions"] = "Could you describe your symptoms in more detail?"
+                else:
+                    # First message case
+                    if "pain" in symptom.lower():
+                        parsed_json["possible_conditions"] = "Where exactly do you feel the pain?"
+                    elif "cough" in symptom.lower():
+                        parsed_json["possible_conditions"] = "Is the cough dry or producing phlegm?"
+                    else:
+                        parsed_json["possible_conditions"] = "Could you describe your symptoms in more detail?"
+
+        # Enforce mutual exclusivity of is_assessment and is_question
+        if parsed_json["is_assessment"] and parsed_json["is_question"]:
+            logger.warning("Both is_assessment and is_question are true, prioritizing question")
+            parsed_json["is_assessment"] = False
+            parsed_json["is_question"] = True
+
+        # Validate assessment confidence
+        if parsed_json["is_assessment"]:
+            confidence = parsed_json.get("confidence")
+            if confidence is None or confidence < MIN_CONFIDENCE_THRESHOLD:
+                logger.info(f"Confidence {confidence} below {MIN_CONFIDENCE_THRESHOLD}%, converting to question")
+                parsed_json["is_assessment"] = False
+                parsed_json["is_question"] = True
+                # Dynamic question based on symptom
+                if "pain" in symptom.lower():
+                    parsed_json["possible_conditions"] = "Can you describe the pain—sharp, dull, or throbbing?"
+                elif "fever" in symptom.lower():
+                    parsed_json["possible_conditions"] = "Have you had any chills or sweating with the fever?"
+                else:
+                    parsed_json["possible_conditions"] = "I need more details to be certain—can you describe any other symptoms?"
+                parsed_json["confidence"] = None
+                parsed_json["triage_level"] = None
+                parsed_json["care_recommendation"] = None
+                if "assessment" in parsed_json:
+                    del parsed_json["assessment"]
+            else:
+                # Clean condition names in assessment
+                if "assessment" in parsed_json and isinstance(parsed_json["assessment"], dict):
+                    if "conditions" in parsed_json["assessment"] and isinstance(parsed_json["assessment"]["conditions"], list):
+                        for condition in parsed_json["assessment"]["conditions"]:
+                            if "name" in condition:
+                                condition["name"] = condition["name"].replace("*", "").strip()
+                
+                if isinstance(parsed_json["possible_conditions"], str):
+                    parsed_json["possible_conditions"] = parsed_json["possible_conditions"].replace("*", "").strip()
+                    parsed_json["possible_conditions"] = parsed_json["possible_conditions"].replace("(Medical Condition)", "").strip()
+                elif isinstance(parsed_json["possible_conditions"], list):
+                    cleaned_conditions = []
+                    for condition in parsed_json["possible_conditions"]:
+                        cleaned = condition.replace("*", "").strip()
+                        cleaned = cleaned.replace("(Medical Condition)", "").strip()
+                        cleaned_conditions.append(cleaned)
+                    parsed_json["possible_conditions"] = cleaned_conditions
+
+        # Ensure only one question is asked
+        if parsed_json["is_question"]:
+            question_text = parsed_json["possible_conditions"]
+            if isinstance(question_text, str):
+                question_text = question_text.replace("(Medical Condition)", "").strip()
+                if question_text.count("?") > 1:
+                    logger.warning(f"Multiple questions detected in: {question_text}")
+                    first_question = question_text.split("?")[0] + "?"
+                    parsed_json["possible_conditions"] = first_question
+                else:
+                    parsed_json["possible_conditions"] = question_text
+
+        logger.info(f"Processed response: {json.dumps(parsed_json, indent=2)}")
+        return parsed_json
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse response as JSON: {str(e)}")
+        is_question = "?" in response_text
+        return {
+            "is_assessment": False,
+            "is_question": is_question,
+            "possible_conditions": response_text.strip() if is_question else "I'm having trouble understanding. Can you describe your symptoms differently?",
+            "confidence": None,
+            "triage_level": None,
+            "care_recommendation": None,
+            "requires_upgrade": False
+        }
     except Exception as e:
-        logger.error(f"Error cleaning OpenAI response: {str(e)}", exc_info=True)
-        raise
+        logger.error(f"Unexpected error processing response: {str(e)}", exc_info=True)
+        return {
+            "is_assessment": False,
+            "is_question": True,
+            "possible_conditions": "I encountered an issue processing your information. Could you try describing your symptoms again?",
+            "confidence": None,
+            "triage_level": None,
+            "care_recommendation": None,
+            "requires_upgrade": False
+        }
+
+def get_openai_client():
+    """
+    Returns an OpenAI client instance using the API key from environment variables.
+    """
+    api_key = os.getenv("OPENAI_API_KEY")
+    return OpenAI(api_key=api_key)

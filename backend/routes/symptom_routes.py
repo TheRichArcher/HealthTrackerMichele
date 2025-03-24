@@ -4,7 +4,7 @@ from backend.models import User, SymptomLog, Report, UserTierEnum, CareRecommend
 from backend.extensions import db
 from backend.utils.auth import generate_temp_user_id, token_required
 from backend.utils.pdf_generator import generate_pdf_report
-from backend.utils.openai_utils import call_openai_api
+from backend.utils.openai_utils import call_openai_api, build_openai_messages
 from backend.utils.access_control import can_access_assessment_details
 from backend.utils.user_utils import is_temp_user
 from backend import openai_config
@@ -44,36 +44,6 @@ def is_premium_user(user):
         logger.debug(f"Token verification failed in is_premium_user: {str(e)}")
     
     return False
-
-def prepare_conversation_messages(symptom, conversation_history):
-    """Prepare the conversation messages for OpenAI API."""
-    custom_system_prompt = """You are Michele, an AI medical assistant designed to mimic a doctor's visit. Your goal is to understand the user's symptoms through conversation and provide insights only when highly confident.
-
-    CRITICAL INSTRUCTIONS:
-    1. ALWAYS return a valid JSON response with these exact fields:
-       - "is_assessment": boolean (true only if confidence ≥ 95%)
-       - "is_question": boolean (true if asking a follow-up question)
-       - "possible_conditions": string (question text or condition name)
-       - "confidence": number (0-100, null if no assessment)
-       - "triage_level": string ("MILD", "MODERATE", "SEVERE", null if no assessment)
-       - "care_recommendation": string (brief advice, null if no assessment)
-       - "requires_upgrade": boolean (set by backend, default false)
-    Optional:
-       - "assessment_id": integer (if is_assessment=true)
-       - "doctors_report": string (if requested)
-
-    2. For assessments: Format conditions as "Medical Term (Common Name)".
-    3. Ask ONE clear question at a time until ≥ 95% confidence.
-    4. Rule out life-threatening conditions first (e.g., cardiovascular for chest discomfort).
-    5. Be concise, empathetic, and precise."""
-    
-    messages = [{"role": "system", "content": custom_system_prompt}]
-    for entry in conversation_history:
-        role = "assistant" if entry.get("isBot", False) else "user"
-        messages.append({"role": role, "content": entry.get("message", "")})
-    if not conversation_history or conversation_history[-1].get("isBot", False):
-        messages.append({"role": "user", "content": symptom})
-    return messages
 
 @symptom_routes.route("/count", methods=["GET"])
 @token_required
@@ -128,7 +98,32 @@ def analyze_symptoms():
     if not isinstance(conversation_history, list):
         return jsonify({"error": "Conversation history must be a list."}), 400
 
-    messages = prepare_conversation_messages(symptom, conversation_history)
+    system_prompt = """You are Michele, an AI medical assistant designed to mimic a doctor's visit. Your goal is to understand the user's symptoms through conversation and provide insights only when highly confident.
+
+    CRITICAL INSTRUCTIONS:
+    1. ALWAYS return a valid JSON response with these exact fields:
+       - "is_assessment": boolean (true only if confidence ≥ 95%)
+       - "is_question": boolean (true if asking a follow-up question)
+       - "possible_conditions": string (question text or condition name)
+       - "confidence": number (0-100, null if no assessment)
+       - "triage_level": string ("MILD", "MODERATE", "SEVERE", null if no assessment)
+       - "care_recommendation": string (brief advice, null if no assessment)
+       - "requires_upgrade": boolean (set by backend, default false)
+    Optional:
+       - "assessment_id": integer (if is_assessment=true)
+       - "doctors_report": string (if requested)
+
+    2. For assessments: Format conditions as "Medical Term (Common Name)".
+    3. Ask ONE clear question at a time until ≥ 95% confidence.
+    4. Rule out life-threatening conditions first (e.g., cardiovascular for chest discomfort).
+    5. Be concise, empathetic, and precise."""
+    
+    messages = build_openai_messages(
+        system_prompt=system_prompt,
+        conversation_history=conversation_history,
+        symptom_input=symptom
+    )
+    
     try:
         raw_response = call_openai_api(messages, response_format={"type": "json_object"})
         result = openai_config.clean_ai_response(
@@ -285,8 +280,32 @@ def generate_doctor_report():
     if not symptom:
         return jsonify({"error": "Symptom is required."}), 400
 
-    messages = prepare_conversation_messages(symptom, conversation_history)
-    messages[-1]["content"] += " Generate a comprehensive medical report suitable for healthcare providers."
+    system_prompt = """You are Michele, an AI medical assistant designed to mimic a doctor's visit. Your goal is to understand the user's symptoms through conversation and provide insights only when highly confident.
+
+    CRITICAL INSTRUCTIONS:
+    1. ALWAYS return a valid JSON response with these exact fields:
+       - "is_assessment": boolean (true only if confidence ≥ 95%)
+       - "is_question": boolean (true if asking a follow-up question)
+       - "possible_conditions": string (question text or condition name)
+       - "confidence": number (0-100, null if no assessment)
+       - "triage_level": string ("MILD", "MODERATE", "SEVERE", null if no assessment)
+       - "care_recommendation": string (brief advice, null if no assessment)
+       - "requires_upgrade": boolean (set by backend, default false)
+    Optional:
+       - "assessment_id": integer (if is_assessment=true)
+       - "doctors_report": string (if requested)
+
+    2. For assessments: Format conditions as "Medical Term (Common Name)".
+    3. Ask ONE clear question at a time until ≥ 95% confidence.
+    4. Rule out life-threatening conditions first (e.g., cardiovascular for chest discomfort).
+    5. Be concise, empathetic, and precise."""
+    
+    messages = build_openai_messages(
+        system_prompt=system_prompt,
+        conversation_history=conversation_history,
+        symptom_input=symptom,
+        additional_instructions="Generate a comprehensive medical report suitable for healthcare providers."
+    )
     
     try:
         raw_response = call_openai_api(messages, response_format={"type": "json_object"})
@@ -298,7 +317,7 @@ def generate_doctor_report():
         )
         doctor_report = result.get("doctors_report") or f"""
         MEDICAL CONSULTATION REPORT
-        Date: {datetime.utcnow().strftime("%Y-%m-%d")}
+        Date: {{datetime.utcnow().strftime("%Y-%m-%d")}}
         PATIENT SYMPTOMS: {symptom}
         ASSESSMENT: {result.get("possible_conditions", "Unknown")}
         CONFIDENCE: {result.get("confidence", "Unknown")}%

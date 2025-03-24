@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
 from backend.models import Report, User, CareRecommendationEnum, UserTierEnum
 from backend.extensions import db
-from backend.utils.openai_utils import call_openai_api
+from backend.utils.openai_utils import call_openai_api, build_openai_messages
 from backend.utils.pdf_generator import generate_pdf_report
 from backend.utils.access_control import can_access_assessment_details
 from datetime import datetime
@@ -14,12 +14,13 @@ report_routes = Blueprint("report_routes", __name__, url_prefix="/api/reports")
 def determine_triage_level(symptoms, timeline):
     """Determine the triage level using OpenAI based on symptoms and timeline."""
     symptom_text = ", ".join(symptoms) if symptoms else "Not specified"
-    prompt = [
-        {"role": "system", "content": "You are a medical assistant. Based on the symptoms and timeline, determine the triage level (AT_HOME, MODERATE, SEVERE). Respond with only the triage level in uppercase."},
-        {"role": "user", "content": f"Symptoms: {symptom_text}\nTimeline: {timeline}"}
-    ]
+    system_prompt = "You are a medical assistant. Based on the symptoms and timeline, determine the triage level (AT_HOME, MODERATE, SEVERE). Respond with only the triage level in uppercase."
+    messages = build_openai_messages(
+        system_prompt=system_prompt,
+        symptom_input=f"Symptoms: {symptom_text}\nTimeline: {timeline}"
+    )
     try:
-        triage_level = call_openai_api(prompt, max_tokens=10).strip()
+        triage_level = call_openai_api(messages, max_tokens=10).strip()
         if triage_level not in ["AT_HOME", "MODERATE", "SEVERE"]:
             logger.warning(f"Invalid triage level received: {triage_level}, defaulting to MODERATE")
             return "MODERATE"
@@ -52,11 +53,13 @@ def generate_report():
         logger.info(f"Determined triage_level: {triage_level} for symptoms: {symptoms}")
 
         symptom_text = ", ".join(symptoms) if symptoms else "Not specified"
-        prompt = [
-            {"role": "system", "content": "You are a medical assistant. Generate a concise medical report based on the user's symptoms and timeline. Respond as plain text with sections: Summary, Possible Conditions, Recommendations."},
-            {"role": "user", "content": f"Symptoms: {symptom_text}\nTimeline: {timeline}"}
-        ]
-        content = call_openai_api(prompt, max_tokens=500)
+        system_prompt = "You are a medical assistant. Generate a concise medical report based on the user's symptoms and timeline. Respond as plain text with sections: Summary, Possible Conditions, Recommendations."
+        messages = build_openai_messages(
+            system_prompt=system_prompt,
+            symptom_input=f"Symptoms: {symptom_text}\nTimeline: {timeline}"
+        )
+        
+        content = call_openai_api(messages, max_tokens=500)
 
         possible_conditions = "Unknown"
         for line in content.split("\n"):
