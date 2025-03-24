@@ -4,6 +4,7 @@ from datetime import timedelta, datetime
 from backend.extensions import db
 from backend.models import User, Report, UserTierEnum, CareRecommendationEnum, RevokedToken
 from backend.utils.pdf_generator import generate_pdf_report
+from backend.utils.user_utils import is_temp_user
 import stripe
 import logging
 import os
@@ -73,7 +74,7 @@ def upgrade_subscription():
             success_url=f'{FRONTEND_URL}/chat?session_id={{CHECKOUT_SESSION_ID}}',
             cancel_url=f'{FRONTEND_URL}/cancel',
             metadata={
-                'user_id': str(user_id) if user_id else temp_user_id,
+                'user_id': str(user_id) if user_id and not isinstance(user_id, str) else temp_user_id,
                 'assessment_id': str(assessment_id) if assessment_id else None,
                 'assessment_data': json.dumps(assessment_data) if assessment_data else None,
                 'plan': plan
@@ -195,7 +196,7 @@ def confirm_subscription():
         }
 
         # Generate access token
-        identity = f"user_{user_id}" if user_id and authenticated else temp_user_id
+        identity = f"user_{user_id}" if user_id and authenticated and not is_temp_user(user) else temp_user_id
         expires_delta = None if plan == 'paid' else timedelta(hours=1)  # Temp token for one-time
         access_token = create_access_token(identity=identity, expires_delta=expires_delta)
         response['access_token'] = access_token

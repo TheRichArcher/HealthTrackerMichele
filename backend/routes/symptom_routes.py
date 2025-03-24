@@ -6,6 +6,7 @@ from backend.utils.auth import generate_temp_user_id, token_required
 from backend.utils.pdf_generator import generate_pdf_report
 from backend.utils.openai_utils import call_openai_api
 from backend.utils.access_control import can_access_assessment_details
+from backend.utils.user_utils import is_temp_user
 from backend import openai_config
 import openai
 import os
@@ -318,7 +319,7 @@ def generate_doctor_report():
         }
         report_url = generate_pdf_report(report_data)
 
-        if user_id and isinstance(user_id, int) and can_access_assessment_details(current_user):
+        if user_id and isinstance(user_id, int) and not is_temp_user(current_user) and can_access_assessment_details(current_user):
             notes = {
                 "response": result,
                 "condition_common": report_data["condition_common"],
