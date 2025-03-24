@@ -329,7 +329,7 @@ const Chat = () => {
     const token = localStorage.getItem('access_token') || '';
     if (action === 'premium') {
       if (!isAuthenticated) navigate('/auth');
-      else navigate('/subscribe');
+      else navigate('/subscription'); // Updated to match route in App.jsx
     } else if (action === 'report') {
       const latestUserMessage = messages.filter(msg => msg.sender === 'user').slice(-1)[0]?.text || '';
       const payload = isAuthenticated
@@ -395,7 +395,10 @@ const Chat = () => {
         const errorData = await response.json();
         if (response.status === 403 && errorData.requires_upgrade) {
           if (!isAuthenticated) {
-            navigate('/auth');
+            addBotMessage("Please log in to continue discussing your symptoms, as a serious condition was detected.");
+            setTimeout(() => navigate('/auth'), CONFIG.SALES_PITCH_DELAY);
+            setLoading(false);
+            setTyping(false);
             return;
           }
           addBotMessage("Please upgrade to continue discussing your symptoms, as a serious condition was detected.");
@@ -413,32 +416,52 @@ const Chat = () => {
       setTyping(false);
 
       if (data.response?.is_assessment) {
-        const { confidence, triage_level, care_recommendation, possible_conditions, assessment_id } = data.response;
-        const medicalTerm = possible_conditions || 'Unknown condition';
-        const assessmentMessage = `I've identified ${medicalTerm} as a possible condition.\n\nConfidence: ${confidence ? confidence + '%' : 'N/A'}`;
-        addBotMessage(assessmentMessage, true, confidence, triage_level, care_recommendation);
+        const { confidence, triage_level, care_recommendation, possible_conditions, assessment_id, requires_upgrade } = data.response;
+        let medicalTerm = possible_conditions || 'Unknown condition';
+        let displayConfidence = confidence;
+        let displayTriageLevel = triage_level;
+        let displayCareRecommendation = care_recommendation;
+
+        // Handle backend response indicating login required
+        if (possible_conditions === "Login required for detailed assessment" && !isAuthenticated) {
+          medicalTerm = "Possible condition identified";
+          displayConfidence = null;
+          displayTriageLevel = "N/A";
+          displayCareRecommendation = "Login for detailed assessment";
+        }
+
+        const assessmentMessage = `I've identified ${medicalTerm} as a possible condition.\n\nConfidence: ${displayConfidence ? displayConfidence + '%' : 'N/A'}`;
+        addBotMessage(assessmentMessage, true, displayConfidence, displayTriageLevel, displayCareRecommendation);
 
         setLatestAssessment({
           condition: medicalTerm,
-          confidence,
-          triageLevel: triage_level,
-          recommendation: care_recommendation,
+          confidence: displayConfidence,
+          triageLevel: displayTriageLevel,
+          recommendation: displayCareRecommendation,
           assessmentId: assessment_id,
         });
 
         setTimeout(() => {
-          const recommendationMessage = `Severity: ${triage_level ? triage_level.toUpperCase() : 'N/A'}\nRecommendation: ${care_recommendation || 'N/A'}`;
+          const recommendationMessage = `Severity: ${displayTriageLevel ? displayTriageLevel.toUpperCase() : 'N/A'}\nRecommendation: ${displayCareRecommendation || 'N/A'}`;
           addBotMessage(recommendationMessage);
 
           setTimeout(() => {
-            const isMildCase = triage_level && triage_level.toLowerCase() === 'mild';
-            addBotMessage("For deeper analysis, consider upgrading:", false);
-            setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, isMildCase), CONFIG.SALES_PITCH_DELAY);
+            const isMildCase = displayTriageLevel && displayTriageLevel.toLowerCase() === 'mild';
+            if (possible_conditions === "Login required for detailed assessment" && !isAuthenticated) {
+              addBotMessage("Please log in for a detailed assessment.");
+              setTimeout(() => navigate('/auth'), CONFIG.SALES_PITCH_DELAY);
+            } else {
+              addBotMessage("For deeper analysis, consider upgrading:", false);
+              setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, isMildCase), CONFIG.SALES_PITCH_DELAY);
+            }
           }, CONFIG.RECOMMENDATION_DELAY);
         }, CONFIG.ASSESSMENT_DELAY);
       } else if (data.response?.requires_upgrade) {
         if (!isAuthenticated) {
-          navigate('/auth');
+          addBotMessage("Please log in to continue discussing your symptoms, as a serious condition was detected.");
+          setTimeout(() => navigate('/auth'), CONFIG.SALES_PITCH_DELAY);
+          setLoading(false);
+          setTyping(false);
           return;
         }
         const isMildCase = data.response.triage_level?.toLowerCase() === 'mild';

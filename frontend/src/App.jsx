@@ -82,7 +82,7 @@ const App = () => {
                     <Suspense fallback={<LoadingSpinner message="Loading..." />}>
                         <Routes>
                             {/* Public Routes */}
-                            <Route path="/" element={<Chat />} />
+                            <Route path="/" element={<Navigate to="/chat" replace />} />
                             <Route path="/chat" element={<Chat />} />
                             <Route path="/auth" element={<AuthPage />} />
                             <Route path="/library" element={<Library />} />
@@ -146,7 +146,7 @@ const App = () => {
                             {/* Redirects */}
                             <Route path="/login" element={<AuthPage />} />
                             <Route path="/signup" element={<AuthPage initialMode="signup" />} />
-                            <Route path="*" element={<Navigate to="/" replace />} />
+                            <Route path="*" element={<Navigate to="/chat" replace />} />
                         </Routes>
                         <DebugLogger />
                     </Suspense>
