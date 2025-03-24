@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from './AuthProvider';
-import { removeLocalStorageItem } from '../utils/utils'; // Import the utility function
+import { removeLocalStorageItem } from '../utils/utils';
 import '../styles/SubscriptionPage.css';
 
 const API_BASE_URL = 'https://healthtrackermichele.onrender.com/api';
@@ -64,12 +64,14 @@ const SubscriptionPage = () => {
       if (report_url) {
         localStorage.setItem('healthtracker_report_url', report_url);
         setSuccess(true);
-        // Clear access_token for one-time report purchases unless user is upgraded to premium
+        // Ensure token cleanup happens before navigation for one-time reports
         if (confirmedPlan === 'one_time') {
-          removeLocalStorageItem('access_token'); // Use the utility function
+          removeLocalStorageItem('access_token');
           console.log('Cleared access_token from localStorage after one-time report purchase');
+          setTimeout(() => navigate('/chat'), 2000);
+        } else {
+          setTimeout(() => navigate('/chat'), 2000);
         }
-        setTimeout(() => navigate('/chat'), 2000);
       } else {
         setError('Failed to confirm subscription. Please try again.');
       }
