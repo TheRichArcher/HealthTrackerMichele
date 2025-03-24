@@ -39,6 +39,12 @@ const AuthProvider = ({ children }) => {
             setSubscriptionTier(response.data.subscription_tier);
         } catch (error) {
             console.error('Error fetching subscription status:', error.response?.data || error.message);
+            if (error.response?.status === 401 || error.response?.status === 422) {
+                console.warn('Clearing expired tokens due to error in fetchSubscriptionStatus');
+                removeLocalStorageItem('access_token');
+                removeLocalStorageItem('refresh_token');
+                setIsAuthenticated(false);
+            }
         }
     }, []);
 
@@ -62,12 +68,18 @@ const AuthProvider = ({ children }) => {
             return true;
         } catch (error) {
             console.log('Token validation failed:', error.response?.data || error.message);
-            if (error.response?.status === 401 && !isRetry) {
-                console.log('Attempting token refresh due to 401');
-                const refreshed = await refreshToken();
-                if (refreshed) {
-                    const newToken = getLocalStorageItem('access_token');
-                    return await validateToken(newToken, true);
+            if (error.response?.status === 401 || error.response?.status === 422) {
+                console.warn('Clearing expired tokens due to validation error');
+                removeLocalStorageItem('access_token');
+                removeLocalStorageItem('refresh_token');
+                setIsAuthenticated(false);
+                if (!isRetry) {
+                    console.log('Attempting token refresh due to 401');
+                    const refreshed = await refreshToken();
+                    if (refreshed) {
+                        const newToken = getLocalStorageItem('access_token');
+                        return await validateToken(newToken, true);
+                    }
                 }
             }
             return false;
@@ -99,6 +111,12 @@ const AuthProvider = ({ children }) => {
             throw new Error('Invalid refresh token response');
         } catch (error) {
             console.error('Token refresh failed:', error.response?.data || error.message);
+            if (error.response?.status === 401 || error.response?.status === 422) {
+                console.warn('Clearing expired tokens due to refresh error');
+                removeLocalStorageItem('access_token');
+                removeLocalStorageItem('refresh_token');
+                setIsAuthenticated(false);
+            }
             throw error;
         }
     }, []);
@@ -113,10 +131,6 @@ const AuthProvider = ({ children }) => {
             console.log('No tokens found. Allowing /chat to proceed without redirect.');
             setIsAuthenticated(false);
             setIsLoading(false);
-            if (currentPath === '/chat') {
-                console.log('/chat is public for unauthenticated users; no redirect needed.');
-                return false;
-            }
             if (['/dashboard', '/subscribe'].includes(currentPath)) {
                 console.log('Redirecting to /auth for protected route:', currentPath);
                 navigate('/auth');
@@ -209,7 +223,13 @@ const AuthProvider = ({ children }) => {
 
     useEffect(() => {
         console.log('AuthProvider mounted, checking authentication');
-        checkAuth();
+        const publicRoutes = ['/chat', '/auth', '/subscription', '/one-time-report', '/library', '/'];
+        if (!publicRoutes.includes(window.location.pathname)) {
+            checkAuth();
+        } else {
+            setIsLoading(false);
+            console.log('Skipping checkAuth on public route:', window.location.pathname);
+        }
 
         const interval = setInterval(checkAuth, 60000);
         const refreshInterval = setInterval(async () => {
