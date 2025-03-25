@@ -399,8 +399,8 @@ const Chat = () => {
         if (response.status === 403 && errorData.requires_upgrade) {
           console.log('Chat.jsx: Requires upgrade error received:', errorData);
           if (!isAuthenticated) {
-            addBotMessage("Please log in to continue discussing your symptoms, as a serious condition was detected.");
-            setTimeout(() => navigate('/auth'), CONFIG.SALES_PITCH_DELAY);
+            addBotMessage("For a detailed assessment of this potential serious condition, please log in or upgrade.");
+            setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, false), CONFIG.SALES_PITCH_DELAY);
             setLoading(false);
             setTyping(false);
             return;
@@ -426,11 +426,13 @@ const Chat = () => {
         console.log('Chat.jsx: isAuthenticated:', isAuthenticated);
         let { confidence, triage_level, care_recommendation, possible_conditions, assessment_id, requires_upgrade } = data.response;
 
-        // Step 2: Respect requires_upgrade flag
+        // Respect requires_upgrade flag
         if (requires_upgrade && !isAuthenticated) {
           console.log('Chat.jsx: Requires upgrade for unauthenticated user');
-          addBotMessage("Please log in to view your detailed assessment, as a serious condition may be present.");
-          setTimeout(() => navigate('/auth'), CONFIG.SALES_PITCH_DELAY);
+          addBotMessage("For a detailed assessment of this potential serious condition, please log in or upgrade.");
+          setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, false), CONFIG.SALES_PITCH_DELAY);
+          setLoading(false);
+          setTyping(false);
           return;
         }
 
@@ -467,8 +469,8 @@ const Chat = () => {
       } else if (data.response?.requires_upgrade) {
         console.log('Chat.jsx: Requires upgrade:', data.response);
         if (!isAuthenticated) {
-          addBotMessage("Please log in to continue discussing your symptoms, as a serious condition was detected.");
-          setTimeout(() => navigate('/auth'), CONFIG.SALES_PITCH_DELAY);
+          addBotMessage("For a detailed assessment of this potential serious condition, please log in or upgrade.");
+          setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, false), CONFIG.SALES_PITCH_DELAY);
           setLoading(false);
           setTyping(false);
           return;
