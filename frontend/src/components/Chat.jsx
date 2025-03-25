@@ -257,7 +257,7 @@ const Chat = () => {
           console.log('Confirm response:', res.data);
           if (res.data.access_token) {
             localStorage.setItem('access_token', res.data.access_token);
-            if (isAuthenticated) checkAuth(); // Only re-validate if authenticated
+            if (isAuthenticated) checkAuth();
           }
           if (res.data.success && res.data.report_url) {
             localStorage.setItem(CONFIG.REPORT_URL_KEY, res.data.report_url);
@@ -286,7 +286,6 @@ const Chat = () => {
 
   useEffect(() => {
     focusInput();
-    // Skip checkAuth for /chat route to allow free users without redirect
     if (location.pathname !== '/chat') {
       console.log('checkAuth called for non-chat route');
       checkAuth();
@@ -329,7 +328,7 @@ const Chat = () => {
     const token = localStorage.getItem('access_token') || '';
     if (action === 'premium') {
       if (!isAuthenticated) navigate('/auth');
-      else navigate('/subscription'); // Updated to match route in App.jsx
+      else navigate('/subscription');
     } else if (action === 'report') {
       const latestUserMessage = messages.filter(msg => msg.sender === 'user').slice(-1)[0]?.text || '';
       const payload = isAuthenticated
@@ -422,7 +421,6 @@ const Chat = () => {
         let displayTriageLevel = triage_level;
         let displayCareRecommendation = care_recommendation;
 
-        // Handle backend response indicating login required
         if (possible_conditions === "Login required for detailed assessment" && !isAuthenticated) {
           medicalTerm = "Possible condition identified";
           displayConfidence = null;
@@ -431,7 +429,15 @@ const Chat = () => {
         }
 
         const assessmentMessage = `I've identified ${medicalTerm} as a possible condition.\n\nConfidence: ${displayConfidence ? displayConfidence + '%' : 'N/A'}`;
-        addBotMessage(assessmentMessage, true, displayConfidence, displayTriageLevel, displayCareRecommendation);
+        const recommendationMessage = `Severity: ${displayTriageLevel ? displayTriageLevel.toUpperCase() : 'N/A'}\nRecommendation: ${displayCareRecommendation || 'N/A'}`;
+        const upgradePrompt = "For deeper analysis, consider upgrading:";
+
+        setMessages(prev => [
+          ...prev,
+          { sender: 'bot', text: assessmentMessage, isAssessment: true, confidence: displayConfidence, triageLevel: displayTriageLevel, careRecommendation: displayCareRecommendation },
+          { sender: 'bot', text: recommendationMessage },
+          { sender: 'bot', text: upgradePrompt }
+        ]);
 
         setLatestAssessment({
           condition: medicalTerm,
@@ -442,20 +448,8 @@ const Chat = () => {
         });
 
         setTimeout(() => {
-          const recommendationMessage = `Severity: ${displayTriageLevel ? displayTriageLevel.toUpperCase() : 'N/A'}\nRecommendation: ${displayCareRecommendation || 'N/A'}`;
-          addBotMessage(recommendationMessage);
-
-          setTimeout(() => {
-            const isMildCase = displayTriageLevel && displayTriageLevel.toLowerCase() === 'mild';
-            if (possible_conditions === "Login required for detailed assessment" && !isAuthenticated) {
-              addBotMessage("Please log in for a detailed assessment.");
-              setTimeout(() => navigate('/auth'), CONFIG.SALES_PITCH_DELAY);
-            } else {
-              addBotMessage("For deeper analysis, consider upgrading:", false);
-              setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, isMildCase), CONFIG.SALES_PITCH_DELAY);
-            }
-          }, CONFIG.RECOMMENDATION_DELAY);
-        }, CONFIG.ASSESSMENT_DELAY);
+          setMessages(prev => [...prev, { sender: 'bot', text: "Ready to unlock more?", isUpgradeOptions: true, isMildCase: displayTriageLevel?.toLowerCase() === 'mild' }]);
+        }, CONFIG.SALES_PITCH_DELAY);
       } else if (data.response?.requires_upgrade) {
         if (!isAuthenticated) {
           addBotMessage("Please log in to continue discussing your symptoms, as a serious condition was detected.");

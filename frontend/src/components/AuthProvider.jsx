@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom'; // Ensure useLocation is imported
+import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { getLocalStorageItem, setLocalStorageItem, removeLocalStorageItem } from '../utils/utils';
 
@@ -19,7 +19,7 @@ const AuthContext = createContext();
 
 const AuthProvider = ({ children }) => {
     const navigate = useNavigate();
-    const location = useLocation(); // Added for route awareness
+    const location = useLocation();
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -95,11 +95,15 @@ const AuthProvider = ({ children }) => {
         console.log('Checking authentication status');
         const accessToken = getLocalStorageItem('access_token');
         const userId = getLocalStorageItem('user_id');
-        const currentPath = location.pathname; // Use location.pathname
+        const currentPath = location.pathname;
+        const publicRoutes = ['/chat', '/auth', '/subscription', '/one-time-report', '/library', '/'];
 
         if (!accessToken || !userId) {
             console.log('No tokens found. Allowing /chat to proceed without redirect.');
-            setIsAuthenticated(false);
+            // Only update isAuthenticated if not on a public route
+            if (!publicRoutes.includes(currentPath)) {
+                setIsAuthenticated(false);
+            }
             setIsLoading(false);
             if (['/dashboard', '/subscribe'].includes(currentPath)) {
                 console.log('Redirecting to /auth for protected route:', currentPath);
@@ -129,7 +133,7 @@ const AuthProvider = ({ children }) => {
         } finally {
             setIsLoading(false);
         }
-    }, 300), [fetchSubscriptionStatus, navigate, location]); // Add location to dependencies
+    }, 300), [fetchSubscriptionStatus, navigate, location]);
 
     const login = useCallback(async (credentials, navigateTo = '/dashboard') => {
         setIsLoading(true);
@@ -185,7 +189,7 @@ const AuthProvider = ({ children }) => {
     useEffect(() => {
         console.log('AuthProvider mounted, checking authentication for path:', location.pathname);
         const publicRoutes = ['/chat', '/auth', '/subscription', '/one-time-report', '/library', '/'];
-        if (!publicRoutes.includes(location.pathname)) { // Use location.pathname
+        if (!publicRoutes.includes(location.pathname)) {
             checkAuth();
         } else {
             setIsLoading(false);
@@ -225,7 +229,7 @@ const AuthProvider = ({ children }) => {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             window.removeEventListener('focus', checkAuth);
         };
-    }, [location.pathname, checkAuth, isAuthenticated, refreshToken]); // Add location.pathname
+    }, [location.pathname, checkAuth, isAuthenticated, refreshToken]);
 
     const value = {
         isAuthenticated,
