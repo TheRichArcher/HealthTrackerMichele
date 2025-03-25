@@ -416,17 +416,10 @@ const Chat = () => {
 
       if (data.response?.is_assessment) {
         const { confidence, triage_level, care_recommendation, possible_conditions, assessment_id, requires_upgrade } = data.response;
-        let medicalTerm = possible_conditions || 'Unknown condition';
-        let displayConfidence = confidence;
-        let displayTriageLevel = triage_level;
-        let displayCareRecommendation = care_recommendation;
-
-        if (possible_conditions === "Login required for detailed assessment" && !isAuthenticated) {
-          medicalTerm = "Possible condition identified";
-          displayConfidence = null;
-          displayTriageLevel = "N/A";
-          displayCareRecommendation = "Login for detailed assessment";
-        }
+        const medicalTerm = possible_conditions || 'Unknown condition';
+        const displayConfidence = confidence;
+        const displayTriageLevel = triage_level;
+        const displayCareRecommendation = care_recommendation;
 
         const assessmentMessage = `I've identified ${medicalTerm} as a possible condition.\n\nConfidence: ${displayConfidence ? displayConfidence + '%' : 'N/A'}`;
         const recommendationMessage = `Severity: ${displayTriageLevel ? displayTriageLevel.toUpperCase() : 'N/A'}\nRecommendation: ${displayCareRecommendation || 'N/A'}`;
