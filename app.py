@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, send_file  # Added send_file
 from flask_jwt_extended import JWTManager, jwt_required, get_jwt
 from backend.extensions import db, bcrypt, migrate, cors
 from backend.routes.health_data_routes import health_data_routes
@@ -197,6 +197,14 @@ def create_app():
     @app.route("/<path:path>", methods=["OPTIONS"])
     def handle_options(path):
         return jsonify({"status": "ok"}), 200
+
+    # New route to download deployed-backup.zip (to recover deployed backend code)
+    @app.route('/deployed-backup.zip', methods=["GET"])
+    def download_backup():
+        path = '/opt/render/project/src/deployed-backup.zip'
+        if not os.path.exists(path):
+            return jsonify({"error": "Backup not found"}), 404
+        return send_file(path, as_attachment=True)
 
     return app
 

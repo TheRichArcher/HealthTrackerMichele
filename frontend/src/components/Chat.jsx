@@ -6,6 +6,9 @@ import { useAuth } from './AuthProvider';
 import axios from 'axios';
 import '../styles/Chat.css';
 
+// Deployment confirmation log
+console.log("🔥 Chat.jsx deployed: v2025-03-25-DEV-VERIFY");
+
 const CONFIG = {
   API_URL: `${import.meta.env.VITE_API_URL || '/api'}/symptoms/analyze`,
   RESET_URL: `${import.meta.env.VITE_API_URL || '/api'}/symptoms/reset`,
@@ -370,6 +373,7 @@ const Chat = () => {
   }, [isAuthenticated, navigate, addBotMessage, latestAssessment, messages]);
 
   const handleSendMessage = async () => {
+    console.log("🔥 Chat.jsx: handleSendMessage called - v2025-03-25-DEV-VERIFY");
     if (!userInput.trim() || loading) return;
     setMessages(prev => [...prev, { sender: 'user', text: userInput.trim(), isAssessment: false }]);
     setUserInput('');
@@ -393,6 +397,7 @@ const Chat = () => {
       if (!response.ok) {
         const errorData = await response.json();
         if (response.status === 403 && errorData.requires_upgrade) {
+          console.log('Chat.jsx: Requires upgrade error received:', errorData);
           if (!isAuthenticated) {
             addBotMessage("Please log in to continue discussing your symptoms, as a serious condition was detected.");
             setTimeout(() => navigate('/auth'), CONFIG.SALES_PITCH_DELAY);
@@ -410,40 +415,57 @@ const Chat = () => {
       }
 
       const data = await response.json();
+      console.log('Chat.jsx: Raw response before processing:', JSON.stringify(data));
+      console.log('Chat.jsx: Received response from backend:', data);
 
       setLoading(false);
       setTyping(false);
 
       if (data.response?.is_assessment) {
-        const { confidence, triage_level, care_recommendation, possible_conditions, assessment_id, requires_upgrade } = data.response;
-        const medicalTerm = possible_conditions || 'Unknown condition';
-        const displayConfidence = confidence;
-        const displayTriageLevel = triage_level;
-        const displayCareRecommendation = care_recommendation;
+        console.log('Chat.jsx: Processing assessment:', data.response);
+        console.log('Chat.jsx: isAuthenticated:', isAuthenticated);
+        let { confidence, triage_level, care_recommendation, possible_conditions, assessment_id, requires_upgrade } = data.response;
 
-        const assessmentMessage = `I've identified ${medicalTerm} as a possible condition.\n\nConfidence: ${displayConfidence ? displayConfidence + '%' : 'N/A'}`;
-        const recommendationMessage = `Severity: ${displayTriageLevel ? displayTriageLevel.toUpperCase() : 'N/A'}\nRecommendation: ${displayCareRecommendation || 'N/A'}`;
-        const upgradePrompt = "For deeper analysis, consider upgrading:";
+        // Step 2: Respect requires_upgrade flag
+        if (requires_upgrade && !isAuthenticated) {
+          console.log('Chat.jsx: Requires upgrade for unauthenticated user');
+          addBotMessage("Please log in to view your detailed assessment, as a serious condition may be present.");
+          setTimeout(() => navigate('/auth'), CONFIG.SALES_PITCH_DELAY);
+          return;
+        }
 
-        setMessages(prev => [
-          ...prev,
-          { sender: 'bot', text: assessmentMessage, isAssessment: true, confidence: displayConfidence, triageLevel: displayTriageLevel, careRecommendation: displayCareRecommendation },
-          { sender: 'bot', text: recommendationMessage },
-          { sender: 'bot', text: upgradePrompt }
-        ]);
+        // If requires_upgrade is false, show the assessment to all users
+        if (requires_upgrade === false) {
+          const medicalTerm = possible_conditions || 'Unknown condition';
+          const displayConfidence = confidence;
+          const displayTriageLevel = triage_level;
+          const displayCareRecommendation = care_recommendation;
 
-        setLatestAssessment({
-          condition: medicalTerm,
-          confidence: displayConfidence,
-          triageLevel: displayTriageLevel,
-          recommendation: displayCareRecommendation,
-          assessmentId: assessment_id,
-        });
+          const assessmentMessage = `I've identified ${medicalTerm} as a possible condition.\n\nConfidence: ${displayConfidence ? displayConfidence + '%' : 'N/A'}`;
+          const recommendationMessage = `Severity: ${displayTriageLevel ? displayTriageLevel.toUpperCase() : 'N/A'}\nRecommendation: ${displayCareRecommendation || 'N/A'}`;
+          const upgradePrompt = "For deeper analysis, consider upgrading:";
 
-        setTimeout(() => {
-          setMessages(prev => [...prev, { sender: 'bot', text: "Ready to unlock more?", isUpgradeOptions: true, isMildCase: displayTriageLevel?.toLowerCase() === 'mild' }]);
-        }, CONFIG.SALES_PITCH_DELAY);
+          setMessages(prev => [
+            ...prev,
+            { sender: 'bot', text: assessmentMessage, isAssessment: true, confidence: displayConfidence, triageLevel: displayTriageLevel, careRecommendation: displayCareRecommendation },
+            { sender: 'bot', text: recommendationMessage },
+            { sender: 'bot', text: upgradePrompt }
+          ]);
+
+          setLatestAssessment({
+            condition: medicalTerm,
+            confidence: displayConfidence,
+            triageLevel: displayTriageLevel,
+            recommendation: displayCareRecommendation,
+            assessmentId: assessment_id,
+          });
+
+          setTimeout(() => {
+            setMessages(prev => [...prev, { sender: 'bot', text: "Ready to unlock more?", isUpgradeOptions: true, isMildCase: displayTriageLevel?.toLowerCase() === 'mild' }]);
+          }, CONFIG.SALES_PITCH_DELAY);
+        }
       } else if (data.response?.requires_upgrade) {
+        console.log('Chat.jsx: Requires upgrade:', data.response);
         if (!isAuthenticated) {
           addBotMessage("Please log in to continue discussing your symptoms, as a serious condition was detected.");
           setTimeout(() => navigate('/auth'), CONFIG.SALES_PITCH_DELAY);
@@ -455,6 +477,7 @@ const Chat = () => {
         addBotMessage("For detailed insights, consider upgrading:", false);
         setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, isMildCase), CONFIG.SALES_PITCH_DELAY);
       } else {
+        console.log('Chat.jsx: Displaying question or fallback:', data.response);
         addBotMessage(data.response?.next_question || data.response?.possible_conditions || "Can you tell me more?");
       }
     } catch (err) {
