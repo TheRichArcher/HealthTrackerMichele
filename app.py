@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, send_from_directory, send_file  # Added send_file
+from flask import Flask, jsonify, request, send_from_directory
 from flask_jwt_extended import JWTManager, jwt_required, get_jwt
 from backend.extensions import db, bcrypt, migrate, cors
 from backend.routes.health_data_routes import health_data_routes
@@ -25,7 +25,7 @@ API_CONFIG = {
     "JWT_SECRET_KEY": os.getenv("JWT_SECRET_KEY"),
     "SQLALCHEMY_DATABASE_URI": os.getenv("DATABASE_URL").replace("postgresql://", "postgresql+psycopg://") + "?sslmode=require" if os.getenv("DATABASE_URL") else None,
     "SQLALCHEMY_TRACK_MODIFICATIONS": False,
-    "STATIC_FOLDER": os.path.abspath("backend/static/dist"),  # Set to match old working setup
+    "STATIC_FOLDER": os.path.abspath("backend/static/dist"),
     "REPORTS_DIR": os.getenv("RENDER_DISK_PATH", "static/reports"),
     "LOG_DIR": os.getenv("LOG_DIR", "logs"),
     "ENV": os.getenv("FLASK_ENV", "production")
@@ -170,7 +170,7 @@ def create_app():
     @app.route("/<path:path>")
     def serve_frontend(path):
         static_folder = app.static_folder
-        index_path = os.path.join(static_folder, "index.html")  # Adjusted for new static_folder
+        index_path = os.path.join(static_folder, "index.html")
         logger.info(f"Requested path: {path}")
         logger.info(f"Static folder: {static_folder}")
         logger.info(f"Index path: {index_path}")
@@ -197,14 +197,6 @@ def create_app():
     @app.route("/<path:path>", methods=["OPTIONS"])
     def handle_options(path):
         return jsonify({"status": "ok"}), 200
-
-    # New route to download deployed-backup.zip (to recover deployed backend code)
-    @app.route('/deployed-backup.zip', methods=["GET"])
-    def download_backup():
-        path = '/opt/render/project/src/deployed-backup.zip'
-        if not os.path.exists(path):
-            return jsonify({"error": "Backup not found"}), 404
-        return send_file(path, as_attachment=True)
 
     return app
 
