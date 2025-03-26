@@ -11,7 +11,6 @@ const SubscriptionPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
-  const [plan, setPlan] = useState(null);
   const navigate = useNavigate();
   const location = useLocation();
   const { isAuthenticated, checkAuth } = useAuth();
@@ -38,7 +37,11 @@ const SubscriptionPage = () => {
       }
 
       const payload = { plan: selectedPlan };
-      const response = await axios.post(`${API_BASE_URL}/subscription/upgrade`, payload, { withCredentials: true });
+      const response = await axios.post(
+        `${API_BASE_URL}/subscription/upgrade`,
+        payload,
+        { withCredentials: true }
+      );
       window.location.href = response.data.checkout_url;
     } catch (err) {
       console.error(`Error initiating ${selectedPlan} upgrade:`, err);
@@ -54,7 +57,11 @@ const SubscriptionPage = () => {
     setSuccess(false);
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/subscription/confirm`, { session_id: sessionId }, { withCredentials: true });
+      const response = await axios.post(
+        `${API_BASE_URL}/subscription/confirm`,
+        { session_id: sessionId },
+        { withCredentials: true }
+      );
       const { report_url, access_token, plan: confirmedPlan } = response.data;
 
       if (access_token) {
@@ -64,7 +71,6 @@ const SubscriptionPage = () => {
       if (report_url) {
         localStorage.setItem('healthtracker_report_url', report_url);
         setSuccess(true);
-        // Ensure token cleanup happens before navigation for one-time reports
         if (confirmedPlan === 'one_time') {
           removeLocalStorageItem('access_token');
           console.log('Cleared access_token from localStorage after one-time report purchase');
