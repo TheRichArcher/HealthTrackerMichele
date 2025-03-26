@@ -54,7 +54,7 @@ if not openai.api_key:
 @retry(
     stop=stop_after_attempt(MAX_RETRIES),
     wait=wait_exponential(multiplier=1, min=RETRY_DELAY, max=10),
-    retry=retry_if_exception_type((openai.error.RateLimitError, openai.error.APIError))
+    retry=retry_if_exception_type((openai.RateLimitError, openai.APIError))
 )
 def call_openai_api(messages, response_format=None, max_tokens=MAX_TOKENS):
     """
