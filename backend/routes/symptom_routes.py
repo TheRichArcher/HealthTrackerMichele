@@ -1,10 +1,10 @@
 from flask import Blueprint, request, jsonify, current_app
-from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request, JWTDecodeError, ExpiredSignatureError
+from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request, ExpiredSignatureError
 from backend.models import User, SymptomLog, Report, UserTierEnum, CareRecommendationEnum
 from backend.extensions import db
 from backend.utils.auth import generate_temp_user_id, token_required
 from backend.utils.pdf_generator import generate_pdf_report
-from backend.utils.openai_utils import call_openai_api, clean_ai_response
+from backend.utils.openai_utils import call_openai_api, clean_ai_response, build_openai_messages
 import openai
 import os
 import json
@@ -37,17 +37,6 @@ def is_premium_user(user):
         UserTierEnum.PAID.value,
         UserTierEnum.ONE_TIME.value
     }
-
-def prepare_conversation_messages(symptom, conversation_history):
-    """Prepare the conversation messages for OpenAI API."""
-    # The system prompt is defined in openai_utils.py, so we only pass user messages
-    messages = []
-    for entry in conversation_history:
-        role = "assistant" if entry.get("isBot", False) else "user"
-        messages.append({"role": role, "content": entry.get("message", "")})
-    if not conversation_history or conversation_history[-1].get("isBot", False):
-        messages.append({"role": "user", "content": symptom})
-    return messages
 
 @symptom_routes.route("/count", methods=["GET"])
 @token_required
@@ -98,7 +87,7 @@ def analyze_symptoms():
         return jsonify({"error": "Conversation history must be a list."}), 400
 
     # Prepare messages for OpenAI
-    messages = prepare_conversation_messages(symptom, conversation_history)
+    messages = build_openai_messages(conversation_history, symptom)
     try:
         # Call OpenAI and clean the response
         raw_response = call_openai_api(messages, response_format={"type": "json_object"})
@@ -264,7 +253,7 @@ def generate_doctor_report():
     if not symptom:
         return jsonify({"error": "Symptom is required."}), 400
 
-    messages = prepare_conversation_messages(symptom, conversation_history)
+    messages = build_openai_messages(conversation_history, symptom)
     messages[-1]["content"] += " Generate a comprehensive medical report suitable for healthcare providers."
     
     try:
