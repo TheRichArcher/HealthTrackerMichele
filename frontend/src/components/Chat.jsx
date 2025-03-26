@@ -426,36 +426,18 @@ const Chat = () => {
         console.log('Chat.jsx: isAuthenticated:', isAuthenticated);
         let { confidence, triage_level, care_recommendation, possible_conditions, assessment_id, requires_upgrade } = data.response;
 
-        // Handle unauthenticated users with requires_upgrade: true by showing a fallback assessment
+        // Respect requires_upgrade flag
         if (requires_upgrade && !isAuthenticated) {
-          console.log('Chat.jsx: Requires upgrade for unauthenticated user - showing fallback assessment');
-          const medicalTerm = possible_conditions === "Login required for detailed assessment" ? "Possible urinary tract issue" : possible_conditions;
-          const displayConfidence = confidence || "N/A";
-          const displayTriageLevel = triage_level || "MODERATE";
-          const displayCareRecommendation = care_recommendation === "Login for recommendations" ? "Consult a healthcare provider" : care_recommendation;
-
-          const assessmentMessage = `I've identified ${medicalTerm} as a possible condition.\n\nConfidence: ${displayConfidence}`;
-          const recommendationMessage = `Severity: ${displayTriageLevel}\nRecommendation: ${displayCareRecommendation}`;
-
-          setMessages(prev => [
-            ...prev,
-            { sender: 'bot', text: assessmentMessage, isAssessment: true, confidence: displayConfidence !== "N/A" ? parseFloat(displayConfidence) : null, triageLevel: displayTriageLevel, careRecommendation: displayCareRecommendation },
-            { sender: 'bot', text: recommendationMessage },
-          ]);
-
-          setLatestAssessment({
-            condition: medicalTerm,
-            confidence: displayConfidence,
-            triageLevel: displayTriageLevel,
-            recommendation: displayCareRecommendation,
-            assessmentId: assessment_id,
-          });
-
-          setTimeout(() => addBotMessage("For a more detailed assessment, please log in or upgrade:", false), CONFIG.SALES_PITCH_DELAY);
-          setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, displayTriageLevel?.toLowerCase() === 'mild'), CONFIG.SALES_PITCH_DELAY + 500);
+          console.log('Chat.jsx: Requires upgrade for unauthenticated user');
+          addBotMessage("For a detailed assessment of this potential serious condition, please log in or upgrade.");
+          setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, false), CONFIG.SALES_PITCH_DELAY);
+          setLoading(false);
+          setTyping(false);
+          return;
         }
+
         // If requires_upgrade is false, show the assessment to all users
-        else {
+        if (requires_upgrade === false) {
           const medicalTerm = possible_conditions || 'Unknown condition';
           const displayConfidence = confidence;
           const displayTriageLevel = triage_level;
