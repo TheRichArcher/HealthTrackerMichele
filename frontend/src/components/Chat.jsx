@@ -6,9 +6,6 @@ import { useAuth } from './AuthProvider';
 import axios from 'axios';
 import '../styles/Chat.css';
 
-// Deployment confirmation log
-console.log("🔥 Chat.jsx deployed: v2025-03-25-DEV-VERIFY");
-
 const CONFIG = {
   API_URL: `${import.meta.env.VITE_API_URL || '/api'}/symptoms/analyze`,
   RESET_URL: `${import.meta.env.VITE_API_URL || '/api'}/symptoms/reset`,
@@ -223,21 +220,9 @@ const Chat = () => {
     const reportFromState = location.state?.reportUrl;
     if (reportFromState) {
       setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${reportFromState})`, isAssessment: false }]);
-      setTimeout(() => {
-        setMessages([WELCOME_MESSAGE]);
-        setHasFinalAssessment(false);
-        setLatestAssessment(null);
-        localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
-      }, 1000);
       window.history.replaceState({}, document.title, '/chat');
     } else if (storedReport && !messages.some(msg => msg.text.includes(storedReport))) {
       setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${storedReport})`, isAssessment: false }]);
-      setTimeout(() => {
-        setMessages([WELCOME_MESSAGE]);
-        setHasFinalAssessment(false);
-        setLatestAssessment(null);
-        localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
-      }, 1000);
       localStorage.removeItem(CONFIG.REPORT_URL_KEY);
     }
 
@@ -258,19 +243,9 @@ const Chat = () => {
       )
         .then(res => {
           console.log('Confirm response:', res.data);
-          if (res.data.access_token) {
-            localStorage.setItem('access_token', res.data.access_token);
-            if (isAuthenticated) checkAuth();
-          }
           if (res.data.success && res.data.report_url) {
             localStorage.setItem(CONFIG.REPORT_URL_KEY, res.data.report_url);
             setMessages(prev => [...prev, { sender: 'bot', text: `Your one-time report is ready! [Download PDF](${res.data.report_url})`, isAssessment: false }]);
-            setTimeout(() => {
-              setMessages([WELCOME_MESSAGE]);
-              setHasFinalAssessment(false);
-              setLatestAssessment(null);
-              localStorage.setItem(CONFIG.LOCAL_STORAGE_KEY, JSON.stringify([WELCOME_MESSAGE]));
-            }, 1000);
             window.history.replaceState({}, document.title, '/chat');
           } else {
             setMessages(prev => [...prev, { sender: 'bot', text: 'Payment confirmed, but report generation failed. Please contact support.', isAssessment: false }]);
@@ -285,19 +260,14 @@ const Chat = () => {
           }
         });
     }
-  }, [location.search, location.state, checkAuth, isAuthenticated]);
+  }, [location.search, location.state]);
 
   useEffect(() => {
     focusInput();
-    if (location.pathname !== '/chat') {
-      console.log('checkAuth called for non-chat route');
-      checkAuth();
-    } else {
-      console.log('checkAuth skipped for /chat route');
-    }
+    checkAuth();
     const savedMessages = localStorage.getItem(CONFIG.LOCAL_STORAGE_KEY);
     if (!savedMessages) setMessages([WELCOME_MESSAGE]);
-  }, [checkAuth, focusInput, location.pathname]);
+  }, [checkAuth, focusInput]);
 
   useEffect(() => {
     saveMessages(messages);
@@ -331,15 +301,13 @@ const Chat = () => {
     const token = localStorage.getItem('access_token') || '';
     if (action === 'premium') {
       if (!isAuthenticated) navigate('/auth');
-      else navigate('/subscription');
+      else navigate('/subscribe');
     } else if (action === 'report') {
-      const latestUserMessage = messages.filter(msg => msg.sender === 'user').slice(-1)[0]?.text || '';
       const payload = isAuthenticated
         ? { plan: 'one_time', assessment_id: latestAssessment?.assessmentId }
         : {
             plan: 'one_time',
             assessment_data: {
-              symptom: latestUserMessage || 'Not specified',
               condition_common: latestAssessment?.condition || 'Unknown',
               condition_medical: 'N/A',
               confidence: latestAssessment?.confidence || 0,
@@ -370,10 +338,9 @@ const Chat = () => {
     } else if (action === 'later') {
       addBotMessage("No problem! Let me know if you have any other questions or symptoms to discuss.");
     }
-  }, [isAuthenticated, navigate, addBotMessage, latestAssessment, messages]);
+  }, [isAuthenticated, navigate, addBotMessage, latestAssessment]);
 
   const handleSendMessage = async () => {
-    console.log("🔥 Chat.jsx: handleSendMessage called - v2025-03-25-DEV-VERIFY");
     if (!userInput.trim() || loading) return;
     setMessages(prev => [...prev, { sender: 'user', text: userInput.trim(), isAssessment: false }]);
     setUserInput('');
@@ -394,92 +361,40 @@ const Chat = () => {
         body: JSON.stringify({ symptom: userInput, conversation_history: conversationHistory, context_notes: "Focus on user input and history." }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        if (response.status === 403 && errorData.requires_upgrade) {
-          console.log('Chat.jsx: Requires upgrade error received:', errorData);
-          if (!isAuthenticated) {
-            addBotMessage("For a detailed assessment of this potential serious condition, please log in or upgrade.");
-            setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, false), CONFIG.SALES_PITCH_DELAY);
-            setLoading(false);
-            setTyping(false);
-            return;
-          }
-          addBotMessage("Please upgrade to continue discussing your symptoms, as a serious condition was detected.");
-          setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, false), CONFIG.SALES_PITCH_DELAY);
-          setLoading(false);
-          setTyping(false);
-          return;
-        }
-        throw new Error(`API error: ${response.status}`);
-      }
-
+      if (!response.ok) throw new Error(`API error: ${response.status}`);
       const data = await response.json();
-      console.log('Chat.jsx: Raw response before processing:', JSON.stringify(data));
-      console.log('Chat.jsx: Received response from backend:', data);
 
       setLoading(false);
       setTyping(false);
 
       if (data.response?.is_assessment) {
-        console.log('Chat.jsx: Processing assessment:', data.response);
-        console.log('Chat.jsx: isAuthenticated:', isAuthenticated);
-        let { confidence, triage_level, care_recommendation, possible_conditions, assessment_id, requires_upgrade } = data.response;
+        const { confidence, triage_level, care_recommendation, assessment, other_conditions, assessment_id } = data.response;
+        const primaryCondition = assessment?.conditions?.[0]?.name || 'Unknown condition';
+        const primaryConfidence = confidence || assessment?.conditions?.[0]?.confidence || 0;
+        // Format other conditions
+        const otherConditionsText = other_conditions && other_conditions.length > 0
+          ? `\nOther possibilities: ${other_conditions.map(c => `${c.condition} (${c.confidence}%)`).join(", ")}`
+          : "";
+        const assessmentMessage = `I've identified ${primaryCondition} as a possible condition.\n\nConfidence: ${primaryConfidence}%${otherConditionsText}`;
+        addBotMessage(assessmentMessage, true, primaryConfidence, triage_level, care_recommendation);
 
-        // Respect requires_upgrade flag
-        if (requires_upgrade && !isAuthenticated) {
-          console.log('Chat.jsx: Requires upgrade for unauthenticated user');
-          addBotMessage("For a detailed assessment of this potential serious condition, please log in or upgrade.");
-          setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, false), CONFIG.SALES_PITCH_DELAY);
-          setLoading(false);
-          setTyping(false);
-          return;
-        }
+        setLatestAssessment({
+          condition: primaryCondition,
+          confidence: primaryConfidence,
+          triageLevel: triage_level,
+          recommendation: care_recommendation,
+          assessmentId: assessment_id,
+        });
 
-        // If requires_upgrade is false, show the assessment to all users
-        if (requires_upgrade === false) {
-          const medicalTerm = possible_conditions || 'Unknown condition';
-          const displayConfidence = confidence;
-          const displayTriageLevel = triage_level;
-          const displayCareRecommendation = care_recommendation;
-
-          const assessmentMessage = `I've identified ${medicalTerm} as a possible condition.\n\nConfidence: ${displayConfidence ? displayConfidence + '%' : 'N/A'}`;
-          const recommendationMessage = `Severity: ${displayTriageLevel ? displayTriageLevel.toUpperCase() : 'N/A'}\nRecommendation: ${displayCareRecommendation || 'N/A'}`;
-          const upgradePrompt = "For deeper analysis, consider upgrading:";
-
-          setMessages(prev => [
-            ...prev,
-            { sender: 'bot', text: assessmentMessage, isAssessment: true, confidence: displayConfidence, triageLevel: displayTriageLevel, careRecommendation: displayCareRecommendation },
-            { sender: 'bot', text: recommendationMessage },
-            { sender: 'bot', text: upgradePrompt }
-          ]);
-
-          setLatestAssessment({
-            condition: medicalTerm,
-            confidence: displayConfidence,
-            triageLevel: displayTriageLevel,
-            recommendation: displayCareRecommendation,
-            assessmentId: assessment_id,
-          });
-
+        // Always show upsell after assessment for non-premium users
+        if (data.response?.requires_upgrade) {
           setTimeout(() => {
-            setMessages(prev => [...prev, { sender: 'bot', text: "Ready to unlock more?", isUpgradeOptions: true, isMildCase: displayTriageLevel?.toLowerCase() === 'mild' }]);
-          }, CONFIG.SALES_PITCH_DELAY);
+            const isMildCase = triage_level?.toLowerCase() === 'mild';
+            addBotMessage("For deeper analysis, consider upgrading:", false);
+            setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, isMildCase), CONFIG.SALES_PITCH_DELAY);
+          }, CONFIG.RECOMMENDATION_DELAY);
         }
-      } else if (data.response?.requires_upgrade) {
-        console.log('Chat.jsx: Requires upgrade:', data.response);
-        if (!isAuthenticated) {
-          addBotMessage("For a detailed assessment of this potential serious condition, please log in or upgrade.");
-          setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, false), CONFIG.SALES_PITCH_DELAY);
-          setLoading(false);
-          setTyping(false);
-          return;
-        }
-        const isMildCase = data.response.triage_level?.toLowerCase() === 'mild';
-        addBotMessage("For detailed insights, consider upgrading:", false);
-        setTimeout(() => addBotMessage("Ready to unlock more?", false, null, null, null, true, isMildCase), CONFIG.SALES_PITCH_DELAY);
       } else {
-        console.log('Chat.jsx: Displaying question or fallback:', data.response);
         addBotMessage(data.response?.next_question || data.response?.possible_conditions || "Can you tell me more?");
       }
     } catch (err) {
@@ -487,7 +402,6 @@ const Chat = () => {
       setTyping(false);
       addBotMessage("I'm having trouble processing that—please try again!");
       setError(err.message);
-      console.error('Error in handleSendMessage:', err);
     }
   };
 
@@ -510,7 +424,6 @@ const Chat = () => {
       setHasFinalAssessment(false);
     } catch (err) {
       addBotMessage("Failed to reset—try again!");
-      console.error('Error resetting conversation:', err);
     } finally {
       setResetting(false);
     }
@@ -557,7 +470,6 @@ const Chat = () => {
               placeholder={hasFinalAssessment ? "Reset to discuss new symptoms" : "Describe your symptoms..."}
               disabled={loading || resetting || hasFinalAssessment}
               maxLength={CONFIG.MAX_MESSAGE_LENGTH}
-              autoFocus={true}
             />
             <button className="send-button" onClick={handleSendMessage} disabled={loading || !userInput.trim()}>
               Send
