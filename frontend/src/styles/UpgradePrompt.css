@@ -227,6 +227,10 @@
 }
 
 /* Confirm Modal */
+.modal {
+  z-index: 1000; /* Added for Task 3 consistency */
+}
+
 .confirm-modal {
   position: fixed;
   top: 0;
@@ -237,7 +241,7 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 1000;
+  z-index: 1000; /* Already present */
 }
 
 .modal-content {
@@ -306,56 +310,56 @@
 /* Mobile optimizations */
 @media (max-width: 768px) {
   .upgrade-options-inline {
-      padding: 12px;
-      margin: 0;
+    padding: 12px;
+    margin: 0;
   }
 
   .upgrade-options-inline h3 {
-      font-size: 15px;
+    font-size: 15px;
   }
 
   .upgrade-options-inline p {
-      font-size: 13px;
+    font-size: 13px;
   }
 
   .premium-features-list li {
-      padding: 6px 8px;
+    padding: 6px 8px;
   }
 
   .feature-name {
-      flex: 1 1 150px;
+    flex: 1 1 150px;
   }
 
   .feature-description {
-      font-size: 12px;
+    font-size: 12px;
   }
 
   .upgrade-button {
-      padding: 10px;
-      font-size: 13px;
+    padding: 10px;
+    font-size: 13px;
   }
 
   .continue-free-button {
-      padding: 10px;
-      font-size: 13px;
+    padding: 10px;
+    font-size: 13px;
   }
 
   .modal-content {
-      width: 95%;
-      padding: 15px;
+    width: 95%;
+    padding: 15px;
   }
 
   .modal-content h4 {
-      font-size: 16px;
+    font-size: 16px;
   }
 
   .modal-content p {
-      font-size: 13px;
+    font-size: 13px;
   }
 
   .confirm-button,
   .cancel-button {
-      padding: 8px 15px;
-      font-size: 13px;
+    padding: 8px 15px;
+    font-size: 13px;
   }
 }
