@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app
-from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request, ExpiredSignatureError
+from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
+from jwt import ExpiredSignatureError  # Import from jwt instead
 from backend.models import User, SymptomLog, Report, UserTierEnum, CareRecommendationEnum
 from backend.extensions import db
 from backend.utils.auth import generate_temp_user_id, token_required
