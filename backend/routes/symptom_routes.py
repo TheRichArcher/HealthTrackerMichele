@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, current_app
-from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
+from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request, JWTDecodeError, ExpiredSignatureError
 from backend.models import User, SymptomLog, Report, UserTierEnum, CareRecommendationEnum
 from backend.extensions import db
 from backend.utils.auth import generate_temp_user_id, token_required
@@ -78,6 +78,9 @@ def analyze_symptoms():
             if user_id and user_id.startswith('user_'):
                 user_id = int(user_id.replace('user_', ''))  # Cast to integer if authenticated
             current_user = User.query.get(user_id) or MockUser()
+        except ExpiredSignatureError:
+            logger.warning("Invalid token: Signature has expired")
+            return jsonify({"error": "Token expired, please log in again"}), 401
         except Exception as e:
             logger.warning(f"Invalid token: {str(e)}")
 
@@ -114,13 +117,6 @@ def analyze_symptoms():
                 "requires_upgrade": False,
                 "other_conditions": []
             }
-
-        # Validate possible_conditions to ensure it's not empty
-        if not result.get("possible_conditions"):
-            logger.warning("possible_conditions is empty after cleaning, setting default question")
-            result["is_assessment"] = False
-            result["is_question"] = True
-            result["possible_conditions"] = "Can you describe your symptoms in more detail?"
 
         # Save assessment for authenticated users
         assessment_id = None
@@ -192,6 +188,9 @@ def reset_conversation():
             user_id = get_jwt_identity()
             if user_id and user_id.startswith('user_'):
                 user_id = int(user_id.replace('user_', ''))  # Cast to integer if authenticated
+        except ExpiredSignatureError:
+            logger.warning("Invalid token: Signature has expired")
+            return jsonify({"error": "Token expired, please log in again"}), 401
         except Exception as e:
             logger.warning(f"Invalid token: {str(e)}")
 
@@ -249,6 +248,9 @@ def generate_doctor_report():
             if user_id and user_id.startswith('user_'):
                 user_id = int(user_id.replace('user_', ''))  # Cast to integer if authenticated
             current_user = User.query.get(user_id) or MockUser()
+        except ExpiredSignatureError:
+            logger.warning("Invalid token: Signature has expired")
+            return jsonify({"error": "Token expired, please log in again"}), 401
         except Exception as e:
             logger.warning(f"Invalid token: {str(e)}")
 

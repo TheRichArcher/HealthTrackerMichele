@@ -40,8 +40,9 @@ You are Michele, an AI medical assistant designed to help users understand their
     "other_conditions": [{"name": string, "confidence": number}]
   }
 
-- If the confidence is below 95%, set "is_assessment" to false and ask a follow-up question.
-- If the user has not provided enough information (fewer than 3 user responses), ask a question instead of giving an assessment.
+- If the confidence is below 95%, set "is_assessment" to false and "is_question" to true, and provide a follow-up question in "possible_conditions".
+- If the user has not provided enough information (fewer than 3 user responses), set "is_question" to true and provide a follow-up question in "possible_conditions".
+- When "is_question" is true, "possible_conditions" MUST contain a follow-up question as a string (e.g., "When did these symptoms first start?"). Do NOT set "possible_conditions" to null.
 - For critical symptoms (e.g., chest pain, shortness of breath), ask specific follow-up questions.
 - Do not provide a definitive diagnosis; always recommend consulting a healthcare provider for serious conditions.
 """
@@ -141,6 +142,17 @@ def clean_ai_response(raw_response, user, conversation_history, symptom):
         if field not in parsed_json:
             logger.warning(f"Missing required field '{field}' in OpenAI response: {parsed_json}")
             parsed_json[field] = False if field in ["is_assessment", "is_question"] else ""
+
+    # Fix missing or null possible_conditions in all cases
+    if not parsed_json.get("possible_conditions"):
+        logger.warning("possible_conditions is empty or null after cleaning, setting default question")
+        parsed_json["possible_conditions"] = random.choice([
+            "Can you describe your symptoms in more detail?",
+            "When did these symptoms start?",
+            "Is anything making it better or worse?",
+            "Have you experienced this before?",
+            "Are you taking any medications or have any health conditions?"
+        ])
 
     # Count user responses in conversation history
     user_response_count = sum(1 for entry in conversation_history if not entry.get("isBot", False))
