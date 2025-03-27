@@ -181,10 +181,10 @@ def clean_ai_response(raw_response, user, conversation_history, symptom):
         # Ensure only one question at a time when is_question is true
         if parsed_json["is_question"]:
             question_text = parsed_json["possible_conditions"]
-            # Check for multiple questions (more than one '?' or conjunctions like 'and'/'or' with questions)
-            if question_text.count("?") > 1 or (" and " in question_text.lower() and "?" in question_text):
-                logger.warning(f"Multiple questions detected in possible_conditions: {question_text}")
-                # Extract the first question using regex to find up to the first '?'
+            logger.debug(f"Checking for multiple questions in: {question_text}")
+            # First, check for multiple question marks
+            if question_text.count("?") > 1:
+                logger.warning(f"Multiple question marks detected in possible_conditions: {question_text}")
                 first_question_match = re.search(r"[^.?!]*\?", question_text)
                 if first_question_match:
                     parsed_json["possible_conditions"] = first_question_match.group(0).strip()
@@ -192,6 +192,30 @@ def clean_ai_response(raw_response, user, conversation_history, symptom):
                 else:
                     parsed_json["possible_conditions"] = "Can you tell me more about your symptoms?"
                     logger.info("No clear first question found, using default")
+            else:
+                # Take everything up to the first '?'
+                first_question_match = re.search(r"[^.?!]*\?", question_text)
+                if first_question_match:
+                    first_question = first_question_match.group(0).strip()
+                    # Check if there's an 'and' or 'or' within this segment
+                    split_match = re.search(r'\s+(and|or)\s+', first_question, flags=re.IGNORECASE)
+                    if split_match:
+                        split_point = split_match.start()
+                        first_part = first_question[:split_point].strip()
+                        # Ensure the first part is a complete question
+                        if first_part and first_part[0].isupper() and first_part[-1] not in ".!?":
+                            # Add a question mark if it's a question-like structure
+                            parsed_json["possible_conditions"] = first_part + "?"
+                            logger.info(f"Trimmed to first part before 'and/or': {parsed_json['possible_conditions']}")
+                        else:
+                            parsed_json["possible_conditions"] = first_question
+                            logger.info(f"No clear split, using first question: {parsed_json['possible_conditions']}")
+                    else:
+                        parsed_json["possible_conditions"] = first_question
+                        logger.info(f"No 'and/or' in first question, using: {parsed_json['possible_conditions']}")
+                else:
+                    parsed_json["possible_conditions"] = "Can you tell me more about your symptoms?"
+                    logger.info("No question mark found, using default")
 
         # Ensure possible_conditions is never empty or null
         if not parsed_json["possible_conditions"]:
