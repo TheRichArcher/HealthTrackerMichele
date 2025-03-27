@@ -340,6 +340,34 @@ const Chat = () => {
     }
   }, [isAuthenticated, navigate, addBotMessage, latestAssessment]);
 
+  const sendMessageRequest = async (symptom, conversationHistory, useToken = true) => {
+    const token = useToken ? (localStorage.getItem('access_token') || '') : '';
+    const headers = {
+      'Content-Type': 'application/json',
+    };
+    if (token && useToken) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(CONFIG.API_URL, {
+      method: 'POST',
+      headers: headers,
+      credentials: 'include',
+      body: JSON.stringify({ symptom, conversation_history: conversationHistory, context_notes: "Focus on user input and history." }),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401 && useToken) {
+        // Clear token and retry without it
+        localStorage.removeItem('access_token');
+        return sendMessageRequest(symptom, conversationHistory, false);
+      }
+      throw new Error(`API error: ${response.status}`);
+    }
+
+    return await response.json();
+  };
+
   const handleSendMessage = async () => {
     if (!userInput.trim() || loading) return;
     setMessages(prev => [...prev, { sender: 'user', text: userInput.trim(), isAssessment: false }]);
@@ -347,22 +375,10 @@ const Chat = () => {
     setLoading(true);
     setTyping(true);
 
-    const token = localStorage.getItem('access_token') || '';
     const conversationHistory = messages.map(msg => ({ message: msg.text, isBot: msg.sender === 'bot' }));
 
     try {
-      const response = await fetch(CONFIG.API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        credentials: 'include',
-        body: JSON.stringify({ symptom: userInput, conversation_history: conversationHistory, context_notes: "Focus on user input and history." }),
-      });
-
-      if (!response.ok) throw new Error(`API error: ${response.status}`);
-      const data = await response.json();
+      const data = await sendMessageRequest(userInput, conversationHistory);
 
       setLoading(false);
       setTyping(false);
@@ -419,6 +435,13 @@ const Chat = () => {
         credentials: 'include',
         body: JSON.stringify({ conversation_history: messages.map(msg => ({ message: msg.text, isBot: msg.sender === 'bot' })) }),
       });
+      if (!response.ok) {
+        if (response.status === 401) {
+          // Clear token and proceed (backend should handle this gracefully now)
+          localStorage.removeItem('access_token');
+        }
+        throw new Error(`API error: ${response.status}`);
+      }
       const data = await response.json();
       setMessages([WELCOME_MESSAGE]);
       setHasFinalAssessment(false);

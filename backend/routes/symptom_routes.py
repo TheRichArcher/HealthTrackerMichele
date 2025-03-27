@@ -70,9 +70,12 @@ def analyze_symptoms():
             current_user = User.query.get(user_id) or MockUser()
         except ExpiredSignatureError:
             logger.warning("Invalid token: Signature has expired")
-            return jsonify({"error": "Token expired, please log in again"}), 401
+            user_id = None  # Reset the ID
+            current_user = MockUser()  # Fallback to MockUser
         except Exception as e:
             logger.warning(f"Invalid token: {str(e)}")
+            user_id = None  # Reset the ID
+            current_user = MockUser()  # Fallback to MockUser
 
     # Use temp ID if no authenticated user
     user_id = user_id if user_id is not None else generate_temp_user_id(request)
@@ -172,17 +175,23 @@ def reset_conversation():
     logger.info("Processing conversation reset request")
     auth_header = request.headers.get("Authorization")
     user_id = None
+    current_user = MockUser()  # Default to MockUser
+
     if auth_header and auth_header.startswith("Bearer "):
         try:
             verify_jwt_in_request(optional=True)
             user_id = get_jwt_identity()
             if user_id and user_id.startswith('user_'):
                 user_id = int(user_id.replace('user_', ''))  # Cast to integer if authenticated
+            current_user = User.query.get(user_id) or MockUser()
         except ExpiredSignatureError:
             logger.warning("Invalid token: Signature has expired")
-            return jsonify({"error": "Token expired, please log in again"}), 401
+            user_id = None  # Reset the ID
+            current_user = MockUser()  # Fallback to MockUser
         except Exception as e:
             logger.warning(f"Invalid token: {str(e)}")
+            user_id = None  # Reset the ID
+            current_user = MockUser()  # Fallback to MockUser
 
     welcome_message = {
         "sender": "bot",
