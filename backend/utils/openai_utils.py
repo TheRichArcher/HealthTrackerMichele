@@ -3,6 +3,7 @@ import os
 import json
 import logging
 import random
+import re
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # Constants
@@ -176,6 +177,21 @@ def clean_ai_response(raw_response, user, conversation_history, symptom):
                 parsed_json["triage_level"] = None
                 parsed_json["care_recommendation"] = None
                 parsed_json["assessment"] = {"conditions": []}
+
+        # Ensure only one question at a time when is_question is true
+        if parsed_json["is_question"]:
+            question_text = parsed_json["possible_conditions"]
+            # Check for multiple questions (more than one '?' or conjunctions like 'and'/'or' with questions)
+            if question_text.count("?") > 1 or (" and " in question_text.lower() and "?" in question_text):
+                logger.warning(f"Multiple questions detected in possible_conditions: {question_text}")
+                # Extract the first question using regex to find up to the first '?'
+                first_question_match = re.search(r"[^.?!]*\?", question_text)
+                if first_question_match:
+                    parsed_json["possible_conditions"] = first_question_match.group(0).strip()
+                    logger.info(f"Trimmed to first question: {parsed_json['possible_conditions']}")
+                else:
+                    parsed_json["possible_conditions"] = "Can you tell me more about your symptoms?"
+                    logger.info("No clear first question found, using default")
 
         # Ensure possible_conditions is never empty or null
         if not parsed_json["possible_conditions"]:
