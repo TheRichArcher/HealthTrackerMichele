@@ -74,7 +74,7 @@ def call_openai_api(messages, response_format=None, max_tokens=MAX_TOKENS):
     try:
         client = openai.OpenAI(api_key=openai.api_key)
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4o",  # Updated from gpt-4o-mini to gpt-4o
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 *messages
