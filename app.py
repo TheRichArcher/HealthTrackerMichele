@@ -8,6 +8,7 @@ from backend.routes.symptom_routes import symptom_routes
 from backend.routes.user_routes import user_routes
 from backend.routes.library_routes import library_routes
 from backend.routes.onboarding_routes import onboarding_routes
+from backend.routes.one_time_report_routes import one_time_report_bp  # Added
 from backend.models import RevokedToken
 from sqlalchemy import text
 import os
@@ -33,8 +34,13 @@ API_CONFIG = {
 
 def validate_env_vars():
     """Validate required environment variables."""
-    required_vars = ["JWT_SECRET_KEY", "SQLALCHEMY_DATABASE_URI"]
-    missing_vars = [var for var in required_vars if not API_CONFIG[var]]
+    required_vars = [
+        "JWT_SECRET_KEY",
+        "SQLALCHEMY_DATABASE_URI",
+        "STRIPE_SECRET_KEY",
+        "OPENAI_API_KEY"
+    ]
+    missing_vars = [var for var in required_vars if not API_CONFIG[var] and not os.getenv(var)]
     if missing_vars:
         raise EnvironmentError(f"Missing required environment variables: {', '.join(missing_vars)}")
 
@@ -102,6 +108,7 @@ def create_app():
     app.register_blueprint(user_routes, url_prefix="/api/users")
     app.register_blueprint(library_routes, url_prefix="/api/library")
     app.register_blueprint(onboarding_routes, url_prefix="/api/onboarding")
+    app.register_blueprint(one_time_report_bp, url_prefix="/api")  # Added
 
     # JWT token blacklist handling
     @jwt.token_in_blocklist_loader
@@ -141,17 +148,6 @@ def create_app():
         except Exception as e:
             logger.error(f"Health check failed: {str(e)}", exc_info=True)
             return jsonify({"status": "unhealthy", "database": "disconnected"}), 503
-
-    # Logout route
-    @app.route("/api/logout", methods=["POST"])
-    @jwt_required()
-    def logout():
-        jti = get_jwt()["jti"]
-        revoked_token = RevokedToken(jti=jti, revoked_at=datetime.utcnow())
-        db.session.add(revoked_token)
-        db.session.commit()
-        logger.info(f"Token revoked: {jti}")
-        return jsonify({"message": "Successfully logged out"}), 200
 
     # Debug token route (disabled in production)
     if API_CONFIG["ENV"] != "production":

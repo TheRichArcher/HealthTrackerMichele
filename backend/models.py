@@ -3,16 +3,16 @@ from datetime import datetime
 from enum import Enum
 
 class UserTierEnum(Enum):
-    FREE = "FREE"
-    ONE_TIME = "ONE_TIME"
-    PAID = "PAID"
+    FREE = "free"  # Aligned with subscription_routes.py
+    ONE_TIME = "one_time"
+    PAID = "paid"
 
 class CareRecommendationEnum(Enum):
-    NONE = "NONE"
-    SELF_CARE = "SELF_CARE"
-    SEE_DOCTOR = "SEE_DOCTOR"
-    URGENT_CARE = "URGENT_CARE"
-    EMERGENCY = "EMERGENCY"
+    NONE = "none"
+    SELF_CARE = "self_care"
+    DOCTOR = "doctor"  # Aligned with typical usage
+    URGENT = "urgent"
+    EMERGENCY = "emergency"
 
 class User(db.Model):
     """User model."""
@@ -95,7 +95,7 @@ class HealthData(db.Model):
             "id": self.id,
             "user_id": self.user_id,
             "data_type": self.data_type,
-            "value": self.value,  # Raw string
+            "value": self.value,
             "recorded_at": self.recorded_at.strftime("%Y-%m-%d %H:%M:%S"),
         }
 
@@ -121,10 +121,28 @@ class Report(db.Model):
             "temp_user_id": self.temp_user_id,
             "assessment_id": self.assessment_id,
             "title": self.title,
-            "content": self.content,  # Raw string
+            "content": self.content,
             "status": self.status,
             "care_recommendation": self.care_recommendation.value if self.care_recommendation else None,
             "report_url": self.report_url,
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M:%S"),
             "updated_at": self.updated_at.strftime("%Y-%m-%d %H:%M:%S") if self.updated_at else None,
+        }
+
+class OneTimeReport(db.Model):
+    """One-time report model for mapping session_id to report_url."""
+    __tablename__ = "one_time_reports"
+    id = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(db.String, unique=True, nullable=False)
+    user_id = db.Column(db.String, nullable=False)  # Can be temp_<random> or user_<id>
+    report_url = db.Column(db.String, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "session_id": self.session_id,
+            "user_id": self.user_id,
+            "report_url": self.report_url,
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M:%S"),
         }

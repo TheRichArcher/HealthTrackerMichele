@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 from flask_jwt_extended import create_access_token, get_jwt_identity, jwt_required, verify_jwt_in_request, get_jwt
 from datetime import timedelta, datetime
 from backend.extensions import db
-from backend.models import User, Report, UserTierEnum, CareRecommendationEnum, RevokedToken
+from backend.models import User, Report, UserTierEnum, CareRecommendationEnum, RevokedToken, OneTimeReport
 from backend.utils.pdf_generator import generate_pdf_report
 from backend.utils.user_utils import is_temp_user
 import stripe
@@ -143,7 +143,7 @@ def confirm_subscription():
         report_url = None
 
         if plan == 'one_time':
-            # Generate PDF report for all one-time purchases
+            # Generate PDF report for one-time purchases
             try:
                 report_data = json.loads(assessment_data) if assessment_data else {}
             except json.JSONDecodeError as e:
@@ -157,7 +157,17 @@ def confirm_subscription():
             report_url = generate_pdf_report(report_data)
             logger.info(f"One-time report generated: {report_url}")
 
-            # Store Report in DB only for authenticated premium users
+            # Store report URL with session_id
+            one_time_report = OneTimeReport(
+                session_id=session_id,
+                user_id=user_id or temp_user_id,
+                report_url=report_url
+            )
+            db.session.add(one_time_report)
+            db.session.commit()
+            logger.info(f"Stored OneTimeReport for session_id: {session_id}")
+
+            # Store Report in DB for premium users
             if authenticated and user_id and isinstance(user_id, int):
                 user = User.query.get(user_id)
                 if user and user.subscription_tier == UserTierEnum.PAID:
@@ -175,7 +185,7 @@ def confirm_subscription():
                 else:
                     logger.info(f"One-time report for non-premium authenticated user {user_id}, not stored in DB")
             else:
-                logger.info(f"One-time report for temp user {temp_user_id}, not stored in DB")
+                logger.info(f"One-time report for temp user {temp_user_id}, stored in OneTimeReport")
 
         elif plan == 'paid':
             if not authenticated or not user_id or not isinstance(user_id, int):
